@@ -9,16 +9,21 @@
  * hostname.
  */
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { BRAND_ASSETS_BASE64 } from "./brand-assets.js";
 
-const ASSETS = new URL("../assets/", import.meta.url);
-
+/**
+ * The images ship inside the bundle, not beside it. Reading them from
+ * ../assets/ at runtime meant any deployment that copied dist/ without the
+ * assets directory answered 500 on every icon path, which is exactly what
+ * the first VM deployment did. Decoded once, on first use.
+ */
 const cache = new Map<string, Buffer>();
-function asset(name: string): Buffer {
+function asset(name: string): Buffer | undefined {
   let buf = cache.get(name);
   if (!buf) {
-    buf = readFileSync(fileURLToPath(new URL(name, ASSETS)));
+    const b64 = BRAND_ASSETS_BASE64[name];
+    if (!b64) return undefined;
+    buf = Buffer.from(b64, "base64");
     cache.set(name, buf);
   }
   return buf;
@@ -40,7 +45,11 @@ const BRAND_PATHS: Record<string, { file: string; type: string }> = {
 export function brandAsset(pathname: string): { body: Buffer; type: string } | undefined {
   const hit = BRAND_PATHS[pathname];
   if (!hit) return undefined;
-  return { body: asset(hit.file), type: hit.type };
+  const body = asset(hit.file);
+  // A missing image is a 404, never a thrown error: an icon nobody can fetch
+  // should not take the response down with it.
+  if (!body) return undefined;
+  return { body, type: hit.type };
 }
 
 /**
