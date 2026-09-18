@@ -34,7 +34,7 @@ type Handler = (params: Record<string, unknown>, call: RpcCall) => unknown;
 
 /** Real voyage devnet identifiers, so ids exercise the SDK's validators. */
 export const ACCOUNT = "0x000000001a46e49490bf4798eb0a09ac3a1fce7773d25ad53158320800000000";
-export const KMOI = "0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000";
+export const KMOI = "0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000";
 export const IX_HASH = "0x3c568254d339090d1e0ec256f9ac46fe288aab7d7739275e2267ddff3fdbc009";
 export const LOGIC = "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb00000000";
 /** A second participant (fingerprint 0x07…), valid but distinct from ACCOUNT. */

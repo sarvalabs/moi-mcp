@@ -31,7 +31,7 @@ const GO_PATH = `/opt/homebrew/bin:${process.env.PATH ?? ""}`;
 // Fixed devnet (voyage) fixtures.
 const FIXTURES = {
   account: "0x000000001a46e49490bf4798eb0a09ac3a1fce7773d25ad53158320800000000",
-  asset: "0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000",
+  asset: "0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000",
   interaction: "0x3c568254d339090d1e0ec256f9ac46fe288aab7d7739275e2267ddff3fdbc009",
 };
 

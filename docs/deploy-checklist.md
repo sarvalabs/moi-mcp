@@ -210,7 +210,7 @@ sign-in prompt.
 In a Claude chat, in order:
 
 1. Ask: *"what's the supply of asset
-   0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000 on
+   0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000 on
    voyage"* (that is KMOI, the voyage native asset) — a read returns real
    chain data.
 2. Ask: *"connect my MOI wallet, stay connected for a week"* — sign in when
