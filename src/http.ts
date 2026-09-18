@@ -25,7 +25,7 @@ import { z } from "zod";
 
 import { getConfig, log } from "./config.js";
 import { brandAsset, brandServerInfo, landingHtml } from "./branding.js";
-import { SlidingWindow } from "./auth/rate-limit.js";
+import { clientAddress, SlidingWindow } from "./auth/rate-limit.js";
 
 // Public and unauthenticated, so a ceiling per address: enough for a busy
 // conversation, not enough to use the RPC node as a load generator.
@@ -146,8 +146,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  const fwd = req.headers["x-forwarded-for"];
-  const client = (Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0])?.trim() || req.socket.remoteAddress || "unknown";
+  const client = clientAddress(req.socket.remoteAddress ?? undefined, req.headers["x-forwarded-for"]);
   const verdict = readWindow.allow(client);
   if (!verdict.ok) {
     res.writeHead(429, { "content-type": "application/json", "retry-after": String(verdict.retryAfterS) });

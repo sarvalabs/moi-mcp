@@ -65,6 +65,7 @@ Three settings matter, and MCP breaks quietly without them.
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;  # required: the app rate-limits per client address
 
         proxy_buffering off;      # responses stream; buffering breaks them silently
         proxy_read_timeout 300s;  # matches the assistant's tool-call budget

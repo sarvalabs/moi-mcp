@@ -448,7 +448,7 @@ export function buildHostedApp(deps: HostedDeps): Application {
     }
     res.status(200).set("cache-control", "public, max-age=86400").type(brand.type).send(brand.body);
   });
-  app.delete(MCP_PATH, handleMcp);
+  app.delete(MCP_PATH, mcpLimiter, handleMcp);
 
   app.use((_req, res) => {
     send(res, 404, { error: `Not found. The MCP endpoint is ${MCP_PATH}.` });

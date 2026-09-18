@@ -23,7 +23,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-import { getConfig } from "../config.js";
+import { getConfig, log } from "../config.js";
 import { messageOf } from "../errors.js";
 import { interactionUrl, NETWORKS } from "../moi/provider.js";
 import type { AuthInfo } from "../auth/types.js";
@@ -137,7 +137,15 @@ async function loadSession(
  */
 async function afterSignedUse(deps: HostedWriteDeps, session: StoredWalletSession): Promise<void> {
   if (session.mode !== "once") return;
-  await deps.store.delete(session.userId);
+  try {
+    await deps.store.delete(session.userId);
+  } catch (err) {
+    // The broadcast already happened; a cleanup failure must never turn that
+    // success into an error the caller sees. The cost of swallowing it: the
+    // once-pairing stays usable until its 15-minute expiry, on this user's
+    // own phone. Logged so an operator sees it.
+    log("error", `failed to forget once-pairing for ${session.userId}: ${messageOf(err)}`);
+  }
   try {
     await deps.hub.disconnect(session.topic);
   } catch {
@@ -257,16 +265,26 @@ async function runWrite(
     const { ix_args, signatures } = await deps.hub.signInteractionFor(session.topic, prepared.ix, {
       description: prepared.description,
     });
-    await deps.journal.update(id, "signed");
+    // The phone HAS signed, whatever happens next. Setting the flag after
+    // the journal write meant a failed write demoted a live signature to
+    // "failed"; it must land as "orphaned" so someone looks at it.
     signed = true;
+    await deps.journal.update(id, "signed");
 
     const hash = await broadcastSigned(ix_args, signatures);
-    await afterSignedUse(deps, session);
-    await deps.journal.update(id, "broadcast", { ixHash: hash });
-    // Nothing later confirms this from the server side, so broadcast is the
-    // terminal success; leaving it non-terminal made every restart report a
-    // landed transaction as stranded.
-    await deps.journal.update(id, "confirmed", { ixHash: hash });
+    // From here the interaction is on the chain. Nothing below may turn that
+    // into an error the caller sees: cleanup and journaling are best-effort,
+    // and reconcileJournalOnBoot finalizes an entry a crash leaves behind.
+    try {
+      await afterSignedUse(deps, session);
+      await deps.journal.update(id, "broadcast", { ixHash: hash });
+      // Nothing later confirms this from the server side, so broadcast is the
+      // terminal success; leaving it non-terminal made every restart report a
+      // landed transaction as stranded.
+      await deps.journal.update(id, "confirmed", { ixHash: hash });
+    } catch (err) {
+      log("error", `post-broadcast bookkeeping failed for write ${id}: ${messageOf(err)}`);
+    }
 
     return ok({
       status: "sent",

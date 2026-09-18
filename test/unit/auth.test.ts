@@ -258,6 +258,39 @@ describe("auth", () => {
     expect(new URL(res2.headers.get("location")!).searchParams.get("error")).toBe("invalid_request");
   });
 
+  it("refuses a tampered scope at the decision, the same way /authorize does", async () => {
+    const client = await register(`${base}/cb`);
+    const { challenge } = pkcePair();
+    const decide = (scope: string) =>
+      fetch(`${base}/authorize/decision`, {
+        method: "POST",
+        redirect: "manual",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: client.client_id,
+          redirect_uri: `${base}/cb`,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+          scope,
+          state: "s",
+          decision: "approve",
+        }),
+      });
+
+    for (const scope of ["moi:read moi:admin", ""]) {
+      const res = await decide(scope);
+      expect(res.status).toBe(302);
+      const loc = new URL(res.headers.get("location")!);
+      expect(loc.searchParams.get("error")).toBe("invalid_scope");
+      expect(loc.searchParams.get("code")).toBeNull();
+    }
+
+    // A legitimate narrowing still mints a code.
+    const ok = await decide("moi:read");
+    expect(ok.status).toBe(302);
+    expect(new URL(ok.headers.get("location")!).searchParams.get("code")).toBeTruthy();
+  });
+
   it("rejects an expired access token", async () => {
     const flow = await authorizeFlow();
     const tokens = (await (await exchangeCode(flow)).json()) as TokenResponse;

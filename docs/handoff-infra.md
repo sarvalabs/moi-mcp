@@ -140,7 +140,7 @@ The table must show `moi-mcp-read` and `moi-mcp-write`, both `online`, moi-mcp-w
 
 ## nginx
 
-One server block fronts both processes. The MCP path of the write gateway needs three things beyond a plain proxy. `proxy_read_timeout` must be 300 seconds, the value the repository's own nginx block sets (docs/deploy-vm.md line 116). A signing request holds the HTTP connection open while a person finds their phone, and claude.ai allows 300 seconds per tool call (src/config.ts line 156); a shorter timeout makes nginx cut the held connection before the client's own deadline. `proxy_buffering off` is required because the MCP endpoint streams responses as server-sent events, a format where the server sends the response in pieces over a held connection; with buffering on, nginx waits for the whole response and the service looks healthy while never answering. The `X-Forwarded-For` header must carry the real client address, because the rate limiter keys on it (src/auth/rate-limit.ts, function clientKey, reads `x-forwarded-for` first).
+One server block fronts both processes. The MCP path of the write gateway needs three things beyond a plain proxy. `proxy_read_timeout` must be 300 seconds, the value the repository's own nginx block sets (docs/deploy-vm.md line 116). A signing request holds the HTTP connection open while a person finds their phone, and claude.ai allows 300 seconds per tool call (src/config.ts line 156); a shorter timeout makes nginx cut the held connection before the client's own deadline. `proxy_buffering off` is required because the MCP endpoint streams responses as server-sent events, a format where the server sends the response in pieces over a held connection; with buffering on, nginx waits for the whole response and the service looks healthy while never answering. `proxy_set_header X-Forwarded-For $remote_addr` is required because the rate limiter keys on the client address. The app trusts only the last entry of that header, and only when the connection comes from this machine (src/auth/rate-limit.ts, function clientAddress); overwriting the header with `$remote_addr` discards anything the sender wrote. Leaving the line out passes the sender's own header through, and the limiter would key on text the sender controls.
 
 Paste this block, replacing the hostname:
 
@@ -153,7 +153,7 @@ server {
         proxy_pass http://127.0.0.1:8788;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;  # required: the app rate-limits per client address
         proxy_set_header X-Forwarded-Proto $scheme;
 
         proxy_buffering off;
@@ -164,7 +164,7 @@ server {
 }
 ```
 
-This proxies everything to the write gateway on 8788, which serves the landing page, OAuth, pairing, and /mcp. If you also expose the read gateway publicly, give it its own hostname with the same block pointed at 8787.
+This proxies everything to the write gateway on 8788, which serves the landing page, OAuth, pairing, and /mcp. Keep the `X-Forwarded-For $remote_addr` line exactly as written; the reason is in the nginx section above. One more constraint: nginx must connect to the gateways from this same machine (127.0.0.1, as the block does). A proxy connecting from any other address, for example from a separate container over a Docker bridge, makes the limiter ignore the header and key every client on the proxy address, which collapses all users into one shared rate bucket. If you also expose the read gateway publicly, give it its own hostname with the same block pointed at 8787.
 
 Test and load the config.
 

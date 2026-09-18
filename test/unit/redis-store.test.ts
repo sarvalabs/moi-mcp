@@ -5,6 +5,7 @@
  * the reason this store exists is to survive a process going away, and only a
  * real server can demonstrate that.
  */
+import { connect as tcpConnect } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { StoredWalletSession } from "../../src/wc/store.js";
@@ -16,17 +17,39 @@ import {
 
 const URL = process.env["TEST_REDIS_URL"] ?? "redis://127.0.0.1:6379";
 
+/**
+ * Is anything listening? connectRedis() retries a refused connection rather
+ * than throwing, so calling it with no Redis around hung this file's setup
+ * hook until vitest killed it and failed the suite. A plain TCP probe answers
+ * in milliseconds and lets the suite report itself as skipped, which is the
+ * honest outcome: these tests need a real server, and a mocked one would
+ * prove nothing.
+ */
+async function reachable(url: string): Promise<boolean> {
+  const { hostname, port } = new global.URL(url);
+  return new Promise((resolve) => {
+    const socket = tcpConnect({ host: hostname || "127.0.0.1", port: Number(port) || 6379 });
+    const done = (ok: boolean) => {
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(1000);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+
+const REDIS_UP = process.env["TEST_REDIS_URL"] !== "skip" && (await reachable(URL));
+
 let client: Awaited<ReturnType<typeof connectRedis>> | undefined;
 let available = false;
 
 beforeAll(async () => {
-  try {
-    client = await connectRedis(URL);
-    await client.ping();
-    available = true;
-  } catch {
-    available = false;
-  }
+  if (!REDIS_UP) return;
+  client = await connectRedis(URL);
+  await client.ping();
+  available = true;
 });
 
 afterAll(async () => {
@@ -53,7 +76,7 @@ function record(userId: string, topic: string): StoredWalletSession {
   };
 }
 
-describe.runIf(process.env["TEST_REDIS_URL"] !== "skip")("RedisWalletSessionStore", () => {
+describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
   it("round-trips a session", async () => {
     if (!available || !client) return;
     const store = new RedisWalletSessionStore(client);
@@ -116,7 +139,7 @@ describe.runIf(process.env["TEST_REDIS_URL"] !== "skip")("RedisWalletSessionStor
   });
 });
 
-describe.runIf(process.env["TEST_REDIS_URL"] !== "skip")("RedisKeyValueStorage", () => {
+describe.runIf(REDIS_UP)("RedisKeyValueStorage", () => {
   it("satisfies the shape WalletConnect asks for", async () => {
     if (!available || !client) return;
     const kv = new RedisKeyValueStorage(client);

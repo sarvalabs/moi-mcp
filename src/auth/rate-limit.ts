@@ -18,11 +18,27 @@ export interface RateLimitOptions {
   now?: () => number;
 }
 
-/** The address the request came from, honouring one trusted proxy hop. */
+/**
+ * The address a request came from, spoof-resistant.
+ *
+ * The sender writes the FRONT of X-Forwarded-For and can rotate it per
+ * request, so keying on it turns the limiter off. Two cases are safe:
+ * a connection from a remote address keys on the socket address and ignores
+ * the header entirely, and a connection from this machine (the local nginx
+ * or tunnel the runbook deploys) keys on the LAST header entry, the one
+ * that local proxy appended and the sender cannot write.
+ */
+export function clientAddress(remote: string | undefined, fwd: string | string[] | undefined): string {
+  const socket = (remote ?? "").trim() || "unknown";
+  const local = socket === "127.0.0.1" || socket === "::1" || socket === "::ffff:127.0.0.1";
+  if (!local) return socket;
+  const flat = Array.isArray(fwd) ? fwd.join(",") : (fwd ?? "");
+  const parts = flat.split(",").map((s) => s.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1]! : socket;
+}
+
 function clientKey(req: Request): string {
-  const fwd = req.headers["x-forwarded-for"];
-  const first = Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0];
-  return (first ?? req.ip ?? req.socket.remoteAddress ?? "unknown").trim();
+  return clientAddress(req.socket.remoteAddress ?? undefined, req.headers["x-forwarded-for"]);
 }
 
 /** The counting half, usable from plain node:http as well as Express. */

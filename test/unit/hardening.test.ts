@@ -49,9 +49,8 @@ describe("rate limiting on the auth surface", () => {
     expect((await hit()).status).toBe(200);
   });
 
-  it("counts clients separately", async () => {
+  it("counts clients separately, keyed on the proxy-appended address", async () => {
     const app = express();
-    app.set("trust proxy", true);
     app.post("/x", rateLimit({ windowMs: 60_000, max: 1 }), (_req, res) => res.json({ ok: true }));
     const base = await listen(app);
 
@@ -59,6 +58,10 @@ describe("rate limiting on the auth surface", () => {
     expect((await as("10.0.0.1")).status).toBe(200);
     expect((await as("10.0.0.1")).status).toBe(429);
     expect((await as("10.0.0.2")).status).toBe(200);
+    // The front of the header is client-written; rewriting it neither
+    // dodges an exhausted bucket nor mints a fresh one.
+    expect((await as("9.9.9.1, 10.0.0.1")).status).toBe(429);
+    expect((await as("9.9.9.2, 10.0.0.2")).status).toBe(429);
   });
 });
 

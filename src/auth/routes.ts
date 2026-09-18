@@ -285,6 +285,17 @@ function mountAuthorize(app: Express, deps: RouteDeps): void {
 
     const userId = resolveIdentity(req, res, deps);
     const scopes = (body["scope"] ?? "").split(/\s+/).filter(Boolean);
+    // Same check /authorize already ran. The form echoes what that page was
+    // given, but the POST is reachable directly, so an unchecked value here
+    // would be the one path minting a grant with a scope nothing vetted.
+    if (scopes.length === 0 || !scopes.every((s) => SCOPES_SUPPORTED.includes(s))) {
+      const url = new URL(redirectUri);
+      url.searchParams.set("error", "invalid_scope");
+      url.searchParams.set("error_description", "Unknown scope requested.");
+      if (state) url.searchParams.set("state", state);
+      res.redirect(302, url.toString());
+      return;
+    }
     const code = randomToken(32);
     deps.codeStore.create(code, { clientId, redirectUri, codeChallenge, userId, scopes });
 

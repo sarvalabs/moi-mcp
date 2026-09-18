@@ -111,6 +111,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;  # required: the app rate-limits per client address
 
         proxy_buffering off;      # responses stream; buffering breaks them silently
         proxy_read_timeout 300s;  # matches the assistant's tool-call budget
