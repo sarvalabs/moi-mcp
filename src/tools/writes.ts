@@ -110,7 +110,7 @@ export function registerWriteTools(server: McpServer): void {
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ symbol, supply, dimension, standard, isStateful, isFungible, storageFund }) => {
+    async ({ symbol, supply, decimals, dimension, standard, isStateful, isFungible, storageFund }) => {
       try {
         const cfg = getConfig();
         const wc = walletClient();
@@ -120,6 +120,7 @@ export function registerWriteTools(server: McpServer): void {
         const prepared = await prepareCreateAsset(session.account, {
           symbol,
           supply,
+          decimals,
           dimension,
           standard,
           isStateful,

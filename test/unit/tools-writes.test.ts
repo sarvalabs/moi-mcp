@@ -10,6 +10,7 @@ import { WriteResult } from "../../src/schema.js";
 import {
   ACCOUNT,
   KMOI,
+  MAS0_ASSET,
   LOGIC,
   OTHER,
   RpcFailure,
@@ -189,15 +190,17 @@ describe("moi_transfer success path", () => {
     // and without pinning them the tool could move any amount to any account
     // with the suite still green.
     //
-    // The participant list the phone receives is NOT the one buildTransfer
-    // produced ([recipient, asset]): js-moi-providers normalises the
-    // interaction in place during estimateFuel/call, so the sender leads and
-    // the recipient trails. Pinned as-is, because this is the list the wallet
-    // renders — a change here changes what the user is agreeing to.
+    // js-moi-providers normalises the interaction in place during
+    // estimateFuel/call: it orders the participants asset-first and stamps
+    // each with notary:false. Under 0.8.0 it also inserted the SENDER at the
+    // head, which the upgraded chain now rejects outright ("participants must
+    // not list the sender or a non-notary fee payer") — that regression is the
+    // reason this server needs 0.9.x against the upgraded network. Pinned
+    // as-is, because this is the list the wallet renders — a change here
+    // changes what the user is agreeing to.
     expect(ix["participants"]).toEqual([
-      { id: ACCOUNT, lock_type: 0 }, // sender, added by the SDK
-      { id: KMOI, lock_type: 2 }, // the asset, MUTATE_LOCK
-      { id: OTHER, lock_type: 0 }, // the recipient
+      { id: KMOI, lock_type: 2, notary: false }, // the asset, NO_LOCK
+      { id: OTHER, lock_type: 0, notary: false }, // the recipient
     ]);
     // The amount and the beneficiary both live inside the MAS0 calldata:
     // `…"amount" 03 0a "beneficiary" 06 <id>`. Amount 20 would read `0314`.
@@ -343,7 +346,7 @@ describe("wallet outcomes map onto the WriteResult union", () => {
 });
 
 describe("moi_create_asset", () => {
-  const CREATE = { symbol: "TST", supply: "1000", dimension: 2, standard: "MAS0" };
+  const CREATE = { symbol: "TST", supply: "1000", decimals: 2, standard: "MAS0" };
 
   it("bundles ASSET_CREATE with a KMOI funding transfer and threads storageFund", async () => {
     seedSession(h.home);
@@ -358,8 +361,9 @@ describe("moi_create_asset", () => {
     expect(opsA.map((o) => o.type)).toEqual([4, 5]); // ASSET_CREATE, ASSET_INVOKE
     expect(opsA[0]!.payload).toMatchObject({
       symbol: "TST",
-      max_supply: 100_000, // "1000" scaled by dimension 2
-      dimension: 2,
+      max_supply: 100_000, // "1000" scaled by decimals 2
+      decimals: 2,
+      dimension: 0, // Economic; the chain accepts only 0 or 1 here now
       standard: 0,
       manager: ACCOUNT,
     });
@@ -370,17 +374,17 @@ describe("moi_create_asset", () => {
     expect(opsA[0]!.payload).toEqual(opsB[0]!.payload);
     expect(opsA[1]!.payload["calldata"]).not.toEqual(opsB[1]!.payload["calldata"]);
 
-    // storageFund is KMOI, and KMOI's dimension is 0 — it must NOT be scaled
-    // by the dimension of the asset being created. Same fund, dimension 6:
-    // the funding leg has to come out byte-identical. Scaling it there would
-    // over-fund by 10^dimension, and the inequality above would still hold.
-    const c = await h.call("moi_create_asset", { ...CREATE, dimension: 6, storageFund: "5000" });
+    // storageFund is KMOI, and it must NOT be scaled by the decimals of the
+    // asset being created. Same fund, decimals 6: the funding leg has to come
+    // out byte-identical. Scaling it there would over-fund by 10^decimals,
+    // and the inequality above would still hold.
+    const c = await h.call("moi_create_asset", { ...CREATE, decimals: 6, storageFund: "5000" });
     expect(c.structuredContent).toMatchObject({ status: "sent" });
     const opsC = opsOf(signedIx(2));
     expect(opsC[1]!.payload["calldata"]).toEqual(opsA[1]!.payload["calldata"]);
-    // Guard the guard: the CREATE leg really does change with the dimension,
+    // Guard the guard: the CREATE leg really does change with the decimals,
     // so the equality above compares two genuinely different interactions.
-    expect(opsC[0]!.payload).toMatchObject({ dimension: 6, max_supply: 1_000_000_000 });
+    expect(opsC[0]!.payload).toMatchObject({ decimals: 6, max_supply: 1_000_000_000 });
   });
 
   it("default storageFund with a node that reports insufficient → refused locally with the hint", async () => {
@@ -410,7 +414,7 @@ describe("moi_mint", () => {
   it("signs on the phone, broadcasts from here, returns the hash", async () => {
     seedSession(h.home);
 
-    const result = await h.call("moi_mint", { assetId: KMOI, amount: "500" });
+    const result = await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual({
       status: "sent",
@@ -422,7 +426,7 @@ describe("moi_mint", () => {
     const ops = opsOf(ix);
     expect(ops).toHaveLength(1);
     expect(ops[0]!.type).toBe(5); // ASSET_INVOKE
-    expect(ops[0]!.payload["asset_id"]).toBe(KMOI);
+    expect(ops[0]!.payload["asset_id"]).toBe(MAS0_ASSET);
     expect(ops[0]!.payload["callsite"]).toBe("Mint");
 
     // The interaction that was SIMULATED is the interaction that was SIGNED,
@@ -435,7 +439,7 @@ describe("moi_mint", () => {
 
   it("defaults the recipient to the connected wallet's own account when `to` is omitted", async () => {
     seedSession(h.home);
-    await h.call("moi_mint", { assetId: KMOI, amount: "1" });
+    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1" });
 
     const ops = opsOf(signedIx());
     // The beneficiary is baked into the calldata, not a top-level field —
@@ -445,7 +449,7 @@ describe("moi_mint", () => {
 
   it("mints to an explicit recipient instead of the connected account", async () => {
     seedSession(h.home);
-    await h.call("moi_mint", { assetId: KMOI, amount: "1", to: OTHER });
+    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1", to: OTHER });
 
     const ops = opsOf(signedIx());
     expect(String(ops[0]!.payload["calldata"])).toContain(OTHER.slice(2));
@@ -455,7 +459,7 @@ describe("moi_mint", () => {
   it("mints the exact scaled amount, not a rounded or truncated one", async () => {
     seedSession(h.home);
     // KMOI's dimension is 0 in the mock node, so "500" must scale to exactly 500.
-    await h.call("moi_mint", { assetId: KMOI, amount: "500" });
+    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
     const ops = opsOf(signedIx());
     // Amount 500 POLO-encodes as `03 01f4` (uint16 0x01f4); a wrong scale
     // (e.g. dimension applied twice) would change this byte string.
@@ -468,7 +472,7 @@ describe("moi_mint", () => {
       throw new RpcFailure("asset not found");
     });
 
-    const result = await h.call("moi_mint", { assetId: KMOI, amount: "1" });
+    const result = await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1" });
     expect(result.isError).toBe(true);
     expect(wallet.request).not.toHaveBeenCalled();
     expect(node.methods()).not.toContain("moi.SendInteractions");
@@ -478,7 +482,7 @@ describe("moi_mint", () => {
     seedSession(h.home);
     node.state.callStatus = 1;
 
-    const result = await h.call("moi_mint", { assetId: KMOI, amount: "1" });
+    const result = await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1" });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/would fail \(receipt status 1\)/);
     expect(result.text).toMatch(/requires you to be the asset's manager/);
@@ -489,14 +493,14 @@ describe("moi_mint", () => {
 
   it("rejects an amount with more decimals than the asset's dimension, before any wallet traffic", async () => {
     seedSession(h.home);
-    const result = await h.call("moi_mint", { assetId: KMOI, amount: "1.5" });
+    const result = await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1.5" });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/dimension is 0/);
     expect(wallet.request).not.toHaveBeenCalled();
   });
 
   it("unpaired wallet → rejected/wallet_disconnected before any node or wallet traffic", async () => {
-    const result = await h.call("moi_mint", { assetId: KMOI, amount: "1" });
+    const result = await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1" });
     expect(result.structuredContent).toMatchObject({ status: "rejected", reason: "wallet_disconnected" });
     expect(wallet.request).not.toHaveBeenCalled();
     expect(node.calls).toHaveLength(0);

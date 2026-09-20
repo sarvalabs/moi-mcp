@@ -83,7 +83,7 @@ of `.env` and so cannot reproduce a bad `env` block.
 
 Call the transfer prompt **T**:
 
-> `send 1 of asset 0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000 to 0x000000001a46e49490bf4798eb0a09ac3a1fce7773d25ad53158320800000000`
+> `send 1 of asset 0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000 to 0x000000001a46e49490bf4798eb0a09ac3a1fce7773d25ad53158320800000000`
 
 | # | Prompt | Phone | Expected |
 |---|---|---|---|
@@ -97,7 +97,7 @@ Call the transfer prompt **T**:
 | 7 | `create an asset called MCPTEST2 with supply 1000` (no storageFund) | nothing arrives | Tool error: "The node says this interaction would fail … Pass a smaller `storageFund`". Already verified; a regression if the phone buzzes |
 | 8 | `disconnect my MOI wallet`, then **T** | — | `No wallet was paired`-style text, then `reason: wallet_disconnected`. To re-pair: quit Claude Desktop (Cmd-Q) first, then `npm run pair`, then reopen Claude Desktop. The running server holds its own in-memory WalletConnect client over `~/.moi-mcp/wc.db`; re-pairing from the terminal while it is up leaves it holding a session topic it cannot sign with |
 
-`KMOI = 0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000`.
+`KMOI = 0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000`.
 `moi_transfer` requires an explicit `assetId` and the server has no symbol→id
 lookup, so the prompt must carry the id.
 

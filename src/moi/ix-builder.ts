@@ -221,6 +221,7 @@ export function buildCreateAsset(
   params: {
     symbol: string;
     supply: bigint;
+    decimals: number;
     dimension: number;
     standard: string;
     isStateful: boolean;
@@ -266,6 +267,7 @@ export function buildCreateAsset(
         payload: {
           symbol: params.symbol,
           max_supply: params.supply,
+          decimals: params.decimals,
           dimension: params.dimension,
           standard: standardCode,
           enable_events: params.isStateful,

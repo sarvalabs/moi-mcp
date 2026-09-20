@@ -90,7 +90,7 @@ The hosted server and the local stdio server each list 13 tools. Reads are defin
 |---|---|---|
 | `ping` | no | Health check: server version, network, config status |
 | `moi_get_account` | no | The account's nonce (the count of interactions the account has sent), whether it is registered on chain, and its balance in every asset |
-| `moi_get_asset` | no | Asset symbol, standard, supply, decimal dimension, owner |
+| `moi_get_asset` | no | Asset symbol, standard, supply, decimals, dimension (0 Economic, 1 Possession), owner |
 | `moi_get_interaction` | no | Interaction status, sender, operations, and fuel used, by hash |
 | `moi_get_logic` | no | A deployed logic's callable routines with input and output types |
 | `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address |

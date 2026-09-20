@@ -22,7 +22,7 @@ import { buildHostedApp, GATED, wireSessionDeleteReconciliation, type HostedDeps
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
 import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
-import { ACCOUNT, KMOI, RpcFailure, startMockNode, type MockNode } from "../helpers/mock-node.js";
+import { ACCOUNT, KMOI, MAS0_ASSET, RpcFailure, startMockNode, type MockNode } from "../helpers/mock-node.js";
 import type { SignClientLike } from "../../src/wc/client.js";
 import { WalletConnectHub } from "../../src/wc/hub.js";
 
@@ -625,7 +625,7 @@ describe("cross-user write tools isolation", () => {
     const [resultA, resultB] = await Promise.all([
       send(
         baseUrl,
-        toolCall(1, "moi_mint", { assetId: KMOI, amount: "100" }),
+        toolCall(1, "moi_mint", { assetId: MAS0_ASSET, amount: "100" }),
         { authorization: "Bearer token-a" },
       ),
       send(

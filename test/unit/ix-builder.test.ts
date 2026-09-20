@@ -94,7 +94,7 @@ describe("buildTransfer", () => {
 describe("buildCreateAsset", () => {
   it("maps the standard name onto its numeric code", () => {
     const ix = buildCreateAsset(SENDER, {
-      symbol: "TEST", supply: 1000n, dimension: 2, standard: "MAS0", isStateful: false, isFungible: true,
+      symbol: "TEST", supply: 1000n, decimals: 2, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     });
     expect(ix.ix_operations[0]!.type).toBe(OpType.ASSET_CREATE);
     expect(ix.ix_operations[0]!.payload["standard"]).toBe(AssetStandard.MAS0);
@@ -108,7 +108,7 @@ describe("buildCreateAsset", () => {
   it("rejects an unknown standard", () => {
     expect(() =>
       buildCreateAsset(SENDER, {
-        symbol: "X", supply: 1n, dimension: 0, standard: "MAS9", isStateful: false, isFungible: true,
+        symbol: "X", supply: 1n, decimals: 0, dimension: 0, standard: "MAS9", isStateful: false, isFungible: true,
       }),
     ).toThrow(/MAS0, MAS1, MAS2, MASX/);
   });
@@ -237,7 +237,7 @@ describe("every builder POLO-encodes", () => {
   const builders: Array<[string, () => ReturnType<typeof buildTransfer>]> = [
     ["transfer", () => buildTransfer(SENDER, { to: recipient.toHex(), assetId: asset.toHex(), amount: 1000n })],
     ["createAsset", () => buildCreateAsset(SENDER, {
-      symbol: "MCPTEST", supply: 1000n, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
+      symbol: "MCPTEST", supply: 1000n, decimals: 0, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     })],
     ["logicInvoke", () => buildLogicInvoke(SENDER, { logicId: REGISTRY, callsite: "GetAgentCount" })],
   ];
@@ -283,7 +283,7 @@ describe("toWireJson — the bigint/JSON boundary", () => {
    */
   it("survives JSON.stringify, which the raw interaction does not", () => {
     const ix = buildCreateAsset(SENDER, {
-      symbol: "MCPTEST", supply: 1000n, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
+      symbol: "MCPTEST", supply: 1000n, decimals: 0, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     });
     expect(() => JSON.stringify(ix)).toThrow(/BigInt/);
     expect(() => JSON.stringify(toWireJson(ix))).not.toThrow();
@@ -291,7 +291,7 @@ describe("toWireJson — the bigint/JSON boundary", () => {
 
   it("keeps safe integers as numbers", () => {
     const ix = buildCreateAsset(SENDER, {
-      symbol: "T", supply: 1000n, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
+      symbol: "T", supply: 1000n, decimals: 0, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     });
     const ops = toWireJson(ix)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
     expect(ops[0]!.payload["max_supply"]).toBe(1000);
@@ -299,7 +299,7 @@ describe("toWireJson — the bigint/JSON boundary", () => {
 
   it("promotes past-2^53 values to strings instead of losing precision", () => {
     const ix = buildCreateAsset(SENDER, {
-      symbol: "BIG", supply: 2n ** 70n, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
+      symbol: "BIG", supply: 2n ** 70n, decimals: 0, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     });
     const ops = toWireJson(ix)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
     expect(ops[0]!.payload["max_supply"]).toBe("1180591620717411303424");
@@ -307,7 +307,7 @@ describe("toWireJson — the bigint/JSON boundary", () => {
 
   it("converts bigint amounts in an asset-create payload", () => {
     const ix = buildCreateAsset(SENDER, {
-      symbol: "T", supply: 10n ** 20n, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
+      symbol: "T", supply: 10n ** 20n, decimals: 0, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     });
     const ops = toWireJson(ix)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
     expect(ops[0]!.payload["max_supply"]).toBe("100000000000000000000");
@@ -331,7 +331,7 @@ describe("asset creation funds the new asset", () => {
    */
   const make = (storageFund?: bigint) =>
     buildCreateAsset(SENDER, {
-      symbol: "MCPTEST", supply: 1000n, dimension: 0, standard: "MAS0",
+      symbol: "MCPTEST", supply: 1000n, decimals: 0, dimension: 0, standard: "MAS0",
       isStateful: false, isFungible: true, ...(storageFund ? { storageFund } : {}),
     });
 

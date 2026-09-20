@@ -70,7 +70,7 @@ export function registerResources(server: McpServer): void {
               },
               notes: [
                 "mainnet has no published RPC URL or CAIP-2 id; use MOI_NETWORK=custom with MOI_RPC_URL.",
-                "Amounts are decimal strings scaled by the asset's dimension.",
+                "Amounts are decimal strings scaled by the asset's decimals.",
                 "An interaction may carry at most 3 operations.",
               ],
             },
