@@ -92,8 +92,9 @@ describe("moi_get_asset", () => {
     expect(result.structuredContent).toEqual({
       assetId: KMOI,
       symbol: "KMOI",
-      standard: "MAS0",
+      standard: "MASN", // KMOI is a native asset since the September 2026 upgrade
       supply: "90000000100000",
+      decimals: 0,
       dimension: 0,
       owner: ACCOUNT,
       isLogical: false,
@@ -104,16 +105,16 @@ describe("moi_get_asset", () => {
     });
   });
 
-  it("scales supply by dimension without floating point", async () => {
+  it("scales supply by decimals without floating point", async () => {
     node.on("moi.AssetInfoByAssetID", () => ({
       symbol: "BIG",
-      dimension: "0x12",
+      decimals: 18,
       creator: ACCOUNT,
       circulating_supply: `0x${(2n ** 70n).toString(16)}`,
     }));
     const result = await h.call("moi_get_asset", { assetId: KMOI });
     expect(result.structuredContent).toMatchObject({
-      dimension: 18,
+      decimals: 18,
       supply: "1180.591620717411303424",
     });
   });

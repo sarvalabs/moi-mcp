@@ -154,13 +154,20 @@ export async function getAsset(
     throw asRpcError(err, `moi.AssetInfoByAssetID(${assetId})`);
   }
 
-  const dimension = Number(toBigInt(info.dimension ?? info.decimals ?? 0));
+  // Two different numbers since the September 2026 upgrade. `decimals` is how
+  // far an amount is scaled (KMOI reports 9). `dimension` is the asset's kind:
+  // 0 Economic, 1 Possession. Reading amounts off `dimension`, as this did
+  // when the chain had only one field, scales every KMOI amount by 1e9 too
+  // little.
+  const decimals = Number(toBigInt(info.decimals ?? 0));
+  const dimension = Number(toBigInt(info.dimension ?? 0));
 
   return {
     assetId,
     symbol: clampChainText(info.symbol ?? ""),
     standard: assetStandardName(assetId),
-    supply: normalizeAmount(info.circulating_supply ?? info.max_supply ?? 0, dimension),
+    supply: normalizeAmount(info.circulating_supply ?? info.max_supply ?? 0, decimals),
+    decimals,
     dimension,
     owner: info.creator ?? info.manager ?? "0x0",
     isLogical: Boolean(info.logic_id),

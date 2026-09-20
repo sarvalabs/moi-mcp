@@ -262,7 +262,7 @@ export async function prepareTransfer(
   const cfg = getConfig();
   const provider = getProvider(providerOptions());
   const asset = await getAsset(provider, params.assetId);
-  const raw = parseAmount(params.amount, asset.dimension);
+  const raw = parseAmount(params.amount, asset.decimals);
 
   const accountState = await getAccount(provider, account);
   const held = accountState.balances.find((b) => b.assetId.toLowerCase() === params.assetId.toLowerCase());
@@ -303,7 +303,7 @@ export async function prepareCreateAsset(
   account: string,
   params: z.infer<typeof CreateAssetInput> & { balance: bigint },
 ): Promise<PreparedWrite> {
-  const supply = parseAmount(params.supply, params.dimension);
+  const supply = parseAmount(params.supply, params.decimals);
   const storageFund = params.storageFund
     ? parseAmount(params.storageFund, 0)
     : chooseStorageFund(params.balance);
@@ -311,6 +311,7 @@ export async function prepareCreateAsset(
     buildCreateAsset(await senderFor(account), {
       symbol: params.symbol,
       supply,
+      decimals: params.decimals,
       dimension: params.dimension,
       standard: params.standard,
       isStateful: params.isStateful,
@@ -334,7 +335,8 @@ export async function prepareCreateAsset(
       Symbol: params.symbol,
       "Max supply": params.supply,
       "Max supply in base units": supply.toString(),
-      Dimension: String(params.dimension),
+      Decimals: String(params.decimals),
+      "Dimension (0 Economic, 1 Possession)": String(params.dimension),
       Standard: params.standard,
       "Storage fund, KMOI base units (deposited into the asset's own account, not spent)":
         storageFund.toString(),
@@ -351,7 +353,7 @@ export async function prepareMint(
 ): Promise<PreparedWrite> {
   const asset = await getAsset(getProvider(providerOptions()), params.assetId);
   const recipient = params.to ?? account;
-  const raw = parseAmount(params.amount, asset.dimension);
+  const raw = parseAmount(params.amount, asset.decimals);
 
   const ix = await withMeasuredFuel(
     await buildMint(

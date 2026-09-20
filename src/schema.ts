@@ -132,6 +132,9 @@ export const GetAssetOutput = z.object({
   symbol: z.string(),
   standard: z.string(),                 // MAS0 etc.
   supply: Amount,
+  /** How far amounts of this asset are scaled. KMOI reports 9. */
+  decimals: z.number(),
+  /** The asset's kind: 0 Economic, 1 Possession. */
   dimension: z.number(),
   owner: HexId,
   isLogical: z.boolean(),
@@ -242,7 +245,10 @@ export const CreateAssetInput = z.object({
    * transfer fails.
    */
   storageFund: WireAmount.optional(),
-  dimension: z.number().int().min(0).max(18).default(0),
+  /** How far amounts are scaled: 2 gives cents. Separate from `dimension`. */
+  decimals: z.number().int().min(0).max(18).default(0),
+  /** The asset's kind. The chain accepts only 0 (Economic) or 1 (Possession). */
+  dimension: z.union([z.literal(0), z.literal(1)]).default(0),
   standard: z.string().default("MAS0"),
   isStateful: z.boolean().default(false),
   isFungible: z.boolean().default(true),
@@ -257,7 +263,7 @@ export const CreateAssetInput = z.object({
  */
 export const MintInput = z.object({
   assetId: AssetId.describe("The asset to mint. You must be its manager."),
-  amount: WireAmount.describe("How many tokens to mint, scaled by the asset's dimension."),
+  amount: WireAmount.describe("How many tokens to mint, scaled by the asset's decimals."),
   to: HexId.optional().describe("Recipient. Defaults to the connected wallet."),
 });
 
