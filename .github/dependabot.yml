@@ -1,0 +1,36 @@
+# Opens a pull request when a dependency publishes a new version. CI then runs
+# the full suite against it on Node 20, 22 and 24. Nothing merges on its own:
+# a js-moi-sdk bump can change what a user signs, so a person reads it first.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    commit-message:
+      prefix: "deps"
+    groups:
+      # The MOI SDK ships as one version across its packages. Upgrading one
+      # without the others is how you get a half-upgraded client, so they move
+      # together in a single pull request.
+      moi-sdk:
+        patterns: ["js-moi-*", "js-polo"]
+      # Everything else, batched, so routine bumps are one PR a day rather than
+      # a pile.
+      other:
+        patterns: ["*"]
+        exclude-patterns: ["js-moi-*", "js-polo"]
+    # We pin js-moi-sdk to a release candidate on purpose: the upgraded chain
+    # needs 0.9.x and 0.9.0 has not shipped final yet. Dependabot follows
+    # prereleases only while the current version is itself a prerelease, which
+    # is the behaviour we want: take rc3 now, and 0.9.0 when it lands.
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+    commit-message:
+      prefix: "ci"

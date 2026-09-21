@@ -1,0 +1,73 @@
+# Nightly: does the live voyage devnet still accept what this server builds?
+# See test/e2e/chain-canary.test.ts. Simulation only: nothing is signed, sent,
+# or paid for.
+#
+# A failure opens an issue labelled chain-canary, or comments on the one
+# already open. The first green run after that closes it.
+name: Chain canary
+
+on:
+  schedule:
+    - cron: "43 2 * * *" # daily, 02:43 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Run the canary
+        id: canary
+        run: |
+          set -o pipefail
+          MOI_E2E=1 npx vitest run test/e2e/chain-canary.test.ts 2>&1 | tee canary.log
+
+      - name: Report the failure
+        if: failure() && steps.canary.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create chain-canary --color d73a4a \
+            --description "The live devnet rejected something this server builds" 2>/dev/null || true
+          {
+            echo "The nightly chain canary failed: voyage devnet no longer accepts something this server builds, or no longer looks the way this code expects."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo 'Failing checks:'
+            echo '```'
+            grep -E '(×|FAIL|Error|expected)' canary.log | head -40
+            echo '```'
+            echo
+            echo 'Reproduce: `MOI_E2E=1 npx vitest run test/e2e/chain-canary.test.ts`'
+            echo
+            echo 'Usual causes: a go-moi upgrade on devnet, or a js-moi-sdk release this repo has not taken yet. Check the open upstream-release issues.'
+          } > body.md
+          open=$(gh issue list --label chain-canary --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body-file body.md
+          else
+            gh issue create --title "Chain canary failing" --label chain-canary --body-file body.md
+          fi
+
+      - name: Close the issue once green
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          open=$(gh issue list --label chain-canary --state open --json number --jq '.[0].number')
+          if [ -n "$open" ]; then
+            gh issue close "$open" --comment "Canary green again: $RUN_URL"
+          fi
