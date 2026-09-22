@@ -163,7 +163,7 @@ function networkForCaip2(caip2: string): string | undefined {
 }
 
 const CONNECT_OUTPUT = {
-  uri: z.string().describe("WalletConnect pairing URI. Paste into MOI Wallet if the QR image is not shown."),
+  uri: z.string().describe("WalletConnect pairing link, the fallback behind the QR image. Only show it if the person cannot see the image."),
   expiresAt: z.number().describe("Unix seconds; the pairing proposal dies at this time."),
   mode: z.enum(["persistent", "once"]).describe("How long the pairing lives once approved."),
   replaces: z
@@ -200,10 +200,11 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
     {
       title: "Connect MOI Wallet",
       description:
-        "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image " +
-        "to scan, plus the pairing text to paste into the wallet if the image is not shown. After the " +
-        "user approves on their phone, call moi_wallet_status to confirm. No private key ever reaches " +
-        "this server. If the user has not said how long to stay connected, ask before calling.",
+        "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image: " +
+        "show it and say nothing else about how to pair. The pairing link is in structuredContent.uri " +
+        "as a fallback; paste it ONLY if the person says they cannot see the image, because a long " +
+        "wc: string in the chat is noise next to a code they can simply scan. After they approve on " +
+        "their phone, call moi_wallet_status to confirm. No private key ever reaches this server.",
       inputSchema: {
         remember: z
           .boolean()
@@ -241,9 +242,8 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
             : 'You stay connected for a week. Say "disconnect my wallet" to end it sooner.';
         const text = [
           "Scan this QR code with MOI Wallet on your phone, then approve the pairing there.",
-          "If the image is not shown, paste this into MOI Wallet's WalletConnect screen instead:",
-          uri,
           "It expires in about 5 minutes. " + lifetime,
+          "If you cannot see the QR image, say so and I will paste the pairing link instead.",
           "Once approved, moi_wallet_status confirms the pairing.",
           ...(replaces
             ? [

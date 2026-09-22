@@ -251,7 +251,7 @@ describe("hosted transport", () => {
     expect(json.result.isError).toBeFalsy();
   });
 
-  it("returns the QR inline as an image plus the pasteable URI, defaulting to a persistent pairing", async () => {
+  it("answers with the QR image and keeps the pairing link out of the chat text", async () => {
     const auth = { authorization: `Bearer ${VALID_TOKEN}` };
     const { json } = await rpc(baseUrl, toolCall(1, "moi_connect_wallet"), auth);
     const content = json.result.content as Array<{ type: string; mimeType?: string; data?: string; text?: string }>;
@@ -262,7 +262,12 @@ describe("hosted transport", () => {
     expect(Buffer.from(image?.data ?? "", "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
 
     const text = content.find((c) => c.type === "text")?.text ?? "";
-    expect(text).toContain("wc:");
+    // The image is the instruction. A long wc: string beside it is noise, so
+    // it lives in structuredContent for the case where the image cannot render.
+    expect(text).not.toContain("wc:");
+    expect(text).toMatch(/scan this qr code/i);
+    expect(text).toMatch(/cannot see the QR image/i);
+    expect(json.result.structuredContent.uri).toContain("wc:");
     expect(json.result.structuredContent.mode).toBe("persistent");
   });
 
