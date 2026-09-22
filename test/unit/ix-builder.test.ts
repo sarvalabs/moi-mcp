@@ -355,7 +355,7 @@ describe("asset creation funds the new asset", () => {
   });
 
   it("defaults to DEFAULT_STORAGE_FUND and honours an override", () => {
-    expect(DEFAULT_STORAGE_FUND).toBe(1_000_000n);
+    expect(DEFAULT_STORAGE_FUND).toBe(10_000_000_000n); // the SDK default, 10 KMOI
     // Different funding amounts must produce different calldata.
     expect(make(10_000n).ix_operations[1]!.payload["calldata"])
       .not.toBe(make(50_000n).ix_operations[1]!.payload["calldata"]);
@@ -384,37 +384,39 @@ describe("chooseStorageFund", () => {
    * MIN_STORAGE_FUND carries margin over it.
    */
   it("prefers the SDK default when the balance can cover it", () => {
-    expect(chooseStorageFund(5_000_000n)).toBe(DEFAULT_STORAGE_FUND);
+    expect(chooseStorageFund(50_000_000_000n)).toBe(DEFAULT_STORAGE_FUND); // 50 KMOI
   });
 
   it("funds the minimum rather than the whole balance when the default is out of reach", () => {
-    // The earlier rule handed over everything above the fuel reserve, so
-    // creating one test token on a 21,596 KMOI account moved 11,596 of it into
-    // the asset and left the owner with 6,291. Real balance, real account.
-    expect(chooseStorageFund(21_596n)).toBe(MIN_STORAGE_FUND);
-    expect(chooseStorageFund(95_699n)).toBe(MIN_STORAGE_FUND);
+    // The earlier rule handed over everything above the fuel reserve, which
+    // is how creating one test token ate half an account.
+    expect(chooseStorageFund(8_000_000_000n)).toBe(MIN_STORAGE_FUND); // 8 KMOI
+    expect(chooseStorageFund(9_500_000_000n)).toBe(MIN_STORAGE_FUND); // 9.5 KMOI
   });
 
   it("leaves the owner the bulk of a modest balance", () => {
-    const balance = 21_596n;
+    const balance = 21_596_000_000n; // 21.596 KMOI
     const spent = chooseStorageFund(balance);
     expect(balance - spent).toBeGreaterThan(balance / 2n);
   });
 
-  it("stays above the measured 6,093 floor at the smallest balance it accepts", () => {
+  it("stays above the measured floor at the smallest balance it accepts", () => {
+    // Measured live after the upgrade: 6,072,387,694 base units for a short
+    // symbol, 6,082,031,250 for the 12-character maximum.
     const smallest = MIN_STORAGE_FUND + FUEL_RESERVE;
     expect(chooseStorageFund(smallest)).toBeGreaterThanOrEqual(MIN_STORAGE_FUND);
-    expect(chooseStorageFund(smallest)).toBeGreaterThan(6_093n);
+    expect(chooseStorageFund(smallest)).toBeGreaterThan(6_082_031_250n);
   });
 
   it("refuses clearly rather than building an interaction that fails opaquely", () => {
-    // 15,000 - FUEL_RESERVE leaves 5,000, under MIN_STORAGE_FUND.
-    expect(() => chooseStorageFund(15_000n)).toThrow(/at least 10000 KMOI/);
+    // 7 KMOI - FUEL_RESERVE leaves less than MIN_STORAGE_FUND.
+    expect(() => chooseStorageFund(7_000_000_000n)).toThrow(/base units of KMOI/);
+    expect(() => chooseStorageFund(7_000_000_000n)).toThrow(/7 KMOI/); // reads in KMOI too
     expect(() => chooseStorageFund(0n)).toThrow(MoiError);
   });
 
   it("never returns something below the floor", () => {
-    for (const balance of [35_001n, 40_000n, 100_000n, 999_999n, 10_000_000n]) {
+    for (const balance of [8_000_000_001n, 9_000_000_000n, 12_000_000_000n, 500_000_000_000n]) {
       expect(chooseStorageFund(balance)).toBeGreaterThanOrEqual(MIN_STORAGE_FUND);
     }
   });

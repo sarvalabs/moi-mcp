@@ -21,6 +21,7 @@
 
 import {
   AssetStandard,
+  DEFAULT_STORAGE_FUND as SDK_DEFAULT_STORAGE_FUND,
   bytesToHex,
   buildTransferPayload,
   deriveAssetId,
@@ -150,47 +151,69 @@ export function buildTransfer(
 }
 
 /**
- * Default KMOI sent to a newly created asset so it can pay for its own
- * storage. Mirrors js-moi-constants' DEFAULT_STORAGE_FUND.
+ * KMOI's decimals, for turning base units into something a person can read.
+ * Fixed at 9 on MOI networks and confirmed live against voyage devnet.
  */
-export const DEFAULT_STORAGE_FUND = 1_000_000n;
+export const KMOI_DECIMALS = 9;
+
+/** Base units as KMOI, for error text only: 6072387694n -> "6.072387694". */
+export function asKmoi(baseUnits: bigint): string {
+  const s = baseUnits.toString().padStart(KMOI_DECIMALS + 1, "0");
+  const whole = s.slice(0, -KMOI_DECIMALS);
+  const frac = s.slice(-KMOI_DECIMALS).replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole;
+}
 
 /**
- * Least KMOI that actually covers a new MAS0 asset's storage.
+ * Storage fund sent with a new asset so it can pay for its own storage, in
+ * KMOI BASE UNITS.
  *
- * Measured against voyage devnet by binary search: 6,093 is the exact floor,
- * and it does not move with symbol length (1 vs 12 chars) or dimension (0 vs
- * 18). Rounded up for margin against pricing changes.
+ * Taken from the SDK rather than written down here, because the number moved
+ * by four orders of magnitude when KMOI gained 9 decimals in the September
+ * 2026 upgrade, and a stale copy is exactly what broke asset creation: the
+ * old 1,000,000 is 0.001 KMOI on the upgraded chain, far below the floor.
  */
-export const MIN_STORAGE_FUND = 10_000n;
+export const DEFAULT_STORAGE_FUND = BigInt(SDK_DEFAULT_STORAGE_FUND);
 
 /**
- * KMOI held back so the interaction can still pay its own fuel.
+ * Least that actually covers a new asset's storage, in KMOI base units.
  *
- * Measured: an asset create costs 3,404 fuel and a mint 458. 10,000 leaves
- * ample margin without locking an account out of creating a second asset —
- * a 25,000 reserve made a 21,596 balance unusable despite being plenty.
+ * Measured against voyage devnet by binary search: the floor is 6,072,387,694
+ * base units (about 6.072 KMOI) for a short symbol, and 6,082,031,250 (about
+ * 6.082) for the 12-character maximum, so it DOES move with symbol length,
+ * contrary to what this comment said before the upgrade. 7 KMOI is the floor
+ * plus roughly 15% for pricing changes.
  */
-export const FUEL_RESERVE = 10_000n;
+export const MIN_STORAGE_FUND = 7_000_000_000n;
 
 /**
- * Choose a storage fund the caller can actually afford.
+ * Held back in KMOI base units so the interaction can still pay its own fuel.
  *
- * Nobody creating a token should have to reason about storage funding, but
- * the SDK's 1,000,000 default silently exceeds most devnet balances and the
- * resulting failure is opaque (the ASSET_CREATE operation reports success
- * while the interaction reports status 1). So: prefer the SDK default, fall
- * back to whatever the balance allows, and refuse clearly only when even the
- * floor is out of reach.
+ * Measured: an asset create burns 3,404 fuel. At this server's fuel price of
+ * 1 that is 3,404 base units, and 1,000,000 (0.001 KMOI) stays ample even at
+ * the SDK's default price of 50.
+ */
+export const FUEL_RESERVE = 1_000_000n;
+
+/**
+ * Choose a storage fund the caller can actually afford, in KMOI base units.
+ *
+ * Nobody creating a token should have to reason about storage funding, and
+ * the failure when it is wrong is opaque: the ASSET_CREATE operation reports
+ * success while the interaction reports status 1. So: prefer the SDK default,
+ * fall back to the floor when the balance cannot carry it, and refuse clearly
+ * only when even the floor is out of reach.
  */
 export function chooseStorageFund(balance: bigint): bigint {
   const affordable = balance > FUEL_RESERVE ? balance - FUEL_RESERVE : 0n;
   if (affordable < MIN_STORAGE_FUND) {
     throw new MoiError(
       ErrorCode.INSUFFICIENT_BALANCE,
-      `Creating an asset needs at least ${MIN_STORAGE_FUND} KMOI to fund its storage ` +
-        `(plus ~${FUEL_RESERVE} held back for fuel), but this account holds ${balance}. ` +
-        `Fund the account, or pass a smaller storageFund explicitly if you know better.`,
+      `Creating an asset needs at least ${MIN_STORAGE_FUND} base units of KMOI ` +
+        `(${asKmoi(MIN_STORAGE_FUND)} KMOI) to fund its storage, plus ${FUEL_RESERVE} ` +
+        `(${asKmoi(FUEL_RESERVE)} KMOI) held back for fuel, but this account holds ` +
+        `${balance} (${asKmoi(balance)} KMOI). Fund the account from the faucet. ` +
+        `storageFund is denominated in base units, not whole KMOI.`,
       { balance: balance.toString(), minimum: MIN_STORAGE_FUND.toString() },
     );
   }

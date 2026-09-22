@@ -22,7 +22,10 @@ import {
   buildMint,
   buildTransfer,
   encodeLogicCall,
+  asKmoi,
   chooseStorageFund,
+  DEFAULT_STORAGE_FUND,
+  MIN_STORAGE_FUND,
   estimateFuelFor,
   parseAmount,
   simulate,
@@ -322,9 +325,12 @@ export async function prepareCreateAsset(
   assertSendable(ix);
   await assertWillSucceed(
     ix,
-    `A new asset must be funded with KMOI to pay its own storage (default ` +
-      `1000000). Pass a smaller \`storageFund\` if your balance cannot cover it — ` +
-      `below roughly 10000 the asset cannot pay for storage at all.`,
+    `A new asset is funded with KMOI to pay its own storage. \`storageFund\` is ` +
+      `in BASE UNITS, not whole KMOI: with KMOI at 9 decimals, ${DEFAULT_STORAGE_FUND} ` +
+      `base units is ${asKmoi(DEFAULT_STORAGE_FUND)} KMOI. Below about ` +
+      `${asKmoi(MIN_STORAGE_FUND)} KMOI the chain refuses the create, and a fund that ` +
+      `is too SMALL fails exactly like this. Check the account's balance before ` +
+      `assuming it is too low.`,
   );
 
   return {

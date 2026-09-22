@@ -351,9 +351,9 @@ describe("moi_create_asset", () => {
   it("bundles ASSET_CREATE with a KMOI funding transfer and threads storageFund", async () => {
     seedSession(h.home);
 
-    const a = await h.call("moi_create_asset", { ...CREATE, storageFund: "5000" });
+    const a = await h.call("moi_create_asset", { ...CREATE, storageFund: "8000000000" });
     expect(a.structuredContent).toMatchObject({ status: "sent", hash: SENT_HASH });
-    const b = await h.call("moi_create_asset", { ...CREATE, storageFund: "20000" });
+    const b = await h.call("moi_create_asset", { ...CREATE, storageFund: "20000000000" });
     expect(b.structuredContent).toMatchObject({ status: "sent", hash: SENT_HASH });
 
     const opsA = opsOf(signedIx(0));
@@ -374,11 +374,11 @@ describe("moi_create_asset", () => {
     expect(opsA[0]!.payload).toEqual(opsB[0]!.payload);
     expect(opsA[1]!.payload["calldata"]).not.toEqual(opsB[1]!.payload["calldata"]);
 
-    // storageFund is KMOI, and it must NOT be scaled by the decimals of the
+    // storageFund is already in KMOI base units, and must NOT be scaled by the decimals of the
     // asset being created. Same fund, decimals 6: the funding leg has to come
     // out byte-identical. Scaling it there would over-fund by 10^decimals,
     // and the inequality above would still hold.
-    const c = await h.call("moi_create_asset", { ...CREATE, decimals: 6, storageFund: "5000" });
+    const c = await h.call("moi_create_asset", { ...CREATE, decimals: 6, storageFund: "8000000000" });
     expect(c.structuredContent).toMatchObject({ status: "sent" });
     const opsC = opsOf(signedIx(2));
     expect(opsC[1]!.payload["calldata"]).toEqual(opsA[1]!.payload["calldata"]);
@@ -395,7 +395,7 @@ describe("moi_create_asset", () => {
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/would fail \(receipt status 1\)/);
     expect(result.text).toMatch(/storageFund/);
-    expect(result.text).toMatch(/1000000/);
+    expect(result.text).toMatch(/base units/i);
     expect(wallet.request).not.toHaveBeenCalled();
     expect(node.methods()).not.toContain("moi.SendInteractions");
   });
@@ -588,7 +588,7 @@ describe("amount inputs accept the JSON numbers clients actually send", () => {
   it("moi_create_asset takes a numeric storageFund", async () => {
     seedSession(h.home);
     const res = await h.call("moi_create_asset", {
-      symbol: "NUMTEST", supply: 1000, storageFund: 50000,
+      symbol: "NUMTEST", supply: 1000, storageFund: 50000000000,
     });
     expect(res.isError ?? false, res.text).toBe(false);
     expect(res.structuredContent).toMatchObject({ status: "sent" });
@@ -596,10 +596,10 @@ describe("amount inputs accept the JSON numbers clients actually send", () => {
 
   it("produces the same interaction whether the amount is a number or a string", async () => {
     seedSession(h.home);
-    await h.call("moi_create_asset", { symbol: "SAME", supply: 1000, storageFund: 50000 });
+    await h.call("moi_create_asset", { symbol: "SAME", supply: 1000, storageFund: 50000000000 });
     const asNumber = signedIx(0);
 
-    await h.call("moi_create_asset", { symbol: "SAME", supply: "1000", storageFund: "50000" });
+    await h.call("moi_create_asset", { symbol: "SAME", supply: "1000", storageFund: "50000000000" });
     const asString = signedIx(1);
 
     expect(asNumber).toEqual(asString);
@@ -632,7 +632,7 @@ describe("storageFund is optional in practice, not just in the schema", () => {
     await h.call("moi_create_asset", { symbol: "AUTO", supply: 1000 });
     const auto = signedIx(0)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
 
-    await h.call("moi_create_asset", { symbol: "AUTO", supply: 1000, storageFund: 12345 });
+    await h.call("moi_create_asset", { symbol: "AUTO", supply: 1000, storageFund: 12_345_000_000 });
     const explicit = signedIx(1)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
 
     expect(explicit[1]!.payload["calldata"]).not.toBe(auto[1]!.payload["calldata"]);
@@ -640,9 +640,9 @@ describe("storageFund is optional in practice, not just in the schema", () => {
 
   it("refuses with an actionable message when the balance cannot cover storage", async () => {
     seedSession(h.home);
-    node.state.kmoiBalance = 15_000n; // below MIN_STORAGE_FUND + FUEL_RESERVE
+    node.state.kmoiBalance = 7_000_000_000n; // below MIN_STORAGE_FUND + FUEL_RESERVE
     const res = await h.call("moi_create_asset", { symbol: "POOR", supply: 1000 });
-    expect(res.text).toMatch(/at least 10000 KMOI|INSUFFICIENT_BALANCE/);
+    expect(res.text).toMatch(/base units of KMOI|INSUFFICIENT_BALANCE/);
     expect(wallet.request).not.toHaveBeenCalled();
   });
 });

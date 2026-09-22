@@ -239,12 +239,14 @@ export const CreateAssetInput = z.object({
   symbol: z.string().min(1).max(12),
   supply: WireAmount,
   /**
-   * KMOI to fund the new asset with so it can pay its own storage. Omitted,
-   * this defaults to 1,000,000 (js-moi-constants' DEFAULT_STORAGE_FUND).
-   * Too little and the interaction fails; more than you hold and the funding
-   * transfer fails.
+   * KMOI to fund the new asset with so it can pay its own storage, in BASE
+   * UNITS. KMOI has 9 decimals, so 10000000000 is 10 KMOI. Omitted, this
+   * takes the SDK's default of 10 KMOI. Below about 6.1 KMOI the chain
+   * refuses the create; more than you hold and the funding transfer fails.
    */
-  storageFund: WireAmount.optional(),
+  storageFund: WireAmount.optional().describe(
+    "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason.",
+  ),
   /** How far amounts are scaled: 2 gives cents. Separate from `dimension`. */
   decimals: z.number().int().min(0).max(18).default(0),
   /** The asset's kind. The chain accepts only 0 (Economic) or 1 (Possession). */

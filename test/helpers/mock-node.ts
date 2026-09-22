@@ -224,7 +224,7 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
 
 export async function startMockNode(overrides: Partial<NodeState> = {}): Promise<MockNode> {
   const state: NodeState = {
-    kmoiBalance: 95_699n,
+    kmoiBalance: 110_000_000_000_000n,
     callStatus: 0,
     receiptStatus: 0,
     registered: true,

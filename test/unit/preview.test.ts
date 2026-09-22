@@ -187,12 +187,12 @@ describe("a hosted write is previewed before it touches the phone", () => {
     const fundOf = (p: Preview) => p.details[Object.keys(p.details).find((k) => k.startsWith("Storage fund"))!];
 
     // Rich enough for the default storage fund at preview time...
-    node.state.kmoiBalance = 5_000_000n;
+    node.state.kmoiBalance = 50_000_000_000n; // 50 KMOI: covers the default
     const preview = structured<Preview>(await client.callTool({ name: "moi_create_asset", arguments: CREATE }));
     expect(preview.status).toBe("preview");
 
     // ...then the balance drops, so the fund the asset would get is smaller.
-    node.state.kmoiBalance = 95_699n;
+    node.state.kmoiBalance = 9_500_000_000n; // 9.5 KMOI: only the floor fits
     const changed = structured<Preview>(
       await client.callTool({ name: "moi_create_asset", arguments: { ...CREATE, confirm: preview.confirm } }),
     );
