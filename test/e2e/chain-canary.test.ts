@@ -21,7 +21,7 @@
 import { AssetStandard, KMOI_ASSET_ID } from "js-moi-sdk";
 import { describe, expect, it } from "vitest";
 
-import { buildCreateAsset, buildTransfer } from "../../src/moi/ix-builder.js";
+import { buildCreateAsset, buildTransfer, chooseStorageFund, MIN_STORAGE_FUND } from "../../src/moi/ix-builder.js";
 import { getProvider } from "../../src/moi/provider.js";
 import { getAsset } from "../../src/moi/reads.js";
 
@@ -46,9 +46,26 @@ d("chain canary (voyage devnet)", () => {
     return { id: ACCOUNT, sequence: Number(await p.getPendingInteractionCount(ACCOUNT, 0)), keyId: 0 };
   }
 
-  /** Resolves when the chain accepts the shape, rejects with its reason when not. */
-  async function simulate(ix: unknown): Promise<void> {
-    await (provider as unknown as { call: (ix: unknown) => Promise<unknown> }).call(ix);
+  /**
+   * Receipt status from simulating: 0 means the interaction would succeed.
+   * Checking the status, not merely that the node accepted the shape, is what
+   * catches a default that has drifted. An underfunded create is accepted and
+   * comes back status 1, which an earlier version of this canary read as a
+   * pass while asset creation was broken in production.
+   */
+  async function simulateStatus(ix: unknown): Promise<number> {
+    const call = (provider as unknown as { call: (ix: unknown) => Promise<{ receipt?: { status?: number } }> }).call;
+    const r = await call.call(provider, ix);
+    return Number(r?.receipt?.status ?? -1);
+  }
+
+  /** KMOI the canary account holds, in base units. */
+  async function balance(): Promise<bigint> {
+    const p = provider as unknown as { getTDU: (id: string) => Promise<Array<{ asset_id: string; amount: string }>> };
+    const held = (await p.getTDU(ACCOUNT)).find(
+      (b) => String(b.asset_id).toLowerCase() === String(KMOI_ASSET_ID).toLowerCase(),
+    );
+    return BigInt(held?.amount ?? 0);
   }
 
   it("the RPC endpoint answers", async () => {
@@ -78,7 +95,10 @@ d("chain canary (voyage devnet)", () => {
     expect([0, 1]).toContain(asset.dimension);
   }, TIMEOUT);
 
-  it("accepts the asset-create interaction this server builds", async () => {
+  it("the storage fund this server picks still creates an asset", async () => {
+    // The automatic fund, exactly as moi_create_asset would choose it. When
+    // the chain repriced storage, the old default became a ten-thousandth of
+    // the floor and every create failed; this is that class of break.
     const ix = buildCreateAsset(await sender(), {
       symbol: "CANARY",
       supply: 1000n,
@@ -87,15 +107,29 @@ d("chain canary (voyage devnet)", () => {
       standard: "MAS0",
       isStateful: false,
       isFungible: true,
-      storageFund: 1000n,
+      storageFund: chooseStorageFund(await balance()),
     });
-    await expect(simulate(ix)).resolves.toBeUndefined();
+    expect(await simulateStatus(ix)).toBe(0);
   }, TIMEOUT);
 
-  it("accepts the transfer interaction this server builds", async () => {
+  it("the floor is still enough to create an asset", async () => {
+    const ix = buildCreateAsset(await sender(), {
+      symbol: "CANARYFLOOR",
+      supply: 1000n,
+      decimals: 0,
+      dimension: 0,
+      standard: "MAS0",
+      isStateful: false,
+      isFungible: true,
+      storageFund: MIN_STORAGE_FUND,
+    });
+    expect(await simulateStatus(ix)).toBe(0);
+  }, TIMEOUT);
+
+  it("the transfer this server builds would succeed", async () => {
     // To itself, so the only account the interaction touches is one known to
     // exist; a transfer to an unknown account fails for an unrelated reason.
     const ix = buildTransfer(await sender(), { to: ACCOUNT, assetId: KMOI_ASSET_ID as string, amount: 1n });
-    await expect(simulate(ix)).resolves.toBeUndefined();
+    expect(await simulateStatus(ix)).toBe(0);
   }, TIMEOUT);
 });

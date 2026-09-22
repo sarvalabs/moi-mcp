@@ -36,7 +36,7 @@ describe("moi_get_account", () => {
     expect(result.structuredContent).toEqual({
       address: ACCOUNT,
       nonce: 5,
-      balances: [{ assetId: KMOI, amount: "95699" }],
+      balances: [{ assetId: KMOI, amount: "110000000000000" }],
       isRegistered: true,
     });
 
