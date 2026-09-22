@@ -220,3 +220,28 @@ the single-call flow with a confirm-before-call instruction.
 **Wallet-side fix:** accept an optional second param (or a `meta.description`
 like the `ix_args` style already models for `sendInteractions`) and render it
 above the decoded operations.
+
+---
+
+## 7. No way to read the network's minimum fuel price
+
+**Severity: every client hardcodes a number that the chain can move.**
+
+A transaction priced below the mempool floor is refused at broadcast with
+"interaction underpriced", but only at broadcast: simulation via `moi.Call`
+accepts it, so a server can preview, collect a signature on the phone, and
+then fail. That is what happened here after the September 2026 upgrade moved
+the floor: this server sent a fuel price of 1, every simulation and test
+passed, and two approved interactions bounced.
+
+Nothing reports the floor. `moi.FuelPrice`, `moi.MinFuelPrice`,
+`moi.NetworkInfo` and `moi.ProtocolParams` do not exist, and js-moi-providers
+has no method for it. The only source is `DEFAULT_FUEL_PRICE` in
+js-moi-constants, a compile-time copy that is right until the next upgrade.
+
+**Workaround, and what the server ships:** take the price from the SDK
+constant rather than a local literal, so an SDK upgrade carries it.
+
+**Node-side fix:** expose the current minimum over RPC, and have `moi.Call`
+reject an underpriced interaction the way broadcast does, so a preview can
+fail before anyone is asked to sign.
