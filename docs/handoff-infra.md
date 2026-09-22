@@ -305,6 +305,16 @@ pm2 logs moi-mcp-write --lines 100
 
 The code never prints a bearer token, a cookie, or a pairing URL (comment at src/server.ts lines 653 to 654), and it never prints the Redis URL, which carries the password (src/wc/redis-store.ts line 53). If you ever see one of these values in a log line, that is a bug: report it to the repository immediately and rotate the leaked value.
 
+## Watching upstream releases
+
+Three MOI projects change what this server does without changing its code: js-moi-sdk (a dependency), go-moi (the chain) and cocolang (the logic language). The go-moi v0.13.0 upgrade broke asset creation here in September 2026 and went unnoticed for about a week. Three automations cover this.
+
+Dependabot (`.github/dependabot.yml`) opens a pull request when an npm dependency publishes a new version. The js-moi-sdk packages move together in one pull request. CI runs the full suite against it. Nothing merges automatically, because an SDK change can change what a user signs.
+
+The upstream watch (`.github/workflows/upstream-watch.yml`) runs daily and files an issue labelled `upstream-release` for each new release of the three projects. go-moi and cocolang are private repositories, and a workflow's built-in token can read only its own repository, so those two need a repository secret named `UPSTREAM_READ_TOKEN`: a fine-grained personal access token with read-only "Contents" access to `sarvalabs/go-moi` and `sarvalabs/cocolang`. Without the secret, the watch skips those two with a warning and still covers js-moi-sdk.
+
+The chain canary (`.github/workflows/chain-canary.yml`) runs nightly against the live voyage devnet. It reads KMOI and simulates the asset-create and transfer interactions this server builds. Simulation signs nothing and spends no fuel. When the chain rejects something, the canary opens an issue labelled `chain-canary`, and the next green run closes it. Run it by hand with `MOI_E2E=1 npx vitest run test/e2e/chain-canary.test.ts`.
+
 ## What the CI/CD pipeline should do
 
 On every pull request, run these four commands and require all of them to pass before merge:
