@@ -21,6 +21,7 @@
 
 import {
   AssetStandard,
+  DEFAULT_FUEL_PRICE as SDK_DEFAULT_FUEL_PRICE,
   DEFAULT_STORAGE_FUND as SDK_DEFAULT_STORAGE_FUND,
   bytesToHex,
   buildTransferPayload,
@@ -39,7 +40,15 @@ import { ErrorCode } from "../schema.js";
 /** The node rejects interactions carrying more than three operations. */
 export const MAX_OPERATIONS = 3;
 
-export const DEFAULT_FUEL_PRICE = 1;
+/**
+ * Fuel price, taken from the SDK rather than written down here.
+ *
+ * This was a hardcoded 1. Simulation accepted it, every test passed, and the
+ * node's mempool then refused to broadcast: "interaction underpriced". The
+ * chain's floor moved with the September 2026 upgrade and the SDK's default
+ * moved with it, to 50. A copy here would drift the same way again.
+ */
+export const DEFAULT_FUEL_PRICE = Number(SDK_DEFAULT_FUEL_PRICE);
 
 /**
  * Fallback ceiling, used only when estimation fails.
@@ -189,9 +198,8 @@ export const MIN_STORAGE_FUND = 7_000_000_000n;
 /**
  * Held back in KMOI base units so the interaction can still pay its own fuel.
  *
- * Measured: an asset create burns 3,404 fuel. At this server's fuel price of
- * 1 that is 3,404 base units, and 1,000,000 (0.001 KMOI) stays ample even at
- * the SDK's default price of 50.
+ * Measured: an asset create burns 3,404 fuel. At the SDK's price of 50 that is
+ * 170,200 base units, so 1,000,000 (0.001 KMOI) leaves ample margin.
  */
 export const FUEL_RESERVE = 1_000_000n;
 
