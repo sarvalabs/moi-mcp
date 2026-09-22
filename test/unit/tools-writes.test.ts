@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { DEFAULT_FUEL_PRICE } from "../../src/moi/ix-builder.js";
 import { WriteResult } from "../../src/schema.js";
 import {
   ACCOUNT,
@@ -177,7 +178,7 @@ describe("moi_transfer success path", () => {
     const ix = signedIx();
     expect(ix).toMatchObject({
       sender: { id: ACCOUNT, sequence: 5, key_id: 0 },
-      fuel_price: 1,
+      fuel_price: DEFAULT_FUEL_PRICE, // the SDK's, never a literal: 1 was refused as underpriced
       fuel_limit: Math.ceil(299 * 1.5),
     });
     const ops = opsOf(ix);
