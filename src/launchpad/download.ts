@@ -12,7 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { Express, Request, Response } from "express";
-import rateLimit from "express-rate-limit";
+import { rateLimit } from "../auth/rate-limit.js";
 
 const TTL_MS = 10 * 60 * 1000;
 
