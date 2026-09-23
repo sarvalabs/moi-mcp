@@ -9,9 +9,11 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// The background is stated, not inherited: a browser in dark mode may paint
+// its own canvas dark, and the page's dark text would vanish into it.
 const STYLE =
   "font-family:system-ui,-apple-system,sans-serif;max-width:28rem;margin:4rem auto;" +
-  "padding:0 1.5rem;color:#1a1a1a;line-height:1.5";
+  "padding:0 1.5rem;color:#1a1a1a;background:#fff;line-height:1.5";
 
 /**
  * The MOI lockup, served by the server itself at /logo.svg (see branding.ts),
