@@ -70,7 +70,7 @@ export interface HostedWriteDeps {
 
 const defaultPreviews = new PreviewRegistry();
 
-type WriteKind = "transfer" | "create_account" | "create_asset" | "mint" | "call_logic";
+export type WriteKind = "transfer" | "create_account" | "create_asset" | "mint" | "call_logic" | "register_agent";
 
 /**
  * Record a signed-but-not-broadcast (or never-signed) attempt as failed once
@@ -111,7 +111,7 @@ function assertNetworkMatches(stored: StoredWalletSession, expectedNetwork?: str
 /**
  * Load and validate the user's wallet session from the store.
  */
-async function loadSession(
+export async function loadSession(
   deps: HostedWriteDeps,
   auth: AuthInfo,
   expectedNetwork?: string,
@@ -178,7 +178,7 @@ const WRITE_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-const ConfirmArg = z
+export const ConfirmArg = z
   .string()
   .min(1)
   .max(64)
@@ -231,7 +231,7 @@ function previewOf(
  * shortfall or a reverting call is reported before the user is asked for a
  * yes, not after.
  */
-async function runWrite(
+export async function runWrite(
   deps: HostedWriteDeps,
   auth: AuthInfo | null,
   kind: WriteKind,

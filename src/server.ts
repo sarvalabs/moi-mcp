@@ -58,6 +58,15 @@ import {
 import { expiresAtOf, expiryFor, isExpired, type PairingMode } from "./wc/lifetime.js";
 import QRCode from "qrcode";
 import { registerHostedWrites } from "./tools/hosted-writes.js";
+import { registerLaunchpadTools, type LaunchpadDeps } from "./tools/launchpad.js";
+import { LaunchpadClient } from "./launchpad/client.js";
+import { createDownloadModule } from "./launchpad/download.js";
+import {
+  FileLaunchpadSessionStore,
+  isLaunchpadSessionExpired,
+  RedisLaunchpadSessionStore,
+  type LaunchpadSessionStore,
+} from "./launchpad/store.js";
 import { WalletConnectHub, type WalletConnectHubLike } from "./wc/hub.js";
 import { FileWalletSessionStore, type StoredWalletSession, type WalletSessionStore } from "./wc/store.js";
 import { connectRedis, RedisKeyValueStorage, RedisWalletSessionStore } from "./wc/redis-store.js";
@@ -81,6 +90,13 @@ export const GATED = [
   "moi_connect_wallet",
   "moi_disconnect_wallet",
   "moi_wallet_status",
+  "moi_launchpad_status",
+  "moi_launchpad_sign_in",
+  "moi_launchpad_create_agent",
+  "moi_launchpad_register_agent",
+  "moi_launchpad_telegram_link",
+  "moi_launchpad_setup_script",
+  "moi_launchpad_sign_out",
 ] as const;
 
 /**
@@ -100,6 +116,13 @@ const REQUIRED_SCOPE: Record<(typeof GATED)[number], "moi:read" | "moi:write"> =
   moi_connect_wallet: "moi:write",
   moi_disconnect_wallet: "moi:write",
   moi_wallet_status: "moi:read",
+  moi_launchpad_status: "moi:read",
+  moi_launchpad_sign_in: "moi:write",
+  moi_launchpad_create_agent: "moi:write",
+  moi_launchpad_register_agent: "moi:write",
+  moi_launchpad_telegram_link: "moi:write",
+  moi_launchpad_setup_script: "moi:write",
+  moi_launchpad_sign_out: "moi:write",
 };
 
 export interface HostedDeps {
@@ -125,6 +148,8 @@ export interface HostedDeps {
    * toggle applies when it is omitted.
    */
   startPairing(userId: string, mode?: PairingMode): Promise<{ uri: string; expiresAt: number }>;
+  /** The MOI Agent Launchpad tools; absent when no Launchpad is configured (tests). */
+  launchpad?: LaunchpadDeps;
 }
 
 /** Collect a JSON body, refusing anything oversized. Mirrors src/http.ts. */
@@ -440,6 +465,7 @@ export function buildHostedApp(deps: HostedDeps): Application {
     const server = buildReadOnlyServer({ publicUrl: deps.publicUrl });
     registerWalletSurface(server, deps, auth ?? null);
     registerHostedWrites(server, deps, auth ?? null);
+    if (deps.launchpad) registerLaunchpadTools(server, deps.launchpad, auth ?? null);
 
     const transport = withModernSchemaDialect(
       new StreamableHTTPServerTransport({ sessionIdGenerator: undefined }),
@@ -633,13 +659,16 @@ async function main(): Promise<void> {
   // a replacement process the topic without the key to use it.
   let store: WalletSessionStore;
   let wcStorage: RedisKeyValueStorage | undefined;
+  let launchpadSessions: LaunchpadSessionStore;
   if (hosted.REDIS_URL) {
     const redis = await connectRedis(hosted.REDIS_URL);
     store = new RedisWalletSessionStore(redis);
     wcStorage = new RedisKeyValueStorage(redis);
+    launchpadSessions = new RedisLaunchpadSessionStore(redis);
     log("info", "wallet sessions and WalletConnect state in redis");
   } else {
     store = new FileWalletSessionStore(hosted.dataDir);
+    launchpadSessions = new FileLaunchpadSessionStore(hosted.dataDir);
     log("info", `wallet sessions on disk under ${hosted.dataDir}`);
   }
 
@@ -669,6 +698,18 @@ async function main(): Promise<void> {
   const startPairing = makeStartPairing(cfg, hub, store, journal);
   mountPairing(app, { resolveUri: async (userId) => (await startPairing(userId)).uri });
 
+  // The Launchpad: its session per user next to the wallet pairing, and the
+  // one-time page that hands an agent's setup script to a browser.
+  const launchpadClient = new LaunchpadClient(hosted.MOI_LAUNCHPAD_URL);
+  const downloads = createDownloadModule();
+  downloads.mountDownloads(app, {
+    fetchScript: async (userId, agentId) => {
+      const rec = await launchpadSessions.get(userId);
+      if (!rec || isLaunchpadSessionExpired(rec)) throw new Error("no launchpad session");
+      return launchpadClient.setupScript(rec.cookie, agentId);
+    },
+  });
+
   app.use(
     buildHostedApp({
       authenticate,
@@ -680,6 +721,12 @@ async function main(): Promise<void> {
       createPairingLink: (userId: string, seed?: PairingSeed) => createPairingLinkFor(userId, hosted.PUBLIC_URL, seed),
       startPairing,
       publicUrl: hosted.PUBLIC_URL,
+      launchpad: {
+        client: launchpadClient,
+        sessions: launchpadSessions,
+        writes: { store, hub, journal },
+        createDownloadLink: (userId, agentId) => downloads.createDownloadLink(userId, agentId, hosted.PUBLIC_URL),
+      },
     }),
   );
 

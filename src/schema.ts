@@ -591,6 +591,10 @@ export const ErrorCode = {
   AGENT_NOT_FOUND: "AGENT_NOT_FOUND",
   LOGIC_ROUTINE_NOT_FOUND: "LOGIC_ROUTINE_NOT_FOUND",
   RELAY_UNAVAILABLE: "RELAY_UNAVAILABLE",
+  /** No Launchpad session for this user, or the Launchpad no longer accepts it. */
+  LAUNCHPAD_NOT_SIGNED_IN: "LAUNCHPAD_NOT_SIGNED_IN",
+  /** The Launchpad answered with an error, or could not be reached. */
+  LAUNCHPAD_ERROR: "LAUNCHPAD_ERROR",
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
