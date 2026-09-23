@@ -370,11 +370,42 @@ export async function buildMint(
   };
 }
 
+/** How a tool-level lock name maps onto the chain's lock types. */
+export const LOCK_BY_NAME: Record<"mutate" | "read" | "none", number> = {
+  mutate: LockType.MUTATE_LOCK,
+  read: LockType.READ_LOCK,
+  none: LockType.NO_LOCK,
+};
+
+/**
+ * A logic call declares the logic itself and, when the caller says so, the
+ * other accounts and assets the routine moves value for. The node executes
+ * on the declared set: a routine that transfers an undeclared asset fails
+ * with "actor not found" at execution, not at simulation, so the caller has
+ * to know. Nothing is added for the sender; the SDK does that.
+ */
 export function buildLogicInvoke(
   sender: SenderInfo,
-  params: { logicId: string; callsite: string; calldata?: string },
+  params: {
+    logicId: string;
+    callsite: string;
+    calldata?: string;
+    participants?: Array<{ id: string; lock: "mutate" | "read" | "none" }>;
+  },
   options: BuildOptions = {},
 ): UnsignedInteraction {
+  const extra = params.participants ?? [];
+  const declared = new Map<string, number>();
+  for (const p of extra) {
+    const lock = LOCK_BY_NAME[p.lock];
+    const id = p.id.toLowerCase();
+    // The strongest lock wins if the same id is named twice.
+    declared.set(id, Math.min(lock, declared.get(id) ?? lock));
+  }
+  if (extra.length > 0 && !declared.has(params.logicId.toLowerCase())) {
+    // A routine that moves value changes the logic's own records too.
+    declared.set(params.logicId.toLowerCase(), LockType.MUTATE_LOCK);
+  }
   return {
     ...base(sender, options),
     ix_operations: [
@@ -387,6 +418,9 @@ export function buildLogicInvoke(
         },
       },
     ],
+    ...(declared.size > 0
+      ? { participants: [...declared.entries()].map(([id, lock_type]) => ({ id, lock_type })) }
+      : {}),
   };
 }
 

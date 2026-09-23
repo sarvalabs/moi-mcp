@@ -177,6 +177,48 @@ describe("buildLogicInvoke", () => {
     const ix = buildLogicInvoke(SENDER, { logicId: "0xabc", callsite: "Ping" });
     expect(ix.ix_operations[0]!.payload).not.toHaveProperty("calldata");
   });
+
+  it("declares no participants unless asked, so plain routines keep the old shape", () => {
+    const ix = buildLogicInvoke(SENDER, { logicId: "0xabc", callsite: "Ping", participants: [] });
+    expect(ix).not.toHaveProperty("participants");
+  });
+
+  it("declares the named participants with their locks and adds the logic as mutate", () => {
+    // A DEX buy: the pool owner's balances change, the two assets are listed
+    // so the asset engine can see them, and the logic's own reserves move.
+    const ix = buildLogicInvoke(SENDER, {
+      logicId: "0xABC",
+      callsite: "Buy",
+      calldata: "0x01",
+      participants: [
+        { id: "0xOWNER", lock: "mutate" },
+        { id: "0xTOKEN", lock: "none" },
+        { id: "0xBASE", lock: "none" },
+      ],
+    });
+    expect(ix.participants).toEqual([
+      { id: "0xowner", lock_type: LockType.MUTATE_LOCK },
+      { id: "0xtoken", lock_type: LockType.NO_LOCK },
+      { id: "0xbase", lock_type: LockType.NO_LOCK },
+      { id: "0xabc", lock_type: LockType.MUTATE_LOCK },
+    ]);
+  });
+
+  it("keeps the strongest lock when an id is named twice and respects an explicit lock on the logic", () => {
+    const ix = buildLogicInvoke(SENDER, {
+      logicId: "0xabc",
+      callsite: "Buy",
+      participants: [
+        { id: "0xowner", lock: "none" },
+        { id: "0xOWNER", lock: "mutate" },
+        { id: "0xabc", lock: "read" },
+      ],
+    });
+    expect(ix.participants).toEqual([
+      { id: "0xowner", lock_type: LockType.MUTATE_LOCK },
+      { id: "0xabc", lock_type: LockType.READ_LOCK },
+    ]);
+  });
 });
 
 describe("assertSendable", () => {

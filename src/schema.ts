@@ -269,12 +269,35 @@ export const MintInput = z.object({
   to: HexId.optional().describe("Recipient. Defaults to the connected wallet."),
 });
 
+/**
+ * An account or asset a logic routine touches besides the caller. MOI runs
+ * interactions in parallel by declaring up front whose state they read or
+ * write, and the SDK cannot see inside a routine, so a call that moves other
+ * accounts' assets must name them here or the node refuses it.
+ */
+export const LogicParticipant = z.object({
+  id: HexId.describe("Account, asset or logic identifier."),
+  lock: z
+    .enum(["mutate", "read", "none"])
+    .default("mutate")
+    .describe("mutate: its balances or state change. read: only read. none: listed so the asset engine can see it, which is what an asset id needs."),
+});
+
 export const CallLogicInput = z.object({
   logicId: LogicId,
   routine: z.string().min(1),
   args: z.array(z.unknown()).default([]),
   /** "view" runs locally via provider (no wallet). "invoke" goes to wallet. */
   kind: z.enum(["invoke", "view"]).default("invoke"),
+  participants: z
+    .array(LogicParticipant)
+    .optional()
+    .describe(
+      "Other accounts and assets the routine moves value for, besides you. A DEX buy, for " +
+        "example, lists the pool owner (mutate), the token asset (none) and the payment asset (none). " +
+        "The logic's own docs or its Info-style read routine say what to list. Leave it out for " +
+        "routines that only touch your own state.",
+    ),
 });
 
 export const CallLogicViewOutput = z.object({

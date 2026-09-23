@@ -406,6 +406,7 @@ export async function prepareLogicInvoke(
       logicId: params.logicId,
       callsite: params.routine,
       ...(payload.calldata ? { calldata: payload.calldata } : {}),
+      ...(params.participants ? { participants: params.participants } : {}),
     }),
   );
   assertSendable(ix);
@@ -419,6 +420,13 @@ export async function prepareLogicInvoke(
       Logic: params.logicId,
       Routine: params.routine,
       Arguments: JSON.stringify(params.args ?? [], (_k, v) => (typeof v === "bigint" ? v.toString() : v)),
+      ...(params.participants && params.participants.length > 0
+        ? {
+            // Shown so the person sees whose funds the routine may move before
+            // the phone asks. The phone renders the same list.
+            "Other participants": params.participants.map((p) => `${p.id} (${p.lock})`).join(", "),
+          }
+        : {}),
     },
   };
 }

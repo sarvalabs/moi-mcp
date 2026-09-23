@@ -364,7 +364,8 @@ export function registerHostedWrites(
     {
       title: "Call a MOI logic routine",
       description:
-        "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone." +
+        "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. " +
+        "If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...CallLogicInput.shape, confirm: ConfirmArg },
       annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
