@@ -88,9 +88,14 @@ const PAIRED_BUTTONS = `<button type="submit" name="decision" value="approve"
  * Enough of a MOI address (66 hex characters) for its owner to recognise it,
  * and no more. The page is shown to whoever is at this browser, before they
  * have proved anything, so the full address stays off it.
+ *
+ * A MOI identifier opens with four tag bytes and closes with four variant
+ * bytes, and both are zero for nearly every wallet, so a cut at the ends
+ * shows only zeros. Keep four bytes of the fingerprint on each side of the
+ * ellipsis instead: "0x00000000a27d9a3e…4d9a0d1f00000000".
  */
 function shortAddress(address: string): string {
-  return address.length > 20 ? `${address.slice(0, 10)}…${address.slice(-6)}` : address;
+  return address.length > 34 ? `${address.slice(0, 18)}…${address.slice(-16)}` : address;
 }
 
 function renderPairedNotice(address: string): string {
