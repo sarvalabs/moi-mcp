@@ -29,6 +29,13 @@ export type { AuthInfo } from "./types.js";
 export interface MountAuthOptions {
   publicUrl: string;
   dataDir: string;
+  /**
+   * Path of the MCP endpoint under publicUrl, "/mcp" by default. The
+   * protected-resource metadata's `resource` must be the URL a person types
+   * into claude.ai, path included, and the metadata is also served at the
+   * path-suffixed well-known location (RFC 9728 §3.1).
+   */
+  mcpPath?: string;
 }
 
 export interface AuthHandle {
@@ -43,6 +50,7 @@ export interface AuthHandle {
 
 export function mountAuth(app: Express, opts: MountAuthOptions): AuthHandle {
   const publicUrl = opts.publicUrl.replace(/\/+$/, "");
+  const mcpPath = opts.mcpPath ?? "/mcp";
   const cookieSecret = loadOrCreateCookieSecret(join(opts.dataDir, "auth", "cookie-secret"));
   const clientStore = new ClientStore(opts.dataDir);
   const tokenStore = new TokenStore(opts.dataDir);
@@ -59,7 +67,7 @@ export function mountAuth(app: Express, opts: MountAuthOptions): AuthHandle {
   const codeStore = new CodeStore();
   const cookieSecure = publicUrl.startsWith("https://");
 
-  mountAuthRoutes(app, { publicUrl, clientStore, tokenStore, codeStore, cookieSecret, cookieSecure });
+  mountAuthRoutes(app, { publicUrl, mcpPath, clientStore, tokenStore, codeStore, cookieSecret, cookieSecure });
 
   function authenticate(req: { headers: IncomingHttpHeaders }): AuthInfo | undefined {
     const header = req.headers.authorization;
@@ -82,7 +90,9 @@ export function mountAuth(app: Express, opts: MountAuthOptions): AuthHandle {
     const error = opts?.error ?? "invalid_token";
     const description = error === "insufficient_scope" ? "This action requires additional scope" : "Authorization required";
     const scopePart = opts?.scope ? `, scope="${opts.scope}"` : "";
-    return `Bearer error="${error}", error_description="${description}", resource_metadata="${publicUrl}/.well-known/oauth-protected-resource"${scopePart}`;
+    // The path-suffixed document, which is the one RFC 9728 names for a
+    // resource that has a path, and the one Anthropic's reference server points at.
+    return `Bearer error="${error}", error_description="${description}", resource_metadata="${publicUrl}/.well-known/oauth-protected-resource${mcpPath}"${scopePart}`;
   }
 
   return { authenticate, challengeHeader };

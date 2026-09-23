@@ -340,19 +340,24 @@ describe("auth", () => {
       token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
     });
 
-    const rsRes = await fetch(`${base}/.well-known/oauth-protected-resource`);
-    const rsMeta = await rsRes.json();
-    expect(rsMeta).toMatchObject({
-      resource: base,
-      authorization_servers: [base],
-      scopes_supported: ["moi:read", "moi:write"],
-      bearer_methods_supported: ["header"],
-    });
+    // `resource` is the MCP endpoint, path included: claude.ai checks it
+    // against the connector URL the person typed, which ends in /mcp.
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+      const rsRes = await fetch(`${base}${path}`);
+      expect(rsRes.status).toBe(200);
+      const rsMeta = await rsRes.json();
+      expect(rsMeta).toMatchObject({
+        resource: `${base}/mcp`,
+        authorization_servers: [base],
+        scopes_supported: ["moi:read", "moi:write"],
+        bearer_methods_supported: ["header"],
+      });
+    }
   });
 
   it("builds challengeHeader() exactly as WWW-Authenticate expects", () => {
     expect(auth.challengeHeader()).toBe(
-      `Bearer error="invalid_token", error_description="Authorization required", resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+      `Bearer error="invalid_token", error_description="Authorization required", resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`,
     );
   });
 
@@ -382,7 +387,7 @@ describe("auth", () => {
   it("builds challengeHeader({error, scope}) for an insufficient_scope challenge", () => {
     expect(auth.challengeHeader({ error: "insufficient_scope", scope: "moi:write" })).toBe(
       `Bearer error="insufficient_scope", error_description="This action requires additional scope", ` +
-        `resource_metadata="${base}/.well-known/oauth-protected-resource", scope="moi:write"`,
+        `resource_metadata="${base}/.well-known/oauth-protected-resource/mcp", scope="moi:write"`,
     );
   });
 
