@@ -67,7 +67,7 @@ describe("pairing", () => {
     expect(args.requiredNamespaces).toBeUndefined();
     const ns = args.optionalNamespaces[WC_NAMESPACE]!;
     expect(ns.chains).toEqual(["moi:14"]);
-    expect(ns.methods).toEqual(["moi.signInteraction", "moi.sendInteractions"]);
+    expect(ns.methods).toEqual(["moi.signInteraction", "moi.sendInteractions", "moi.sign"]);
     expect(ns.events).toEqual(["accountsChanged", "chainChanged"]);
   });
 

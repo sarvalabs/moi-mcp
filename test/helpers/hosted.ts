@@ -43,13 +43,14 @@ export function fakeStore(records: Map<string, StoredWalletSession>): WalletSess
   };
 }
 
-export type FakeHub = WalletConnectHubLike & { disconnect: Mock; signInteractionFor: Mock };
+export type FakeHub = WalletConnectHubLike & { disconnect: Mock; signInteractionFor: Mock; signMessageFor: Mock };
 
 export function fakeHub(): FakeHub {
   return {
     pair: vi.fn(async () => {
       throw new Error("not used here");
     }),
+    signMessageFor: vi.fn(async () => ({ signature: "0xfeed" })),
     signInteractionFor: vi.fn(async () => ({
       ix_args: "0x" + "1".repeat(64),
       signatures: "0x" + "2".repeat(128),

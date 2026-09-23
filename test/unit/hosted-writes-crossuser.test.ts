@@ -102,6 +102,8 @@ class FakeHub implements WalletConnectHubLike {
 
   close = vi.fn(async () => {});
 
+  signMessageFor = vi.fn(async () => ({ signature: "0xfeed" }));
+
   signInteractionFor = vi.fn(async (topic: string, ix: unknown, opts: { description: string }) => {
     // Simulate relay-expired/phone-unpaired: if a session was deleted, throw
     if (topic === TOPIC_A && this.sessionDeleted.has(TOPIC_A)) {

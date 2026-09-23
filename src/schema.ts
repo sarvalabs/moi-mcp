@@ -332,7 +332,7 @@ export const CallLogicViewOutput = z.object({
 //    Mirrors docs.wallet.moi.technology/features/dapp-connections
 // ---------------------------------------------------------------------------
 
-export const WC_METHODS = ["moi.signInteraction", "moi.sendInteractions"] as const;
+export const WC_METHODS = ["moi.signInteraction", "moi.sendInteractions", "moi.sign"] as const;
 export const WC_EVENTS = ["accountsChanged", "chainChanged"] as const;
 
 /** Namespace we request on pairing. */
@@ -492,6 +492,15 @@ export const WcSignInteractionParamsAny = WcSendInteractionsParamsAny;
 export const WcSignInteractionResult = z.object({
   ix_args: PoloHex,
   signatures: PoloHex,
+});
+
+/**
+ * What MOI Wallet returns for `moi.sign` (params `[accountId, message]`): a
+ * signature over the plain-text message, nothing broadcast. Used for
+ * Sign-In With MOI and other off-chain proofs that the person holds the key.
+ */
+export const WcSignMessageResult = z.object({
+  signature: z.string().regex(/^(0x)?[0-9a-fA-F]+$/, "expected signature hex"),
 });
 
 // ---------------------------------------------------------------------------
