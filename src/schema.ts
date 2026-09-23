@@ -185,6 +185,37 @@ export const ResolveAgentOutput = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const ListAgentsInput = z.object({
+  owner: HexId.optional().describe(
+    "Only agents registered by this account (a participant id). Leave it out to page through every agent.",
+  ),
+  offset: z.number().int().min(0).default(0).describe("Where to start; pass back nextOffset from the previous page."),
+  limit: z.number().int().min(1).max(50).default(20),
+});
+
+export const AgentSummary = z.object({
+  agentId: z.string(),
+  /** False when the registry lists the id but its profile could not be read. */
+  found: z.boolean(),
+  owner: HexId.optional(),
+  address: HexId.optional(),
+  status: z.string().optional(),
+  url: z.string().optional(),
+  cardUri: z.string().optional(),
+  score: z.string().optional(),
+  /** Unix nanoseconds, as the registry stores it. */
+  createdAt: z.string().optional(),
+});
+
+export const ListAgentsOutput = z.object({
+  agents: z.array(AgentSummary),
+  offset: z.number().int(),
+  limit: z.number().int(),
+  total: z.number().int().optional(),
+  /** Absent on the last page. */
+  nextOffset: z.number().int().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // 3. Write tools (build ix locally → moi.sendInteractions via WalletConnect)
 //    All write tools return the same envelope.
@@ -576,6 +607,7 @@ export const TOOLS = {
   moi_get_interaction:   { input: GetInteractionInput,   write: false },
   moi_get_logic:         { input: GetLogicInput,         write: false },
   moi_resolve_agent:     { input: ResolveAgentInput,     write: false },
+  moi_list_agents:       { input: ListAgentsInput,       write: false },
   moi_transfer:          { input: TransferInput,         write: true  },
   moi_create_account:    { input: CreateAccountInput,    write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },

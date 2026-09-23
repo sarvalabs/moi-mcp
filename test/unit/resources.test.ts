@@ -69,6 +69,7 @@ describe("resources", () => {
       "moi_get_interaction",
       "moi_get_logic",
       "moi_resolve_agent",
+      "moi_list_agents",
       "moi_connect_wallet",
       "moi_transfer",
       "moi_create_asset",

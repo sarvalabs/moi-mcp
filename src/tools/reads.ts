@@ -9,7 +9,7 @@ import { getConfig } from "../config.js";
 import { toMcpError } from "../errors.js";
 import { getProvider, getReadOnlySigner, interactionUrl } from "../moi/provider.js";
 import { getAccount, getAsset, getInteraction, getLogic } from "../moi/reads.js";
-import { resolveAgent } from "../moi/registry.js";
+import { listAgents, resolveAgent } from "../moi/registry.js";
 import {
   GetAccountInput,
   GetAccountOutput,
@@ -19,6 +19,8 @@ import {
   GetInteractionOutput,
   GetLogicInput,
   GetLogicOutput,
+  ListAgentsInput,
+  ListAgentsOutput,
   ResolveAgentInput,
   ResolveAgentOutput,
 } from "../schema.js";
@@ -130,5 +132,27 @@ export function registerReadTools(server: McpServer): void {
     },
     async ({ query }) =>
       run(async () => resolveAgent(getReadOnlySigner(providerOptions()), query)),
+  );
+
+  server.registerTool(
+    "moi_list_agents",
+    {
+      title: "List MOI agents",
+      description:
+        "Page through the MOI agent registry: every registered agent, or only those a given account " +
+        "registered. Each entry has the agent id, owner, wallet address, status and service URL. " +
+        "Use moi_resolve_agent for one agent's full profile and card.",
+      inputSchema: ListAgentsInput.shape,
+      outputSchema: ListAgentsOutput.shape,
+      annotations: READ_ONLY,
+    },
+    async ({ owner, offset, limit }) =>
+      run(async () =>
+        listAgents(getReadOnlySigner(providerOptions()), {
+          ...(owner ? { owner } : {}),
+          offset,
+          limit,
+        }),
+      ),
   );
 }

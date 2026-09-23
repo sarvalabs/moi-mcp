@@ -37,6 +37,7 @@ import {
 } from "../moi/ix-builder.js";
 import { getProvider, getReadOnlySigner, interactionUrl } from "../moi/provider.js";
 import { getAccount, getAsset, toBigInt } from "../moi/reads.js";
+import { jsonSafe, unwrapRoutineResult } from "../moi/registry.js";
 import {
   CallLogicInput,
   CallLogicViewOutput,
@@ -603,11 +604,9 @@ export async function viewLogicCall(
     );
   }
   const response = await (await fn(...(params.args ?? []))).call();
-  const outputs = (await response.result()) as Record<string, unknown>;
+  const outputs = unwrapRoutineResult(await response.result(), `${params.routine} on ${params.logicId}`);
   return {
     routine: params.routine,
-    outputs: JSON.parse(
-      JSON.stringify(outputs, (_k, v) => (typeof v === "bigint" ? v.toString() : v)),
-    ) as Record<string, unknown>,
+    outputs: (jsonSafe(outputs) ?? {}) as Record<string, unknown>,
   };
 }

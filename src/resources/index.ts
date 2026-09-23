@@ -29,6 +29,7 @@ Reads need no wallet. Ask your agent:
 - "did interaction 0x… land" → \`moi_get_interaction\`
 - "what routines does logic 0x… expose" → \`moi_get_logic\`
 - "find the agent called pricefeed-01" → \`moi_resolve_agent\`
+- "which agents has 0x… registered" → \`moi_list_agents\`
 
 ## 3. Pair, then write
 
