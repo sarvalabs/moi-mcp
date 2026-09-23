@@ -11,6 +11,7 @@
  */
 
 import { z } from "zod";
+import { KMOI_ASSET_ID } from "js-moi-sdk";
 
 import { getConfig, log } from "../config.js";
 import { toMcpError } from "../errors.js";
@@ -19,6 +20,7 @@ import {
   assertSendable,
   buildCreateAsset,
   buildLogicInvoke,
+  buildCreateAccount,
   buildMint,
   buildTransfer,
   encodeLogicCall,
@@ -27,6 +29,7 @@ import {
   DEFAULT_STORAGE_FUND,
   MIN_STORAGE_FUND,
   estimateFuelFor,
+  FUEL_RESERVE,
   parseAmount,
   simulate,
   type SenderInfo,
@@ -37,6 +40,7 @@ import { getAccount, getAsset, toBigInt } from "../moi/reads.js";
 import {
   CallLogicInput,
   CallLogicViewOutput,
+  CreateAccountInput,
   CreateAssetInput,
   ErrorCode,
   MintInput,
@@ -258,6 +262,81 @@ export interface PreparedWrite {
 /**
  * Prepare a transfer: build, measure fuel, simulate.
  */
+/** The identifier a compressed public key produces for a primary (variant 0) account. */
+export async function accountIdForPublicKey(publicKey: string): Promise<string> {
+  const { createParticipantId, ParticipantTagV0, hexToBytes } = await import("js-moi-sdk");
+  const bytes = hexToBytes(publicKey as `0x${string}`);
+  if (bytes.length !== 33) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      `publicKey must be a compressed public key, 33 bytes (0x plus 66 hex characters); got ${bytes.length} bytes.`,
+    );
+  }
+  return createParticipantId({ fingerprint: bytes.slice(1, 25), variant: 0, tag: ParticipantTagV0 }).toHex();
+}
+
+export async function prepareCreateAccount(
+  account: string,
+  params: z.infer<typeof CreateAccountInput>,
+): Promise<PreparedWrite> {
+  const provider = getProvider(providerOptions());
+  const derived = await accountIdForPublicKey(params.publicKey);
+  if (derived.toLowerCase() !== params.address.toLowerCase()) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      `That public key belongs to ${derived}, not ${params.address}. Ask for the address and public key of the same account.`,
+      { derived },
+    );
+  }
+  // Already on chain: registering again fails, and a plain transfer is what they want.
+  let exists = false;
+  try {
+    exists = (await getAccount(provider, params.address)).isRegistered;
+  } catch {
+    exists = false; // "account not found" is the expected answer here
+  }
+  if (exists) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      `${params.address} is already registered on chain. Use moi_transfer to send it KMOI.`,
+    );
+  }
+
+  const kmoi = await getAsset(provider, KMOI_ASSET_ID);
+  const raw = parseAmount(params.amount, kmoi.decimals);
+  if (raw <= 0n) {
+    throw new MoiError(ErrorCode.INVALID_ARGS, "amount must be positive; the new account needs KMOI to exist.");
+  }
+  const held = toBigInt(
+    (await getAccount(provider, account)).balances.find((b) => b.assetId.toLowerCase() === KMOI_ASSET_ID.toLowerCase())?.amount ?? 0,
+  );
+  if (held < raw + FUEL_RESERVE) {
+    throw new MoiError(
+      ErrorCode.INSUFFICIENT_BALANCE,
+      `Funding ${params.address} with ${params.amount} KMOI needs ${raw} base units plus fuel, but this account holds ${held}.`,
+      { held: held.toString(), needed: (raw + FUEL_RESERVE).toString() },
+    );
+  }
+
+  const ix = await withMeasuredFuel(
+    buildCreateAccount(await senderFor(account), { id: params.address, publicKey: params.publicKey, amount: raw }),
+  );
+  assertSendable(ix);
+  await assertWillSucceed(ix);
+
+  return {
+    ix,
+    description: `Create account ${params.address} with ${params.amount} KMOI`,
+    details: {
+      Operation: "Register a new account and fund it",
+      "New account": params.address,
+      "Funded with": `${params.amount} KMOI`,
+      "Funded with (base units)": raw.toString(),
+      "Controlling key": params.publicKey,
+    },
+  };
+}
+
 export async function prepareTransfer(
   account: string,
   params: z.infer<typeof TransferInput>,

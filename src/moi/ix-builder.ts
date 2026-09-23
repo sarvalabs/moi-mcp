@@ -118,6 +118,44 @@ function base(sender: SenderInfo, options: BuildOptions): Omit<UnsignedInteracti
   };
 }
 
+/** Weight the chain gives a single controlling key; the SDK and the docs both use 1000. */
+export const SINGLE_KEY_WEIGHT = 1000;
+
+/**
+ * Register a participant that does not exist yet and fund it with KMOI in
+ * the same operation. Shape matched against js-moi-interactions'
+ * ParticipantCreate builder: the key list, the funding transfer as a
+ * callsite plus calldata, and only the asset declared as a participant.
+ * The new account is not declared; it does not exist until this lands.
+ */
+export function buildCreateAccount(
+  sender: SenderInfo,
+  params: { id: string; publicKey: string; amount: bigint },
+  options: BuildOptions = {},
+): UnsignedInteraction {
+  const amount =
+    params.amount <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(params.amount) : params.amount;
+  const funding = buildTransferPayload(
+    KMOI_ASSET_ID as `0x${string}`,
+    params.id as `0x${string}`,
+    amount,
+  ) as { calldata?: string };
+  return {
+    ...base(sender, options),
+    ix_operations: [
+      {
+        type: OpType.PARTICIPANT_CREATE,
+        payload: {
+          id: params.id,
+          keys_payload: [{ public_key: params.publicKey, weight: SINGLE_KEY_WEIGHT, signature_algorithm: 0 }],
+          value: { asset_id: KMOI_ASSET_ID, callsite: "Transfer", calldata: String(funding.calldata ?? "") },
+        },
+      },
+    ],
+    participants: [{ id: KMOI_ASSET_ID, lock_type: LockType.NO_LOCK }],
+  };
+}
+
 /** Asset transfer. The recipient must be declared as a participant. */
 export function buildTransfer(
   sender: SenderInfo,

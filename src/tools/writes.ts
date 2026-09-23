@@ -14,6 +14,7 @@ import { getConfig, log } from "../config.js";
 import { interactionUrl } from "../moi/provider.js";
 import {
   CallLogicInput,
+  CreateAccountInput,
   CreateAssetInput,
   MintInput,
   TransferInput,
@@ -27,6 +28,7 @@ import {
   broadcastSigned,
   kmoiBalance,
   ok,
+  prepareCreateAccount,
   prepareCreateAsset,
   prepareLogicInvoke,
   prepareMint,
@@ -85,6 +87,37 @@ export function registerWriteTools(server: McpServer): void {
           prepared.description,
         );
 
+        return ok({
+          status: "sent",
+          hash,
+          explorerUrl: interactionUrl(cfg.MOI_NETWORK, hash, cfg.MOI_EXPLORER_URL),
+        });
+      } catch (err) {
+        return ok(asWriteResult(err));
+      }
+    },
+  );
+
+  server.registerTool(
+    "moi_create_account",
+    {
+      title: "Create a MOI account",
+      description:
+        "Register a brand-new MOI account on chain and fund it with KMOI from your paired wallet. " +
+        "A transfer to an address that has never existed is refused by the node, so this is how a " +
+        "fresh account gets its first KMOI. Takes the new account's address and compressed public key; " +
+        "the tool refuses a key that does not produce that address. Sent to MOI Wallet for approval.",
+      inputSchema: CreateAccountInput.shape,
+      outputSchema: WriteOutputShape,
+      annotations: WRITE_ANNOTATIONS,
+    },
+    async (params) => {
+      try {
+        const cfg = getConfig();
+        const wc = walletClient();
+        const session = requireSession(await wc.currentSession(), cfg.MOI_NETWORK);
+        const prepared = await prepareCreateAccount(session.account, params);
+        const hash = await signAndBroadcast(session, prepared.ix, prepared.description);
         return ok({
           status: "sent",
           hash,

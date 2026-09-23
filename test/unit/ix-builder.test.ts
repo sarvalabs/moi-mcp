@@ -18,6 +18,7 @@ import {
   FUEL_RESERVE,
   MIN_STORAGE_FUND,
   estimateFuelFor,
+  buildCreateAccount,
   buildLogicInvoke,
   buildTransfer,
   MAX_OPERATIONS,
@@ -161,6 +162,32 @@ describe("buildMint", () => {
     await expect(
       buildMint(signer, SENDER, { assetId: asset.toHex(), to: "not-a-hex-address", amount: 1n }),
     ).rejects.toThrow(/Could not build a mint/);
+  });
+});
+
+describe("buildCreateAccount", () => {
+  it("matches the SDK's ParticipantCreate shape: one weighted key, a KMOI funding transfer, the asset declared", () => {
+    const ix = buildCreateAccount(SENDER, {
+      id: "0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000",
+      publicKey: "0x03a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f679e9b37c57edb9f",
+      amount: 500_000_000_000n,
+    });
+    expect(ix.ix_operations).toHaveLength(1);
+    expect(ix.ix_operations[0]!.type).toBe(OpType.PARTICIPANT_CREATE);
+    const payload = ix.ix_operations[0]!.payload as {
+      id: string;
+      keys_payload: Array<{ public_key: string; weight: number; signature_algorithm: number }>;
+      value: { asset_id: string; callsite: string; calldata: string };
+    };
+    expect(payload.id).toBe("0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000");
+    expect(payload.keys_payload).toEqual([
+      { public_key: "0x03a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f679e9b37c57edb9f", weight: 1000, signature_algorithm: 0 },
+    ]);
+    expect(payload.value.asset_id.toLowerCase()).toBe(KMOI_ASSET_ID.toLowerCase());
+    expect(payload.value.callsite).toBe("Transfer");
+    expect(payload.value.calldata).toMatch(/^0x[0-9a-f]+$/);
+    // Only the asset is declared: the new account does not exist until this lands.
+    expect(ix.participants).toEqual([{ id: KMOI_ASSET_ID, lock_type: LockType.NO_LOCK }]);
   });
 });
 

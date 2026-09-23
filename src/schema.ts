@@ -235,6 +235,21 @@ export const TransferInput = z.object({
   memo: z.string().max(140).optional(),
 });
 
+/**
+ * Registering a brand-new account. MOI accounts do not spring into being on
+ * first receipt: someone already on chain has to create the participant,
+ * naming its public key, and fund it in the same operation. A plain transfer
+ * to an unregistered address is refused by the node.
+ */
+export const CreateAccountInput = z.object({
+  address: HexId.describe("The new account's identifier: 0x plus 64 hex characters, as MOI Wallet shows it."),
+  publicKey: HexId.describe(
+    "The new account's compressed public key: 0x plus 66 hex characters. The address is derived from " +
+      "it, so the two must belong together; the tool checks before anything reaches the phone.",
+  ),
+  amount: WireAmount.describe("KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new account's own storage and fuel."),
+});
+
 export const CreateAssetInput = z.object({
   symbol: z.string().min(1).max(12),
   supply: WireAmount,
@@ -546,6 +561,7 @@ export const TOOLS = {
   moi_get_logic:         { input: GetLogicInput,         write: false },
   moi_resolve_agent:     { input: ResolveAgentInput,     write: false },
   moi_transfer:          { input: TransferInput,         write: true  },
+  moi_create_account:    { input: CreateAccountInput,    write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
 } as const;

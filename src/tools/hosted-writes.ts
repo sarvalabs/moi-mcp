@@ -30,6 +30,7 @@ import type { AuthInfo } from "../auth/types.js";
 import { isExpired } from "../wc/lifetime.js";
 import {
   CallLogicInput,
+  CreateAccountInput,
   CreateAssetInput,
   ErrorCode,
   MintInput,
@@ -47,6 +48,7 @@ import {
   broadcastSigned,
   kmoiBalance,
   ok,
+  prepareCreateAccount,
   prepareCreateAsset,
   prepareLogicInvoke,
   prepareMint,
@@ -68,7 +70,7 @@ export interface HostedWriteDeps {
 
 const defaultPreviews = new PreviewRegistry();
 
-type WriteKind = "transfer" | "create_asset" | "mint" | "call_logic";
+type WriteKind = "transfer" | "create_account" | "create_asset" | "mint" | "call_logic";
 
 /**
  * Record a signed-but-not-broadcast (or never-signed) attempt as failed once
@@ -325,6 +327,23 @@ export function registerHostedWrites(
     },
     async ({ confirm, ...args }) =>
       runWrite(deps, auth, "transfer", args, confirm, (s) => prepareTransfer(s.address, args)),
+  );
+
+  server.registerTool(
+    "moi_create_account",
+    {
+      title: "Create a MOI account",
+      description:
+        "Register a brand-new MOI account on chain and fund it with KMOI from the user's paired wallet; nothing happens until they tap Send on their phone. " +
+        "Needed because a transfer to an address that has never existed is refused by the node. Takes the new account's address and its public key, " +
+        "which MOI Wallet or the SDK shows for a freshly generated account; the tool refuses a key that does not produce that address." +
+        APPROVAL_PROTOCOL,
+      inputSchema: { ...CreateAccountInput.shape, confirm: ConfirmArg },
+      outputSchema: WriteOutputShape,
+      annotations: WRITE_ANNOTATIONS,
+    },
+    async ({ confirm, ...args }) =>
+      runWrite(deps, auth, "create_account", args, confirm, (s) => prepareCreateAccount(s.address, args)),
   );
 
   server.registerTool(
