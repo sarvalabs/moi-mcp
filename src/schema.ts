@@ -242,13 +242,20 @@ export const TransferInput = z.object({
  * to an unregistered address is refused by the node.
  */
 export const CreateAccountInput = z.object({
-  address: HexId.describe("The new account's identifier: 0x plus 64 hex characters, as MOI Wallet shows it."),
-  publicKey: HexId.describe(
-    "The new account's compressed public key: 0x plus 66 hex characters. The address is derived from " +
-      "it, so the two must belong together; the tool checks before anything reaches the phone.",
-  ),
-  amount: WireAmount.describe("KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new account's own storage and fuel."),
-});
+    registrationHash: HexId.optional().describe(
+      "The registration hash MOI Wallet shows for a new account (a long 0x string). It carries the " +
+        "address and public key together, so with it nothing else is needed.",
+    ),
+    address: HexId.optional().describe("The new account's identifier: 0x plus 64 hex characters. Use with publicKey when there is no registration hash."),
+    publicKey: HexId.optional().describe(
+      "The new account's compressed public key: 0x plus 66 hex characters. The address is derived from " +
+        "it, so the two must belong together; the tool checks before anything reaches the phone.",
+    ),
+    amount: WireAmount.describe(
+      "KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new " +
+        "account's own storage and fuel. The chain refuses less than 1 KMOI.",
+    ),
+  });
 
 export const CreateAssetInput = z.object({
   symbol: z.string().min(1).max(12),

@@ -275,23 +275,94 @@ export async function accountIdForPublicKey(publicKey: string): Promise<string> 
   return createParticipantId({ fingerprint: bytes.slice(1, 25), variant: 0, tag: ParticipantTagV0 }).toHex();
 }
 
+/**
+ * POLO layout of the registration hash MOI Wallet produces for a new account:
+ * a whole PARTICIPANT_CREATE operation, with the address and key inside.
+ * Matches the decoder in MOI's own participant-registration service.
+ */
+const REGISTRATION_HASH_SCHEMA = {
+  kind: "struct",
+  fields: {
+    opType: { kind: "integer" },
+    payload: {
+      kind: "struct",
+      fields: {
+        id: { kind: "string" },
+        keys_payload: {
+          kind: "array",
+          fields: {
+            values: {
+              kind: "struct",
+              fields: {
+                public_key: { kind: "string" },
+                weight: { kind: "integer" },
+                signature_algorithm: { kind: "integer" },
+              },
+            },
+          },
+        },
+        value: {
+          kind: "struct",
+          fields: { asset_id: { kind: "string" }, callsite: { kind: "string" }, calldata: { kind: "string" } },
+        },
+      },
+    },
+  },
+} as const;
+
+/** The address and public key inside a wallet registration hash. */
+export async function decodeRegistrationHash(hash: string): Promise<{ address: string; publicKey: string }> {
+  const { Depolorizer } = await import("js-polo");
+  const { hexToBytes } = await import("js-moi-sdk");
+  let decoded: { payload?: { id?: string; keys_payload?: Array<{ public_key?: string }> } };
+  try {
+    decoded = new Depolorizer(hexToBytes(hash as `0x${string}`)).depolorize(REGISTRATION_HASH_SCHEMA as never) as never;
+  } catch (err) {
+    throw new MoiError(ErrorCode.INVALID_ARGS, `That is not a registration hash: ${messageOfError(err)}`);
+  }
+  const address = decoded?.payload?.id;
+  const publicKey = decoded?.payload?.keys_payload?.[0]?.public_key;
+  if (!address || !publicKey) {
+    throw new MoiError(ErrorCode.INVALID_ARGS, "The registration hash decodes but carries no address or public key.");
+  }
+  return { address, publicKey };
+}
+
+function messageOfError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Least a new account can be funded with; below it the chain silently refuses the registration. */
+export const MIN_ACCOUNT_FUND = 1_000_000_000n;
+
 export async function prepareCreateAccount(
   account: string,
   params: z.infer<typeof CreateAccountInput>,
 ): Promise<PreparedWrite> {
   const provider = getProvider(providerOptions());
-  const derived = await accountIdForPublicKey(params.publicKey);
-  if (derived.toLowerCase() !== params.address.toLowerCase()) {
+  if (!params.registrationHash && !(params.address && params.publicKey)) {
     throw new MoiError(
       ErrorCode.INVALID_ARGS,
-      `That public key belongs to ${derived}, not ${params.address}. Ask for the address and public key of the same account.`,
+      "Give either the registration hash MOI Wallet shows for the new account, or both its address and public key.",
+    );
+  }
+  const target = params.registrationHash
+    ? await decodeRegistrationHash(params.registrationHash)
+    : { address: params.address as string, publicKey: params.publicKey as string };
+  const derived = await accountIdForPublicKey(target.publicKey);
+  if (derived.toLowerCase() !== target.address.toLowerCase()) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      `That public key belongs to ${derived}, not ${target.address}. Ask for the address and public key of the same account.`,
       { derived },
     );
   }
+  // From here on only the resolved pair is used.
+  params = { ...params, address: target.address, publicKey: target.publicKey };
   // Already on chain: registering again fails, and a plain transfer is what they want.
   let exists = false;
   try {
-    exists = (await getAccount(provider, params.address)).isRegistered;
+    exists = (await getAccount(provider, params.address as string)).isRegistered;
   } catch {
     exists = false; // "account not found" is the expected answer here
   }
@@ -304,8 +375,11 @@ export async function prepareCreateAccount(
 
   const kmoi = await getAsset(provider, KMOI_ASSET_ID);
   const raw = parseAmount(params.amount, kmoi.decimals);
-  if (raw <= 0n) {
-    throw new MoiError(ErrorCode.INVALID_ARGS, "amount must be positive; the new account needs KMOI to exist.");
+  if (raw < MIN_ACCOUNT_FUND) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      `amount must be at least 1 KMOI; the chain refuses a registration funded with less, after every operation in it reports success.`,
+    );
   }
   const held = toBigInt(
     (await getAccount(provider, account)).balances.find((b) => b.assetId.toLowerCase() === KMOI_ASSET_ID.toLowerCase())?.amount ?? 0,
@@ -319,7 +393,7 @@ export async function prepareCreateAccount(
   }
 
   const ix = await withMeasuredFuel(
-    buildCreateAccount(await senderFor(account), { id: params.address, publicKey: params.publicKey, amount: raw }),
+    buildCreateAccount(await senderFor(account), { id: params.address as string, publicKey: params.publicKey as string, amount: raw }),
   );
   assertSendable(ix);
   await assertWillSucceed(ix);
@@ -329,10 +403,10 @@ export async function prepareCreateAccount(
     description: `Create account ${params.address} with ${params.amount} KMOI`,
     details: {
       Operation: "Register a new account and fund it",
-      "New account": params.address,
+      "New account": params.address as string,
       "Funded with": `${params.amount} KMOI`,
       "Funded with (base units)": raw.toString(),
-      "Controlling key": params.publicKey,
+      "Controlling key": params.publicKey as string,
     },
   };
 }
