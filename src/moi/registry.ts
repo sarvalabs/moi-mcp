@@ -17,9 +17,15 @@ import { MoiError, asRpcError } from "../moi-error.js";
 import { ErrorCode, type ResolveAgentOutput } from "../schema.js";
 import type { ReadOnlySigner } from "./provider.js";
 
-/** Canonical registry logic id, as shipped by js-moi-agent-registry@0.3.0-rc1. */
+/**
+ * The registry logic id on the current devnet. Redeployed after the
+ * September 2026 chain reset; the Launchpad moved to it on 2026-09-15.
+ * js-moi-agent-registry@0.3.0-rc1 still ships the pre-reset id
+ * (0x20000000c684f926...), which no longer exists on chain, so this value is
+ * kept here rather than taken from that package.
+ */
 export const DEFAULT_REGISTRY_LOGIC_ID =
-  "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb00000000";
+  "0x200000002f3e9469d94de695be18fc5839fb9535f543b381f903f7f800000000";
 
 export function registryLogicId(env: NodeJS.ProcessEnv = process.env): string {
   return env["MOI_AGENT_REGISTRY_LOGIC_ID"] ?? DEFAULT_REGISTRY_LOGIC_ID;
