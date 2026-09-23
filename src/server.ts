@@ -48,7 +48,13 @@ import { randomUUID } from "node:crypto";
 import { withModernSchemaDialect } from "./json-schema-dialect.js";
 import { WriteJournal } from "./journal.js";
 import { NETWORKS } from "./moi/provider.js";
-import { createPairingLink as createPairingLinkFor, consumeForUser, modeForUser, mountPairing } from "./pairing/index.js";
+import {
+  createPairingLink as createPairingLinkFor,
+  consumeForUser,
+  modeForUser,
+  mountPairing,
+  type PairingSeed,
+} from "./pairing/index.js";
 import { expiresAtOf, expiryFor, isExpired, type PairingMode } from "./wc/lifetime.js";
 import QRCode from "qrcode";
 import { registerHostedWrites } from "./tools/hosted-writes.js";
@@ -102,8 +108,12 @@ export interface HostedDeps {
   journal: WriteJournal;
   /** Whether mountPairing(app, ...) was called on the outer app main() builds this onto. Surfaced at /health only — this app never serves /pair itself. */
   resolveUriMounted: boolean;
-  /** One-arg wrapper over pairing/index.js's createPairingLink(userId, publicUrl) — the publicUrl is baked in by whoever builds this object. */
-  createPairingLink(userId: string): { url: string; expiresAt: number };
+  /**
+   * Wrapper over pairing/index.js's createPairingLink(userId, publicUrl, seed)
+   * with the publicUrl baked in by whoever builds this object. The seed lets
+   * moi_connect_wallet make the page show the proposal it just started.
+   */
+  createPairingLink(userId: string, seed?: PairingSeed): { url: string; expiresAt: number };
   /** Public origin, used to advertise absolute icon URLs in serverInfo. */
   publicUrl?: string;
   /**
@@ -163,7 +173,10 @@ function networkForCaip2(caip2: string): string | undefined {
 }
 
 const CONNECT_OUTPUT = {
-  uri: z.string().describe("WalletConnect pairing link, the fallback behind the QR image. Only show it if the person cannot see the image."),
+  pairingUrl: z
+    .string()
+    .describe("Web page showing the same QR code, plus the pairing link with a copy button. Give this to the person as a clickable link."),
+  uri: z.string().describe("The raw WalletConnect pairing string. Paste it only if the person asks for it by name."),
   expiresAt: z.number().describe("Unix seconds; the pairing proposal dies at this time."),
   mode: z.enum(["persistent", "once"]).describe("How long the pairing lives once approved."),
   replaces: z
@@ -200,11 +213,12 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
     {
       title: "Connect MOI Wallet",
       description:
-        "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image: " +
-        "show it and say nothing else about how to pair. The pairing link is in structuredContent.uri " +
-        "as a fallback; paste it ONLY if the person says they cannot see the image, because a long " +
-        "wc: string in the chat is noise next to a code they can simply scan. After they approve on " +
-        "their phone, call moi_wallet_status to confirm. No private key ever reaches this server.",
+        "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image " +
+        "and, in the text, a link to a web page showing the same code. Show the image if your client " +
+        "renders images from tool results, and ALWAYS give the person the page link as a clickable URL, " +
+        "because some clients never display the image. Do not paste the raw wc: string unless asked. " +
+        "After they approve on their phone, call moi_wallet_status to confirm. No private key ever " +
+        "reaches this server.",
       inputSchema: {
         remember: z
           .boolean()
@@ -227,7 +241,14 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
         const existing = await deps.store.get(userId);
         const replaces =
           existing && !isExpired(existing) ? { address: existing.address, since: existing.createdAt } : undefined;
-        const { uri, expiresAt } = await deps.startPairing(userId, mode);
+        // The lifetime goes on the pairing record first, so the page shows
+        // the same choice and the approval handler reads it from one place
+        // (makeStartPairing falls back to modeForUser when mode is omitted).
+        deps.createPairingLink(userId, { mode });
+        const { uri, expiresAt } = await deps.startPairing(userId);
+        // Then the page is seeded with this very proposal, so a person who
+        // cannot see the image in chat opens the link and scans the same code.
+        const link = deps.createPairingLink(userId, { uri });
 
         // The URI lands in the chat transcript, and it carries the key for
         // this pairing proposal. That is a deliberate trade: the proposal is
@@ -235,6 +256,10 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
         // real-time race on the transcript, and the user chose staying in the
         // chat over a separate page. Funds are never at stake either way; a
         // hijacked pairing can raise prompts on a phone, not sign for it.
+        //
+        // claude.ai does not show image blocks from tool results to the
+        // person, and does not give its model structuredContent, so the page
+        // link in the text is the one path that works everywhere.
         const png = await QRCode.toBuffer(uri, { type: "png", width: 320, margin: 1 });
         const lifetime =
           mode === "once"
@@ -242,8 +267,9 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
             : 'You stay connected for a week. Say "disconnect my wallet" to end it sooner.';
         const text = [
           "Scan this QR code with MOI Wallet on your phone, then approve the pairing there.",
+          `If the QR code is not showing here, open ${link.url} in your browser. It shows the same code, ` +
+            "with the pairing link and a copy button.",
           "It expires in about 5 minutes. " + lifetime,
-          "If you cannot see the QR image, say so and I will paste the pairing link instead.",
           "Once approved, moi_wallet_status confirms the pairing.",
           ...(replaces
             ? [
@@ -252,7 +278,7 @@ function registerWalletSurface(server: McpServer, deps: HostedDeps, auth: AuthIn
               ]
             : []),
         ].join("\n");
-        const structuredContent = { uri, expiresAt, mode, ...(replaces ? { replaces } : {}) };
+        const structuredContent = { pairingUrl: link.url, uri, expiresAt, mode, ...(replaces ? { replaces } : {}) };
         return {
           content: [
             { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
@@ -642,7 +668,7 @@ async function main(): Promise<void> {
       hub,
       journal,
       resolveUriMounted: true,
-      createPairingLink: (userId: string) => createPairingLinkFor(userId, hosted.PUBLIC_URL),
+      createPairingLink: (userId: string, seed?: PairingSeed) => createPairingLinkFor(userId, hosted.PUBLIC_URL, seed),
       startPairing,
       publicUrl: hosted.PUBLIC_URL,
     }),

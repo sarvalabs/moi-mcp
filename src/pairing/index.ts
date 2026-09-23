@@ -27,8 +27,18 @@ interface PairingRecord {
   used: boolean;
 }
 
+/**
+ * What the chat tool already knows when it hands out a link: the lifetime the
+ * person asked for, and the wc: URI of the proposal it just started, so the
+ * page shows the same code the chat did instead of starting a second one.
+ */
+export interface PairingSeed {
+  mode?: PairingMode;
+  uri?: string;
+}
+
 export interface PairingModule {
-  createPairingLink(userId: string, publicUrl: string): { url: string; expiresAt: number };
+  createPairingLink(userId: string, publicUrl: string, seed?: PairingSeed): { url: string; expiresAt: number };
   consumeForUser(userId: string): void;
   /** The lifetime chosen on the user's live pairing page, or the default. */
   modeForUser(userId: string): PairingMode;
@@ -72,20 +82,34 @@ export function createPairingModule(now: () => number = Date.now): PairingModule
     }
   }
 
-  function createPairingLink(userId: string, publicUrl: string): { url: string; expiresAt: number } {
+  function createPairingLink(userId: string, publicUrl: string, seed?: PairingSeed): { url: string; expiresAt: number } {
     sweep();
 
     const existingToken = byUser.get(userId);
     const existing = existingToken ? tokens.get(existingToken) : undefined;
     if (existing && isLive(existing)) {
+      applySeed(existing, seed);
       return { url: linkUrl(publicUrl, existingToken as string), expiresAt: expirySeconds(existing) };
     }
 
     const token = randomBytes(32).toString("base64url");
     const record: PairingRecord = { userId, mode: DEFAULT_MODE, createdAt: now(), used: false };
+    applySeed(record, seed);
     tokens.set(token, record);
     byUser.set(userId, token);
     return { url: linkUrl(publicUrl, token), expiresAt: expirySeconds(record) };
+  }
+
+  /**
+   * A mode from the chat is the newest word on the lifetime, so it wins. A
+   * URI only fills an empty slot: once the page has resolved (or is resolving)
+   * its own proposal, that one stays, and the chat's proposal simply expires
+   * unused.
+   */
+  function applySeed(rec: PairingRecord, seed?: PairingSeed): void {
+    if (!seed) return;
+    if (seed.mode) rec.mode = seed.mode;
+    if (seed.uri && rec.uri === undefined && rec.resolving === undefined) rec.uri = seed.uri;
   }
 
   function consumeForUser(userId: string): void {

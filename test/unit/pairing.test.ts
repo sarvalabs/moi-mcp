@@ -69,6 +69,44 @@ describe("pairing", () => {
       expect(second.url).not.toBe(first.url);
     });
 
+    it("a seeded uri makes the page render that proposal without calling resolveUri", async () => {
+      const { createPairingLink, mountPairing } = createPairingModule(now);
+      const resolveUri = vi.fn().mockResolvedValue("wc:other@2?relay-protocol=irn&symKey=ffff");
+      const app = express();
+      mountPairing(app, { resolveUri });
+      const { server, base } = await listen(app);
+      try {
+        const { url } = createPairingLink("alice", PUBLIC_URL, { uri: URI, mode: "once" });
+        const res = await fetch(`${base}${url.slice(PUBLIC_URL.length)}`);
+        expect(res.status).toBe(200);
+        const html = await res.text();
+        expect(html).toContain("wc:7f2a@2"); // the page HTML-escapes the rest
+        expect(html).not.toContain("wc:other");
+        expect(resolveUri).not.toHaveBeenCalled();
+      } finally {
+        server.close();
+      }
+    });
+
+    it("a seed updates the lifetime of a live link but never replaces a uri the page already has", async () => {
+      const { createPairingLink, modeForUser, mountPairing } = createPairingModule(now);
+      const app = express();
+      mountPairing(app, { resolveUri: vi.fn() });
+      const { server, base } = await listen(app);
+      try {
+        const first = createPairingLink("alice", PUBLIC_URL, { uri: URI });
+        const second = createPairingLink("alice", PUBLIC_URL, { uri: "wc:second@2?relay-protocol=irn", mode: "once" });
+        expect(second.url).toBe(first.url);
+        expect(modeForUser("alice")).toBe("once");
+        const html = await (await fetch(`${base}${first.url.slice(PUBLIC_URL.length)}`)).text();
+        // The first proposal stays: the page keeps showing what it already showed.
+        expect(html).toContain("wc:7f2a@2");
+        expect(html).not.toContain("wc:second");
+      } finally {
+        server.close();
+      }
+    });
+
     it("consumeForUser is a no-op for a user with no outstanding link", () => {
       const { consumeForUser } = createPairingModule(now);
       expect(() => consumeForUser("nobody")).not.toThrow();
