@@ -13,6 +13,14 @@ const STYLE =
   "font-family:system-ui,-apple-system,sans-serif;max-width:28rem;margin:4rem auto;" +
   "padding:0 1.5rem;color:#1a1a1a;line-height:1.5";
 
+/**
+ * The MOI lockup, served by the server itself at /logo.svg (see branding.ts),
+ * so the page needs nothing from another origin and the CSP's img-src 'self'
+ * covers it. 52x40 is the 26x20 artwork at a whole-number scale, as the brand
+ * book asks.
+ */
+const LOGO = `<img src="/logo.svg" alt="MOI" width="52" height="40" style="display:block;margin-bottom:1.25rem">`;
+
 export function renderErrorPage(title: string, detail: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title></head>
 <body style="${STYLE}">
@@ -50,6 +58,7 @@ export function renderConsentPage(opts: {
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Authorize ${esc(opts.clientName)}</title></head>
 <body style="${STYLE}">
+${LOGO}
 <h1 style="font-size:1.25rem">${esc(opts.clientName)} wants to connect</h1>
 <p>After you approve, you will be sent back to <strong>${esc(opts.redirectOrigin)}</strong>. If that is not the app you are using, deny this.</p>
 <p>It is asking to:</p>

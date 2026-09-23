@@ -513,6 +513,20 @@ describe("consent page when this browser already has a paired wallet", () => {
     expect(html).not.toContain("already paired");
   });
 
+  it("carries the MOI logo from the server's own origin, paired or not", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    expect(first.html).toContain('<img src="/logo.svg" alt="MOI"');
+
+    const { userId } = await decide(p, first.cookie, "approve", verifier, c);
+    paired.set(userId, "0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000");
+    const again = await consent(p, first.cookie);
+    expect(again.html).toContain("already paired");
+    expect(again.html).toContain('<img src="/logo.svg" alt="MOI"');
+  });
+
   it("shows the paired address and offers a fresh identity once the browser's identity has a wallet", async () => {
     const c = await client();
     const { verifier, challenge } = pkcePair();
