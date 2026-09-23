@@ -30,6 +30,8 @@ export interface RouteDeps {
   codeStore: CodeStore;
   cookieSecret: Buffer;
   cookieSecure: boolean;
+  /** See MountAuthOptions.pairedWallet. Absent means the consent page never mentions pairings. */
+  pairedWallet?: (userId: string) => Promise<{ address: string } | undefined>;
 }
 
 /** Read the signed identity cookie, or mint and set a fresh one. Shared by GET /authorize and the decision POST. */
@@ -37,7 +39,15 @@ function resolveIdentity(req: Request, res: Response, deps: RouteDeps): string {
   const cookies = parseCookies(req.headers.cookie);
   const existing = verifySignedUid(cookies[COOKIE_NAME], deps.cookieSecret);
   if (existing) return existing;
+  return mintIdentity(res, deps);
+}
 
+/**
+ * Mint a new identity and make this browser carry it from now on. Used for a
+ * browser with no cookie, and for a person who says on the consent page that
+ * the wallet already paired to this browser is not theirs.
+ */
+function mintIdentity(res: Response, deps: RouteDeps): string {
   const uid = newUid();
   res.cookie(COOKIE_NAME, signUid(uid, deps.cookieSecret), {
     httpOnly: true,
@@ -46,6 +56,44 @@ function resolveIdentity(req: Request, res: Response, deps: RouteDeps): string {
     maxAge: COOKIE_MAX_AGE_MS,
   });
   return uid;
+}
+
+/** How long the consent page waits for the wallet store before showing no notice. */
+const PAIRED_LOOKUP_TIMEOUT_MS = 750;
+
+/**
+ * The wallet paired to this identity, for the consent page to show. Neither a
+ * failure nor a stall may block sign-in: this route did no I/O before the
+ * notice existed, and a wallet store that stops answering (a Redis blip is
+ * enough) must not turn every sign-in into a hung request. Both read as
+ * "no pairing" and the page simply omits the notice.
+ */
+async function pairedWalletFor(deps: RouteDeps, userId: string): Promise<{ address: string } | undefined> {
+  if (!deps.pairedWallet) return undefined;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      deps.pairedWallet(userId),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), PAIRED_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Which identity a consent page was rendered for, carried in the form as a
+ * hash so the page cannot be used to approve as someone else. The browser has
+ * one cookie: if a second person replaced it ("I am someone else") while the
+ * first person's tab was still open, the first person's later Approve would
+ * otherwise mint a grant for the second person's identity.
+ */
+function identityTag(userId: string): string {
+  return sha256Hex(userId);
 }
 
 function authenticateClient(client: StoredClientRecord, presentedSecret: string | undefined): boolean {
@@ -208,6 +256,12 @@ function mountRegister(app: Express, deps: RouteDeps): void {
 
 function mountAuthorize(app: Express, deps: RouteDeps): void {
   app.get("/authorize", (req, res) => {
+    void handleAuthorize(req, res, deps).catch(() => {
+      if (!res.headersSent) res.status(500).send(renderErrorPage("Something went wrong", "Try again."));
+    });
+  });
+
+  async function handleAuthorize(req: Request, res: Response, deps: RouteDeps): Promise<void> {
     const q = req.query as Record<string, string | undefined>;
     const clientId = q["client_id"];
     const redirectUri = q["redirect_uri"];
@@ -252,13 +306,15 @@ function mountAuthorize(app: Express, deps: RouteDeps): void {
       return;
     }
 
-    resolveIdentity(req, res, deps);
+    const userId = resolveIdentity(req, res, deps);
+    const paired = await pairedWalletFor(deps, userId);
 
     const html = renderConsentPage({
       clientName: client.clientName,
       scopes: requestedScopes,
       redirectOrigin: new URL(redirectUri).origin,
       formAction: "/authorize/decision",
+      ...(paired ? { pairedAddress: paired.address } : {}),
       hidden: {
         client_id: clientId,
         redirect_uri: redirectUri,
@@ -266,10 +322,11 @@ function mountAuthorize(app: Express, deps: RouteDeps): void {
         code_challenge_method: "S256",
         scope: requestedScopes.join(" "),
         state: q["state"] ?? "",
+        shown_for: identityTag(userId),
       },
     });
     res.status(200).type("html").send(html);
-  });
+  }
 
   const decisionLimiter = rateLimit({ windowMs: 60_000, max: 20 });
   app.post("/authorize/decision", decisionLimiter, express.urlencoded({ extended: false }), (req, res) => {
@@ -290,7 +347,13 @@ function mountAuthorize(app: Express, deps: RouteDeps): void {
       return;
     }
 
-    if (body["decision"] !== "approve") {
+    // "approve" keeps whatever identity this browser carries. "approve_fresh"
+    // is the person saying the wallet paired to this browser is not theirs:
+    // they get a new identity, the browser's cookie is replaced, and the
+    // previous person's pairing stays untouched under the old one. Anything
+    // else is a denial.
+    const decision = body["decision"];
+    if (decision !== "approve" && decision !== "approve_fresh") {
       const url = new URL(redirectUri);
       url.searchParams.set("error", "access_denied");
       if (state) url.searchParams.set("state", state);
@@ -298,7 +361,21 @@ function mountAuthorize(app: Express, deps: RouteDeps): void {
       return;
     }
 
-    const userId = resolveIdentity(req, res, deps);
+    const userId = decision === "approve_fresh" ? mintIdentity(res, deps) : resolveIdentity(req, res, deps);
+    // A page rendered for one identity may only approve as that identity.
+    // If the cookie changed underneath an open tab, send the person back
+    // through /authorize so they see who this browser is now, then decide.
+    const shownFor = body["shown_for"];
+    if (decision === "approve" && shownFor && shownFor !== identityTag(userId)) {
+      const again = new URL("/authorize", "http://placeholder");
+      for (const key of ["client_id", "redirect_uri", "code_challenge", "code_challenge_method", "scope", "state"]) {
+        const value = body[key];
+        if (value) again.searchParams.set(key, value);
+      }
+      again.searchParams.set("response_type", "code");
+      res.redirect(302, again.pathname + again.search);
+      return;
+    }
     const scopes = (body["scope"] ?? "").split(/\s+/).filter(Boolean);
     // Same check /authorize already ran. The form echoes what that page was
     // given, but the POST is reachable directly, so an unchecked value here

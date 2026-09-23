@@ -36,6 +36,13 @@ export interface MountAuthOptions {
    * path-suffixed well-known location (RFC 9728 §3.1).
    */
   mcpPath?: string;
+  /**
+   * Which wallet, if any, is paired to an identity right now. When given, the
+   * consent page says so and offers to start as someone new, so a shared
+   * browser does not hand the next person the previous person's phone.
+   * Optional because the read-only server and most tests have no wallets.
+   */
+  pairedWallet?: (userId: string) => Promise<{ address: string } | undefined>;
 }
 
 export interface AuthHandle {
@@ -67,7 +74,16 @@ export function mountAuth(app: Express, opts: MountAuthOptions): AuthHandle {
   const codeStore = new CodeStore();
   const cookieSecure = publicUrl.startsWith("https://");
 
-  mountAuthRoutes(app, { publicUrl, mcpPath, clientStore, tokenStore, codeStore, cookieSecret, cookieSecure });
+  mountAuthRoutes(app, {
+    publicUrl,
+    mcpPath,
+    clientStore,
+    tokenStore,
+    codeStore,
+    cookieSecret,
+    cookieSecure,
+    ...(opts.pairedWallet ? { pairedWallet: opts.pairedWallet } : {}),
+  });
 
   function authenticate(req: { headers: IncomingHttpHeaders }): AuthInfo | undefined {
     const header = req.headers.authorization;
