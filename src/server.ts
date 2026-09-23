@@ -601,6 +601,7 @@ async function main(): Promise<void> {
   const { authenticate, challengeHeader } = mountAuth(app, {
     publicUrl: hosted.PUBLIC_URL,
     dataDir: hosted.dataDir,
+    mcpPath: MCP_PATH,
   });
 
   // Redis when a URL is configured, files otherwise. Both stores move together

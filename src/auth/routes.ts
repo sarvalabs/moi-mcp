@@ -23,6 +23,8 @@ const COOKIE_NAME = "moi_uid";
 
 export interface RouteDeps {
   publicUrl: string;
+  /** Path of the MCP endpoint under publicUrl, e.g. "/mcp". */
+  mcpPath: string;
   clientStore: ClientStore;
   tokenStore: TokenStore;
   codeStore: CodeStore;
@@ -103,14 +105,21 @@ function mountMetadata(app: Express, deps: RouteDeps): void {
     });
   });
 
-  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+  // `resource` is the MCP endpoint itself, path included. claude.ai compares
+  // it against the URL the person entered for the connector, and that URL
+  // ends in /mcp; a bare origin here does not match. Served at both the root
+  // location and the path-suffixed one (RFC 9728 §3.1), because clients try
+  // the suffixed form first when the resource has a path.
+  const protectedResource = (_req: Request, res: Response): void => {
     res.json({
-      resource: deps.publicUrl,
+      resource: `${deps.publicUrl}${deps.mcpPath}`,
       authorization_servers: [deps.publicUrl],
       scopes_supported: SCOPES_SUPPORTED,
       bearer_methods_supported: ["header"],
     });
-  });
+  };
+  app.get("/.well-known/oauth-protected-resource", protectedResource);
+  app.get(`/.well-known/oauth-protected-resource${deps.mcpPath}`, protectedResource);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,8 +127,14 @@ function mountMetadata(app: Express, deps: RouteDeps): void {
 // ---------------------------------------------------------------------------
 
 function mountRegister(app: Express, deps: RouteDeps): void {
-  // Unauthenticated and writes a file per call: the cheapest thing to spam.
-  const limiter = rateLimit({ windowMs: 60_000, max: 10 });
+  // Unauthenticated and writes a file per call: the cheapest thing to spam,
+  // so it is limited per client address. The limit has to allow for how
+  // claude.ai behaves, though: it registers a fresh client on every new
+  // connection, and every claude.ai user arrives from Anthropic's shared
+  // egress range (160.79.104.0/21), so one address stands for many people.
+  // 10 a minute was enough to lock the whole of claude.ai out after a
+  // handful of Connect clicks. 120 still bounds the disk cost of a spammer.
+  const limiter = rateLimit({ windowMs: 60_000, max: 120 });
   app.post("/register", limiter, express.json(), (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const redirectUris = body["redirect_uris"];
