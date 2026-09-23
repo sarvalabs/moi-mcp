@@ -624,11 +624,6 @@ async function main(): Promise<void> {
   const app = express();
   app.disable("x-powered-by");
   app.use(securityHeaders(hosted.PUBLIC_URL));
-  const { authenticate, challengeHeader } = mountAuth(app, {
-    publicUrl: hosted.PUBLIC_URL,
-    dataDir: hosted.dataDir,
-    mcpPath: MCP_PATH,
-  });
 
   // Redis when a URL is configured, files otherwise. Both stores move together
   // on purpose: our session record and the WalletConnect SDK's key material are
@@ -645,6 +640,18 @@ async function main(): Promise<void> {
     store = new FileWalletSessionStore(hosted.dataDir);
     log("info", `wallet sessions on disk under ${hosted.dataDir}`);
   }
+
+  const { authenticate, challengeHeader } = mountAuth(app, {
+    publicUrl: hosted.PUBLIC_URL,
+    dataDir: hosted.dataDir,
+    mcpPath: MCP_PATH,
+    // Lets the consent page say which wallet this browser is already paired
+    // to, and offer a fresh identity to someone who says it is not theirs.
+    pairedWallet: async (userId) => {
+      const record = await store.get(userId);
+      return record && !isExpired(record) ? { address: record.address } : undefined;
+    },
+  });
   const hub = await WalletConnectHub.init({
     projectId: cfg.WC_PROJECT_ID,
     home: hosted.dataDir,

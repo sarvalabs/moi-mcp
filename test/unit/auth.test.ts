@@ -400,3 +400,238 @@ describe("auth", () => {
     expect(res.status).toBe(400);
   });
 });
+
+/**
+ * A shared browser carries one identity cookie, so a second person signing in
+ * from it would otherwise inherit the first person's paired phone. The consent
+ * page shows the pairing and offers a fresh identity instead.
+ */
+describe("consent page when this browser already has a paired wallet", () => {
+  let dataDir: string;
+  let server: Server;
+  let base: string;
+  let auth: ReturnType<typeof mountAuth>;
+  /** userId -> paired address, standing in for the wallet session store. */
+  const paired = new Map<string, string>();
+  let lookupThrows = false;
+  let lookupHangs = false;
+
+  beforeEach(async () => {
+    dataDir = mkdtempSync(join(tmpdir(), "moi-mcp-auth-paired-"));
+    paired.clear();
+    lookupThrows = false;
+    lookupHangs = false;
+    const app = express();
+    ({ server, base } = await listen(app));
+    auth = mountAuth(app, {
+      publicUrl: base,
+      dataDir,
+      pairedWallet: async (userId) => {
+        if (lookupHangs) return new Promise(() => {}); // never settles, like a black-holed Redis command
+        if (lookupThrows) throw new Error("store down");
+        const address = paired.get(userId);
+        return address ? { address } : undefined;
+      },
+    });
+  });
+
+  afterEach(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  async function client(): Promise<{ id: string; redirectUri: string }> {
+    const redirectUri = `${base}/cb`;
+    const res = await fetch(`${base}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: [redirectUri], client_name: "Claude" }),
+    });
+    const body = (await res.json()) as { client_id: string };
+    return { id: body.client_id, redirectUri };
+  }
+
+  function params(c: { id: string; redirectUri: string }, challenge: string): URLSearchParams {
+    return new URLSearchParams({
+      response_type: "code",
+      client_id: c.id,
+      redirect_uri: c.redirectUri,
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      scope: "moi:read moi:write",
+      state: "s",
+    });
+  }
+
+  async function consent(p: URLSearchParams, cookie?: string): Promise<{ html: string; cookie: string }> {
+    const res = await fetch(`${base}/authorize?${p}`, { redirect: "manual", headers: cookie ? { cookie } : {} });
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie");
+    return { html: await res.text(), cookie: setCookie ? extractCookie(setCookie) : (cookie as string) };
+  }
+
+  /** POST a decision and turn the resulting code into the identity it was minted for. */
+  async function decide(
+    p: URLSearchParams,
+    cookie: string,
+    decision: string,
+    verifier: string,
+    c: { id: string; redirectUri: string },
+  ): Promise<{ userId: string; newCookie?: string }> {
+    const res = await fetch(`${base}/authorize/decision`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie },
+      body: new URLSearchParams({ ...Object.fromEntries(p), decision }),
+    });
+    expect(res.status).toBe(302);
+    const code = new URL(res.headers.get("location")!).searchParams.get("code");
+    if (!code) throw new Error("expected a code");
+    const setCookie = res.headers.get("set-cookie");
+    const tokenRes = await fetch(`${base}/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: c.redirectUri,
+        client_id: c.id,
+        code_verifier: verifier,
+      }),
+    });
+    const tokens = (await tokenRes.json()) as { access_token: string };
+    const info = auth.authenticate({ headers: { authorization: `Bearer ${tokens.access_token}` } });
+    if (!info) throw new Error("token did not authenticate");
+    return { userId: info.userId, ...(setCookie ? { newCookie: extractCookie(setCookie) } : {}) };
+  }
+
+  it("shows the plain Approve/Deny page when nothing is paired", async () => {
+    const c = await client();
+    const { html } = await consent(params(c, pkcePair().challenge));
+    expect(html).toContain('value="approve"');
+    expect(html).not.toContain("approve_fresh");
+    expect(html).not.toContain("already paired");
+  });
+
+  it("shows the paired address and offers a fresh identity once the browser's identity has a wallet", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    const { userId } = await decide(p, first.cookie, "approve", verifier, c);
+    const full = "0x4a91e2c04a0038a6e4940b6c7f3d17a85c119ec2e0deadbeef0011223344556677";
+    paired.set(userId, full);
+
+    const again = await consent(p, first.cookie);
+    expect(again.html).toContain("already paired");
+    // Enough to recognise, not the whole thing: the page is shown before the
+    // person has proved anything, so the full address stays off it.
+    expect(again.html).toContain("0x4a91e2c0…556677");
+    expect(again.html).not.toContain(full);
+    expect(again.html).toContain('value="approve_fresh"');
+    expect(again.html).toContain("Continue with this wallet");
+    // The form remembers which identity it was rendered for.
+    expect(again.html).toMatch(/name="shown_for" value="[0-9a-f]{64}"/);
+  });
+
+  it("a consent page rendered for one identity cannot approve as another after the cookie was swapped", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    // Alice opens the page and leaves the tab there.
+    const alicePage = await consent(p);
+    const shownFor = /name="shown_for" value="([0-9a-f]{64})"/.exec(alicePage.html)?.[1];
+    expect(shownFor).toBeDefined();
+    // Bob, same browser, replaces the cookie.
+    const bob = await decide(p, alicePage.cookie, "approve_fresh", verifier, c);
+    // Alice comes back to her tab and clicks Continue. Her browser now sends Bob's cookie.
+    const res = await fetch(`${base}/authorize/decision`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: bob.newCookie! },
+      body: new URLSearchParams({ ...Object.fromEntries(p), decision: "approve", shown_for: shownFor! }),
+    });
+    // No grant is minted under Bob's identity for Alice's click: she is sent
+    // back through /authorize to see who this browser is now.
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location")!;
+    expect(location).toMatch(/^\/authorize\?/);
+    expect(location).toContain(`client_id=${c.id}`);
+    expect(location).not.toContain("code=");
+
+    // The same form, submitted by the identity it was rendered for, still works.
+    const fresh = await consent(p, bob.newCookie);
+    const bobsTag = /name="shown_for" value="([0-9a-f]{64})"/.exec(fresh.html)?.[1];
+    const ok = await fetch(`${base}/authorize/decision`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "content-type": "application/x-www-form-urlencoded", cookie: bob.newCookie! },
+      body: new URLSearchParams({ ...Object.fromEntries(p), decision: "approve", shown_for: bobsTag! }),
+    });
+    expect(new URL(ok.headers.get("location")!).searchParams.get("code")).toBeTruthy();
+  });
+
+  it("does not wait on a wallet store that never answers", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    const { userId } = await decide(p, first.cookie, "approve", verifier, c);
+    paired.set(userId, "0xslow");
+    lookupHangs = true;
+    const started = Date.now();
+    const page = await consent(p, first.cookie);
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(page.html).not.toContain("already paired");
+    expect(page.html).toContain('value="approve"');
+  });
+
+  it("'I am someone else' mints a new identity, replaces the cookie, and leaves the first person's pairing alone", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    const alice = await decide(p, first.cookie, "approve", verifier, c);
+    paired.set(alice.userId, "0xalice");
+
+    // Bob, same browser, same cookie, says the wallet is not his.
+    const bob = await decide(p, first.cookie, "approve_fresh", verifier, c);
+    expect(bob.userId).not.toBe(alice.userId);
+    expect(bob.newCookie).toBeDefined();
+    expect(bob.newCookie).not.toBe(first.cookie);
+
+    // The browser now carries Bob's identity, which has no pairing to show.
+    const bobsPage = await consent(p, bob.newCookie);
+    expect(bobsPage.html).not.toContain("already paired");
+
+    // Alice's identity and pairing are untouched: her old cookie still resolves to her.
+    const aliceAgain = await decide(p, first.cookie, "approve", verifier, c);
+    expect(aliceAgain.userId).toBe(alice.userId);
+    expect(paired.get(alice.userId)).toBe("0xalice");
+  });
+
+  it("'Continue with this wallet' keeps the same identity", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    const a = await decide(p, first.cookie, "approve", verifier, c);
+    paired.set(a.userId, "0xsame");
+    const b = await decide(p, first.cookie, "approve", verifier, c);
+    expect(b.userId).toBe(a.userId);
+    expect(b.newCookie).toBeUndefined();
+  });
+
+  it("still signs in when the pairing lookup fails, just without the notice", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    const { userId } = await decide(p, first.cookie, "approve", verifier, c);
+    paired.set(userId, "0xhidden");
+    lookupThrows = true;
+    const page = await consent(p, first.cookie);
+    expect(page.html).not.toContain("already paired");
+    expect(page.html).toContain('value="approve"');
+  });
+});
