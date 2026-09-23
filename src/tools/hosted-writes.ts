@@ -70,7 +70,15 @@ export interface HostedWriteDeps {
 
 const defaultPreviews = new PreviewRegistry();
 
-export type WriteKind = "transfer" | "create_account" | "create_asset" | "mint" | "call_logic" | "register_agent";
+export type WriteKind =
+  | "transfer"
+  | "create_account"
+  | "create_asset"
+  | "mint"
+  | "call_logic"
+  | "register_agent"
+  | "set_agent_status"
+  | "transfer_agent";
 
 /**
  * Record a signed-but-not-broadcast (or never-signed) attempt as failed once
@@ -169,7 +177,7 @@ function requireAuth(auth: AuthInfo | null): AuthInfo {
   return auth;
 }
 
-const WRITE_ANNOTATIONS = {
+export const WRITE_ANNOTATIONS = {
   readOnlyHint: false,
   // These move funds or change chain state, and cannot be undone. The hint is
   // what a client uses to decide whether to ask before calling.
@@ -187,7 +195,7 @@ export const ConfirmArg = z
     "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone.",
   );
 
-const APPROVAL_PROTOCOL =
+export const APPROVAL_PROTOCOL =
   " Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, " +
   "the exact values the wallet will display, and a confirm token. Show the user the summary and those values and " +
   "get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus " +

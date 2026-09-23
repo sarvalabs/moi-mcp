@@ -17,8 +17,12 @@ import {
   CreateAccountInput,
   CreateAssetInput,
   MintInput,
+  RegisterAgentInput,
+  SetAgentStatusInput,
+  TransferAgentInput,
   TransferInput,
 } from "../schema.js";
+import { prepareRegisterAgent, prepareSetAgentStatus, prepareTransferAgent } from "./registry-core.js";
 import type { UnsignedInteraction } from "../moi/ix-builder.js";
 import { requireSession, type Session } from "../wc/session.js";
 import { walletClient } from "./wallet.js";
@@ -250,4 +254,65 @@ export function registerWriteTools(server: McpServer): void {
       }
     },
   );
+  // The agent registry's own write routines, on the same path as any invoke.
+  const registryTools: Array<{
+    name: string;
+    title: string;
+    description: string;
+    input: typeof RegisterAgentInput | typeof SetAgentStatusInput | typeof TransferAgentInput;
+    prepare: (account: string, params: never) => ReturnType<typeof prepareRegisterAgent>;
+  }> = [
+    {
+      name: "moi_register_agent",
+      title: "Register an agent in the MOI agent registry",
+      description:
+        "Register an AI agent in the on-chain MOI agent registry, owned by your paired wallet. Takes the agent's own " +
+        "MOI account, the URL it is served at, and the URL of its card. Sent to MOI Wallet for approval.",
+      input: RegisterAgentInput,
+      prepare: prepareRegisterAgent as never,
+    },
+    {
+      name: "moi_set_agent_status",
+      title: "Set an agent's status in the MOI agent registry",
+      description: "Mark an agent you own ACTIVE or DEPRECATED in the on-chain MOI agent registry. Sent to MOI Wallet for approval.",
+      input: SetAgentStatusInput,
+      prepare: prepareSetAgentStatus as never,
+    },
+    {
+      name: "moi_transfer_agent",
+      title: "Transfer an agent to a new owner",
+      description: "Hand an agent you own in the on-chain MOI agent registry to another account. Sent to MOI Wallet for approval.",
+      input: TransferAgentInput,
+      prepare: prepareTransferAgent as never,
+    },
+  ];
+  for (const tool of registryTools) {
+    server.registerTool(
+      tool.name,
+      {
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.input.shape,
+        outputSchema: WriteOutputShape,
+        annotations: WRITE_ANNOTATIONS,
+      },
+      async (params: Record<string, unknown>) => {
+        try {
+          const cfg = getConfig();
+          const wc = walletClient();
+          const valid = requireSession(await wc.currentSession(), cfg.MOI_NETWORK);
+          const prepared = await tool.prepare(valid.account, params as never);
+          const hash = await signAndBroadcast(valid, prepared.ix, prepared.description);
+          return ok({
+            status: "sent",
+            hash,
+            explorerUrl: interactionUrl(cfg.MOI_NETWORK, hash, cfg.MOI_EXPLORER_URL),
+          });
+        } catch (err) {
+          return ok(asWriteResult(err));
+        }
+      },
+    );
+  }
+
 }

@@ -24,10 +24,11 @@ import * as S from "../launchpad/schema.js";
 import { isLaunchpadSessionExpired, type LaunchpadSessionStore, type StoredLaunchpadSession } from "../launchpad/store.js";
 import { MoiError } from "../moi-error.js";
 import { getReadOnlySigner, NETWORKS } from "../moi/provider.js";
-import { listAgents as listRegistryAgents, registryLogicId } from "../moi/registry.js";
+import { findAgentByWallet } from "../moi/registry.js";
 import { ErrorCode } from "../schema.js";
 import { ConfirmArg, loadSession, runWrite, type HostedWriteDeps } from "./hosted-writes.js";
-import { asWriteResult, ok, prepareLogicInvoke } from "./write-core.js";
+import { prepareRegisterAgent } from "./registry-core.js";
+import { asWriteResult, ok } from "./write-core.js";
 
 export interface LaunchpadDeps {
   client: LaunchpadClient;
@@ -45,7 +46,6 @@ export interface LaunchpadDeps {
 /** The Telegram link's code is minted with a 15-minute life inside it. */
 const TELEGRAM_CODE_MS = 15 * 60 * 1000;
 const DEFAULT_REGISTRY_WAIT_MS = 45_000;
-const REGISTRY_POLL_MS = 3_000;
 
 const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: true } as const;
 const ACT = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true } as const;
@@ -102,35 +102,11 @@ async function run<T extends Record<string, unknown>>(fn: () => Promise<{ value:
   }
 }
 
-/**
- * The registry's id for the agent whose wallet this is, watching for it to
- * appear after a registration was broadcast. Undefined when it has not
- * shown up in time or the registry cannot be read; the caller then confirms
- * with the hash alone, which is what the Launchpad's own dashboard does.
- */
-async function findRegistryAgentId(
-  owner: string,
-  agentWallet: string,
-  waitMs: number,
-  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
-): Promise<string | undefined> {
+/** The registry's id for the agent whose wallet this is, under this owner; see findAgentByWallet. */
+async function findRegistryAgentId(owner: string, agentWallet: string, waitMs: number): Promise<string | undefined> {
   const cfg = getConfig();
   const signer = getReadOnlySigner({ network: cfg.MOI_NETWORK, rpcUrl: cfg.MOI_RPC_URL });
-  const wanted = agentWallet.toLowerCase();
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    try {
-      const page = await listRegistryAgents(signer, { owner, limit: 50 });
-      const hit = page.agents.find((a) => a.address?.toLowerCase() === wanted);
-      if (hit) return hit.agentId;
-    } catch {
-      // A registry that cannot be read (caller rejected, node down) is not a
-      // reason to fail a registration that has already been broadcast.
-      return undefined;
-    }
-    if (Date.now() >= deadline) return undefined;
-    await sleep(Math.min(REGISTRY_POLL_MS, Math.max(0, deadline - Date.now())));
-  }
+  return findAgentByWallet(signer, owner, agentWallet, waitMs);
 }
 
 export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, auth: AuthInfo | null): void {
@@ -380,28 +356,15 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
       const cardUri = `${launchpad}/api/moi/card/${encodeURIComponent(agentWallet)}`;
       const args = { agentId, url, cardUri, agentWallet };
       const result = await write(deps.writes, auth, "register_agent", args, confirm, async (session) => {
-        const prepared = await prepareLogicInvoke(session.address, {
-          logicId: registryLogicId(),
-          routine: "RegisterAgent",
-          args: [url, cardUri, agentWallet],
-        });
+        const prepared = await prepareRegisterAgent(session.address, { url, cardUri, agentWallet }, { label: agent.name });
+        if (!intent.blocked) return prepared;
         return {
           ...prepared,
-          description: `Register agent "${agent.name}" (${agentWallet}) in the MOI agent registry, owned by ${session.address}`,
           details: {
-            Operation: "Register agent",
-            Agent: agent.name,
-            "Agent wallet": agentWallet,
-            Owner: session.address,
-            Registry: registryLogicId(),
-            "Agent URL": url,
-            ...(intent.blocked
-              ? {
-                  Note:
-                    `Your account has ${intent.blocked.blockedCount} stuck interaction(s) ahead of this one in the node's pool; ` +
-                    `this registration waits behind them${intent.blocked.underfunded ? " and your balance is too low to clear them" : ""}.`,
-                }
-              : {}),
+            ...prepared.details,
+            Note:
+              `Your account has ${intent.blocked.blockedCount} stuck interaction(s) ahead of this one in the node's pool; ` +
+              `this registration waits behind them${intent.blocked.underfunded ? " and your balance is too low to clear them" : ""}.`,
           },
         };
       });

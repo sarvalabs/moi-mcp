@@ -444,3 +444,33 @@ export async function listAgents(
     ...(more && ids.length > 0 ? { nextOffset: offset + ids.length } : {}),
   };
 }
+
+/**
+ * The registry's id for the agent whose wallet this is, under this owner,
+ * watching for it to appear for up to `waitMs` after a registration was
+ * broadcast. Undefined when it has not shown up in time, or the registry
+ * cannot be read: a registration already on chain must not fail on that.
+ */
+export async function findAgentByWallet(
+  signer: ReadOnlySigner,
+  owner: string,
+  agentWallet: string,
+  waitMs: number,
+  options: { logicId?: string; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<string | undefined> {
+  const wanted = agentWallet.toLowerCase();
+  const pollMs = options.pollMs ?? 3_000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      const page = await listAgents(signer, { owner, limit: MAX_PAGE, ...(options.logicId ? { logicId: options.logicId } : {}) });
+      const hit = page.agents.find((a) => a.address?.toLowerCase() === wanted);
+      if (hit) return hit.agentId;
+    } catch {
+      return undefined;
+    }
+    if (Date.now() >= deadline) return undefined;
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+  }
+}

@@ -207,6 +207,27 @@ export const AgentSummary = z.object({
   createdAt: z.string().optional(),
 });
 
+/** The registry's own write routines, as tools. Ids are the registry's "agent_<n>". */
+export const RegisterAgentInput = z.object({
+  url: z.string().url().describe("Where the agent is served, its endpoint or home page."),
+  cardUri: z.string().url().describe("URL of the agent's card, the JSON that describes its name and skills."),
+  agentWallet: HexId.describe("The agent's own MOI account. It must already exist on chain."),
+});
+export const AGENT_STATUSES = ["ACTIVE", "DEPRECATED"] as const;
+export const SetAgentStatusInput = z.object({
+  agentId: z.string().regex(/^agent_\d+$/i, "expected the registry's agent_<n> id"),
+  status: z
+    .string()
+    .min(1)
+    .max(32)
+    .transform((v) => v.toUpperCase())
+    .describe("ACTIVE or DEPRECATED. Only the agent's owner can change it."),
+});
+export const TransferAgentInput = z.object({
+  agentId: z.string().regex(/^agent_\d+$/i, "expected the registry's agent_<n> id"),
+  newOwner: HexId.describe("The account that will own the agent from now on. Only the current owner can do this."),
+});
+
 export const ListAgentsOutput = z.object({
   agents: z.array(AgentSummary),
   offset: z.number().int(),
@@ -616,5 +637,8 @@ export const TOOLS = {
   moi_create_account:    { input: CreateAccountInput,    write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
+  moi_register_agent:    { input: RegisterAgentInput,    write: true  },
+  moi_set_agent_status:  { input: SetAgentStatusInput,   write: true  },
+  moi_transfer_agent:    { input: TransferAgentInput,    write: true  },
 } as const;
 export type ToolName = keyof typeof TOOLS;

@@ -59,6 +59,7 @@ import { expiresAtOf, expiryFor, isExpired, type PairingMode } from "./wc/lifeti
 import QRCode from "qrcode";
 import { registerHostedWrites } from "./tools/hosted-writes.js";
 import { registerLaunchpadTools, type LaunchpadDeps } from "./tools/launchpad.js";
+import { registerRegistryWrites } from "./tools/registry-writes.js";
 import { LaunchpadClient } from "./launchpad/client.js";
 import { createDownloadModule } from "./launchpad/download.js";
 import {
@@ -97,6 +98,9 @@ export const GATED = [
   "moi_launchpad_telegram_link",
   "moi_launchpad_setup_script",
   "moi_launchpad_sign_out",
+  "moi_register_agent",
+  "moi_set_agent_status",
+  "moi_transfer_agent",
 ] as const;
 
 /**
@@ -123,6 +127,9 @@ const REQUIRED_SCOPE: Record<(typeof GATED)[number], "moi:read" | "moi:write"> =
   moi_launchpad_telegram_link: "moi:write",
   moi_launchpad_setup_script: "moi:write",
   moi_launchpad_sign_out: "moi:write",
+  moi_register_agent: "moi:write",
+  moi_set_agent_status: "moi:write",
+  moi_transfer_agent: "moi:write",
 };
 
 export interface HostedDeps {
@@ -465,6 +472,7 @@ export function buildHostedApp(deps: HostedDeps): Application {
     const server = buildReadOnlyServer({ publicUrl: deps.publicUrl });
     registerWalletSurface(server, deps, auth ?? null);
     registerHostedWrites(server, deps, auth ?? null);
+    registerRegistryWrites(server, deps, auth ?? null);
     if (deps.launchpad) registerLaunchpadTools(server, deps.launchpad, auth ?? null);
 
     const transport = withModernSchemaDialect(
