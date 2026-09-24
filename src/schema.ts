@@ -550,10 +550,17 @@ export const WcSignInteractionResult = z.object({
  * What MOI Wallet returns for `moi.sign` (params `[accountId, message]`): a
  * signature over the plain-text message, nothing broadcast. Used for
  * Sign-In With MOI and other off-chain proofs that the person holds the key.
+ *
+ * The wallet's docs show `{ signature }`; the wallet itself answers with the
+ * bare hex string (sign-interactions.tsx sets `result: signature`), and that
+ * is what Voyage consumes. Both are taken. The hex is MOI's signature
+ * envelope, type byte, DER length, DER body, parity byte, passed through
+ * untouched: that is exactly what a verifier such as the Launchpad's wants.
  */
-export const WcSignMessageResult = z.object({
-  signature: z.string().regex(/^(0x)?[0-9a-fA-F]+$/, "expected signature hex"),
-});
+const SignatureHex = z.string().regex(/^(0x)?[0-9a-fA-F]+$/, "expected signature hex");
+export const WcSignMessageResult = z
+  .union([SignatureHex, z.object({ signature: SignatureHex })])
+  .transform((v) => (typeof v === "string" ? { signature: v } : v));
 
 // ---------------------------------------------------------------------------
 // 5. Session store  (~/.moi-mcp/session.json)
