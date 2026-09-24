@@ -333,6 +333,14 @@ describe("WalletConnectHub", () => {
       });
     });
 
+    it("takes the bare hex string the phone actually answers with", async () => {
+      // MOI Wallet's docs say { signature }; the app returns the string itself.
+      const envelope = "0146" + "30440220" + "ab".repeat(32) + "0220" + "cd".repeat(32) + "03";
+      const request = vi.fn(async () => envelope) as unknown as SignClientLike["request"];
+      const hub = new WalletConnectHub(withSession(request));
+      expect(await hub.signMessageFor("topic-a", "0xaaa", "hi")).toEqual({ signature: envelope });
+    });
+
     it("throws WALLET_NOT_CONNECTED when the topic has no native session", async () => {
       const hub = new WalletConnectHub(fakeSignClient());
       await expect(hub.signMessageFor("gone", "0xaaa", "hi")).rejects.toMatchObject({
