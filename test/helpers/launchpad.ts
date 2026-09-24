@@ -15,7 +15,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
 import { LaunchpadClient } from "../../src/launchpad/client.js";
-import type { LaunchpadSessionStore, StoredLaunchpadSession } from "../../src/launchpad/store.js";
+import type { DappSessionStore, StoredDappSession } from "../../src/dapp/store.js";
 import { registerLaunchpadTools, type LaunchpadDeps } from "../../src/tools/launchpad.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
 import { authFor, USER } from "./hosted.js";
@@ -173,6 +173,27 @@ export async function startFakeLaunchpad(): Promise<FakeLaunchpad> {
       });
       return res.end("#!/usr/bin/env bash\nAGENT_KEY=very-secret\n");
     }
+    if (method === "GET" && path === "/openapi.json") {
+      return json(res, 200, {
+        openapi: "3.1.0",
+        info: { title: "Fake Launchpad", version: "1" },
+        paths: {
+          "/api/me": { get: { operationId: "me", summary: "Who is signed in" } },
+          "/api/agents/{id}": {
+            parameters: [{ name: "id", in: "path", required: true }],
+            get: { operationId: "getAgent", summary: "One agent" },
+          },
+          "/api/echo": {
+            post: { operationId: "echo", summary: "Echo the body (writes nothing)", requestBody: {}, parameters: [{ name: "tag", in: "query" }] },
+          },
+        },
+      });
+    }
+    if (method === "POST" && path === "/api/echo") {
+      if (!needCookie()) return;
+      const tag = new URL(req.url ?? "/", "http://x").searchParams.get("tag");
+      return json(res, 200, { echoed: body, tag });
+    }
     if (method === "POST" && path === "/api/telegram/link") {
       if (!needCookie()) return;
       return json(res, 200, { deepLink: "https://t.me/moinetworkbot?start=abc-123" });
@@ -190,16 +211,23 @@ export async function startFakeLaunchpad(): Promise<FakeLaunchpad> {
   };
 }
 
-export function fakeSessions(records: Map<string, StoredLaunchpadSession> = new Map()): LaunchpadSessionStore & { records: Map<string, StoredLaunchpadSession> } {
+export function fakeSessions(
+  seed: Map<string, StoredDappSession> = new Map(),
+): DappSessionStore & { records: Map<string, StoredDappSession> } {
+  // Keyed by "<userId> <baseUrl>"; a seed keyed by userId alone is re-keyed.
+  const records = new Map<string, StoredDappSession>();
+  for (const r of seed.values()) records.set(`${r.userId} ${r.baseUrl}`, r);
+  const key = (userId: string, baseUrl: string) => `${userId} ${baseUrl.replace(/\/+$/, "")}`;
   return {
     records,
-    get: vi.fn(async (userId: string) => records.get(userId)),
-    set: vi.fn(async (r: StoredLaunchpadSession) => void records.set(r.userId, r)),
-    delete: vi.fn(async (userId: string) => void records.delete(userId)),
+    get: vi.fn(async (userId: string, baseUrl: string) => records.get(key(userId, baseUrl))),
+    set: vi.fn(async (r: StoredDappSession) => void records.set(key(r.userId, r.baseUrl), r)),
+    delete: vi.fn(async (userId: string, baseUrl: string) => void records.delete(key(userId, baseUrl))),
+    listFor: vi.fn(async (userId: string) => [...records.values()].filter((r) => r.userId === userId)),
   };
 }
 
-export function signedInRecord(baseUrl: string, over: Partial<StoredLaunchpadSession> = {}): StoredLaunchpadSession {
+export function signedInRecord(baseUrl: string, over: Partial<StoredDappSession> = {}): StoredDappSession {
   return {
     version: 1,
     userId: USER,
@@ -217,7 +245,7 @@ export type DownloadLinkMock = Mock<(userId: string, agentId: string) => { url: 
 export function launchpadDeps(
   fake: FakeLaunchpad,
   writes: HostedWriteDeps,
-  sessions: LaunchpadSessionStore,
+  sessions: DappSessionStore,
   over: Partial<LaunchpadDeps> = {},
 ): LaunchpadDeps & { createDownloadLink: DownloadLinkMock } {
   const createDownloadLink: DownloadLinkMock = vi.fn((_userId: string, agentId: string) => ({

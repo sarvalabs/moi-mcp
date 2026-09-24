@@ -62,12 +62,8 @@ import { registerLaunchpadTools, type LaunchpadDeps } from "./tools/launchpad.js
 import { registerRegistryWrites } from "./tools/registry-writes.js";
 import { LaunchpadClient } from "./launchpad/client.js";
 import { createDownloadModule } from "./launchpad/download.js";
-import {
-  FileLaunchpadSessionStore,
-  isLaunchpadSessionExpired,
-  RedisLaunchpadSessionStore,
-  type LaunchpadSessionStore,
-} from "./launchpad/store.js";
+import { FileDappSessionStore, isDappSessionExpired, RedisDappSessionStore, type DappSessionStore } from "./dapp/store.js";
+import { registerDappTools, type DappDeps } from "./tools/dapp.js";
 import { WalletConnectHub, type WalletConnectHubLike } from "./wc/hub.js";
 import { FileWalletSessionStore, type StoredWalletSession, type WalletSessionStore } from "./wc/store.js";
 import { connectRedis, RedisKeyValueStorage, RedisWalletSessionStore } from "./wc/redis-store.js";
@@ -101,6 +97,11 @@ export const GATED = [
   "moi_register_agent",
   "moi_set_agent_status",
   "moi_transfer_agent",
+  "moi_dapp_sign_in",
+  "moi_dapp_sessions",
+  "moi_dapp_sign_out",
+  "moi_dapp_api",
+  "moi_dapp_call",
 ] as const;
 
 /**
@@ -130,6 +131,11 @@ const REQUIRED_SCOPE: Record<(typeof GATED)[number], "moi:read" | "moi:write"> =
   moi_register_agent: "moi:write",
   moi_set_agent_status: "moi:write",
   moi_transfer_agent: "moi:write",
+  moi_dapp_sign_in: "moi:write",
+  moi_dapp_sessions: "moi:read",
+  moi_dapp_sign_out: "moi:write",
+  moi_dapp_api: "moi:read",
+  moi_dapp_call: "moi:write",
 };
 
 export interface HostedDeps {
@@ -157,6 +163,8 @@ export interface HostedDeps {
   startPairing(userId: string, mode?: PairingMode): Promise<{ uri: string; expiresAt: number }>;
   /** The MOI Agent Launchpad tools; absent when no Launchpad is configured (tests). */
   launchpad?: LaunchpadDeps;
+  /** The generic dapp tools; absent in tests that do not need them. */
+  dapp?: DappDeps;
 }
 
 /** Collect a JSON body, refusing anything oversized. Mirrors src/http.ts. */
@@ -474,6 +482,7 @@ export function buildHostedApp(deps: HostedDeps): Application {
     registerHostedWrites(server, deps, auth ?? null);
     registerRegistryWrites(server, deps, auth ?? null);
     if (deps.launchpad) registerLaunchpadTools(server, deps.launchpad, auth ?? null);
+    if (deps.dapp) registerDappTools(server, deps.dapp, auth ?? null);
 
     const transport = withModernSchemaDialect(
       new StreamableHTTPServerTransport({ sessionIdGenerator: undefined }),
@@ -667,16 +676,16 @@ async function main(): Promise<void> {
   // a replacement process the topic without the key to use it.
   let store: WalletSessionStore;
   let wcStorage: RedisKeyValueStorage | undefined;
-  let launchpadSessions: LaunchpadSessionStore;
+  let dappSessions: DappSessionStore;
   if (hosted.REDIS_URL) {
     const redis = await connectRedis(hosted.REDIS_URL);
     store = new RedisWalletSessionStore(redis);
     wcStorage = new RedisKeyValueStorage(redis);
-    launchpadSessions = new RedisLaunchpadSessionStore(redis);
+    dappSessions = new RedisDappSessionStore(redis);
     log("info", "wallet sessions and WalletConnect state in redis");
   } else {
     store = new FileWalletSessionStore(hosted.dataDir);
-    launchpadSessions = new FileLaunchpadSessionStore(hosted.dataDir);
+    dappSessions = new FileDappSessionStore(hosted.dataDir);
     log("info", `wallet sessions on disk under ${hosted.dataDir}`);
   }
 
@@ -712,8 +721,8 @@ async function main(): Promise<void> {
   const downloads = createDownloadModule();
   downloads.mountDownloads(app, {
     fetchScript: async (userId, agentId) => {
-      const rec = await launchpadSessions.get(userId);
-      if (!rec || isLaunchpadSessionExpired(rec)) throw new Error("no launchpad session");
+      const rec = await dappSessions.get(userId, launchpadClient.baseUrl);
+      if (!rec || isDappSessionExpired(rec)) throw new Error("no launchpad session");
       return launchpadClient.setupScript(rec.cookie, agentId);
     },
   });
@@ -731,10 +740,11 @@ async function main(): Promise<void> {
       publicUrl: hosted.PUBLIC_URL,
       launchpad: {
         client: launchpadClient,
-        sessions: launchpadSessions,
+        sessions: dappSessions,
         writes: { store, hub, journal },
         createDownloadLink: (userId, agentId) => downloads.createDownloadLink(userId, agentId, hosted.PUBLIC_URL),
       },
+      dapp: { sessions: dappSessions, writes: { store, hub, journal } },
     }),
   );
 

@@ -48,6 +48,16 @@ for the bot link, and \`moi_launchpad_setup_script\` for a one-time download
 link to the agent's setup script. \`moi_launchpad_status\` shows where things
 stand. \`moi_list_agents\` reads the on-chain registry itself.
 
+\`moi_register_agent\`, \`moi_set_agent_status\` and \`moi_transfer_agent\` write to
+the registry for agents you host yourself.
+
+## 5. Any MOI dapp (hosted server only)
+
+A dapp that follows the MOI dapp conventions needs no code here:
+\`moi_dapp_sign_in\` signs in with the paired wallet, \`moi_dapp_api\` lists
+the operations it publishes, \`moi_dapp_call\` calls one as the signed-in
+person.
+
 ## Vocabulary
 
 MOI uses its own terms. Interaction = transaction. Tesseract = block.

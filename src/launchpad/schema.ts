@@ -123,6 +123,12 @@ export const LaunchpadSetupScriptOutput = z.object({
   /** ISO time after which the link stops working. It also stops after one download. */
   expiresAt: z.string(),
   agent: LaunchpadAgent,
+  /** What the script does, read off the script itself, with its secrets blanked. */
+  script: z.object({
+    summary: z.array(z.string()),
+    preview: z.string(),
+    previewTruncated: z.boolean(),
+  }),
 });
 
 export const LaunchpadSignOutInput = z.object({});

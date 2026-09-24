@@ -111,6 +111,13 @@ The hosted server and the local stdio server each list 13 tools. Reads are defin
 | `moi_launchpad_telegram_link` | no | The bot link that connects Telegram to the Launchpad account |
 | `moi_launchpad_setup_script` | no | A one-time download link for the agent's setup script; the key never enters the chat |
 | `moi_launchpad_sign_out` | no | Forget the Launchpad session |
+| `moi_dapp_sign_in` | message tap | Sign in to any MOI dapp that follows the dapp conventions, as the paired wallet |
+| `moi_dapp_api` | no | The operations a dapp publishes in its OpenAPI document |
+| `moi_dapp_call` | no | Call one published operation as the signed-in person |
+| `moi_dapp_sessions` | no | The dapps signed in to |
+| `moi_dapp_sign_out` | no | Forget a dapp session |
+
+What a dapp offers for the generic `moi_dapp_*` tools to work is in [docs/dapp-conventions.md](docs/dapp-conventions.md).
 
 Two MCP resources are also exposed: `moi://networks` and `moi://docs/quickstart` (`src/resources/`).
 
