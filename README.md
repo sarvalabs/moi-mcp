@@ -94,6 +94,7 @@ The hosted server and the local stdio server each list 13 tools. Reads are defin
 | `moi_get_interaction` | no | Interaction status, sender, operations, and fuel used, by hash |
 | `moi_get_logic` | no | A deployed logic's callable routines with input and output types |
 | `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address |
+| `moi_list_agents` | no | Page through the on chain registry: every agent, or those one account registered |
 | `moi_connect_wallet` | pairing tap | Returns a QR code to pair MOI Wallet over WalletConnect |
 | `moi_wallet_status` | no | Whether a wallet is paired, and which account |
 | `moi_disconnect_wallet` | no | Forget the pairing |
@@ -101,6 +102,15 @@ The hosted server and the local stdio server each list 13 tools. Reads are defin
 | `moi_create_asset` | yes | Propose a new asset; funds its storage and previews the amount |
 | `moi_mint` | yes | Propose minting more of an asset the paired wallet manages |
 | `moi_call_logic` | view: no, invoke: yes | Call a logic routine; `view` reads, `invoke` changes state |
+| `moi_create_account` | yes | Register and fund a brand-new account from the paired wallet |
+| `moi_launchpad_templates` | no | The MOI Agent Launchpad's templates and the config each needs (hosted server) |
+| `moi_launchpad_sign_in` | message tap | Sign in to the Launchpad as the paired wallet; the session lasts a week |
+| `moi_launchpad_status` | no | Launchpad session, Telegram link state, and the wallet's agents there |
+| `moi_launchpad_create_agent` | no | Create an agent from a template; it runs once registered |
+| `moi_launchpad_register_agent` | yes | Register the agent in the on chain registry and tell the Launchpad |
+| `moi_launchpad_telegram_link` | no | The bot link that connects Telegram to the Launchpad account |
+| `moi_launchpad_setup_script` | no | A one-time download link for the agent's setup script; the key never enters the chat |
+| `moi_launchpad_sign_out` | no | Forget the Launchpad session |
 
 Two MCP resources are also exposed: `moi://networks` and `moi://docs/quickstart` (`src/resources/`).
 

@@ -84,6 +84,7 @@ function makeFakeHub(
   const requestedTopics: string[] = [];
 
   const hub = {
+    signMessageFor: vi.fn(async () => ({ signature: "0xfeed" })),
     signInteractionFor: vi.fn(async (topic: string, _ix: unknown, _opts: unknown) => {
       requestedTopics.push(topic);
 

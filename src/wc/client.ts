@@ -20,6 +20,7 @@ import {
   WcSendInteractionsParams,
   WcSendInteractionsParamsIxArgs,
   WcSignInteractionResult,
+  WcSignMessageResult,
   type Network,
 } from "../schema.js";
 import { toWireJson, type UnsignedInteraction } from "../moi/ix-builder.js";
@@ -274,6 +275,43 @@ export class WalletConnectClient {
       } catch {
         /* diagnostics must never break the error path */
       }
+      throw translateWcError(err);
+    } finally {
+      this.pending -= 1;
+    }
+  }
+
+  /**
+   * Ask the phone to sign a plain-text message with one of the paired
+   * accounts (`moi.sign`). Used for Sign-In With MOI style proofs; nothing
+   * is broadcast.
+   */
+  async signMessage(
+    session: Session,
+    accountId: string,
+    message: string,
+  ): Promise<{ signature: string }> {
+    const client = await this.init();
+    this.pending += 1;
+    try {
+      const raw = await withTimeout(
+        client.request<unknown>({
+          topic: session.topic,
+          chainId: session.chainId,
+          request: { method: "moi.sign", params: [accountId, message] },
+        }),
+        this.config.requestTimeoutMs,
+      );
+      const parsed = WcSignMessageResult.safeParse(raw);
+      if (!parsed.success) {
+        throw new MoiError(
+          ErrorCode.RPC_ERROR,
+          `MOI Wallet signed the message but returned an unexpected payload: ${JSON.stringify(raw)?.slice(0, 200)}`,
+        );
+      }
+      return parsed.data;
+    } catch (err) {
+      if (err instanceof MoiError) throw err;
       throw translateWcError(err);
     } finally {
       this.pending -= 1;

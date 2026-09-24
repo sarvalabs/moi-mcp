@@ -17,9 +17,15 @@ import { MoiError, asRpcError } from "../moi-error.js";
 import { ErrorCode, type ResolveAgentOutput } from "../schema.js";
 import type { ReadOnlySigner } from "./provider.js";
 
-/** Canonical registry logic id, as shipped by js-moi-agent-registry@0.3.0-rc1. */
+/**
+ * The registry logic id on the current devnet. Redeployed after the
+ * September 2026 chain reset; the Launchpad moved to it on 2026-09-15.
+ * js-moi-agent-registry@0.3.0-rc1 still ships the pre-reset id
+ * (0x20000000c684f926...), which no longer exists on chain, so this value is
+ * kept here rather than taken from that package.
+ */
 export const DEFAULT_REGISTRY_LOGIC_ID =
-  "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb00000000";
+  "0x200000002f3e9469d94de695be18fc5839fb9535f543b381f903f7f800000000";
 
 export function registryLogicId(env: NodeJS.ProcessEnv = process.env): string {
   return env["MOI_AGENT_REGISTRY_LOGIC_ID"] ?? DEFAULT_REGISTRY_LOGIC_ID;
@@ -81,6 +87,51 @@ export function resetRegistryCache(): void {
   driverCache.clear();
 }
 
+/** Tests hand in a driver directly; nothing else should. */
+export function primeRegistryDriverForTests(logicId: string, driver: RegistryDriver): void {
+  driverCache.set(logicId, Promise.resolve(driver));
+}
+
+/**
+ * js-moi-sdk 0.9 hands a routine's decoded result back as `{ output, error }`;
+ * earlier builds returned the outputs bare. Accept either, and turn a
+ * logic-side error into a thrown one rather than a silently empty answer.
+ */
+export function unwrapRoutineResult(raw: unknown, label: string): unknown {
+  if (raw && typeof raw === "object" && "output" in raw && "error" in raw) {
+    const { output, error } = raw as { output: unknown; error: unknown };
+    if (error !== null && error !== undefined && error !== "" && error !== "0x") {
+      const detail = typeof error === "string" ? error : JSON.stringify(jsonSafe(error));
+      throw new MoiError(ErrorCode.RPC_ERROR, `${label} failed: ${detail}`);
+    }
+    return output;
+  }
+  return raw;
+}
+
+/**
+ * The node simulates a read-only routine as some caller and refuses one it
+ * has never seen: "failed to fetch acc meta info: account not found". With
+ * the placeholder identity that is every call on a network that enforces it.
+ * It used to be reported as an empty registry, which is how a live registry
+ * holding 153 agents was once declared gone; now it is named.
+ */
+const CALLER_REJECTED = /acc meta info: account not found/i;
+
+export function isCallerRejected(err: unknown): boolean {
+  return CALLER_REJECTED.test(err instanceof Error ? err.message : String(err));
+}
+
+function callerRejected(env: NodeJS.ProcessEnv = process.env): MoiError {
+  const set = env["MOI_READ_CALLER"];
+  return new MoiError(
+    ErrorCode.RPC_ERROR,
+    set
+      ? `The node rejected MOI_READ_CALLER (${set}) as the caller for read-only logic simulation: that participant does not exist on this network. Point it at an account that does.`
+      : "The node rejected the placeholder caller used for read-only logic simulation. Set MOI_READ_CALLER in the server environment to any participant id that exists on this network (a funded account), then retry.",
+  );
+}
+
 /** Invoke a read-only registry routine and unwrap its decoded result. */
 async function callRoutine(
   driver: RegistryDriver,
@@ -96,8 +147,10 @@ async function callRoutine(
   try {
     const request = await routine(...args);
     const response = await request.call();
-    return await response.result();
+    return unwrapRoutineResult(await response.result(), `registry.${name}`);
   } catch (err) {
+    if (err instanceof MoiError) throw err;
+    if (isCallerRejected(err)) throw callerRejected();
     throw asRpcError(err, `registry.${name}`);
   }
 }
@@ -118,15 +171,18 @@ interface RawProfile {
 
 function str(v: unknown): string | undefined {
   if (typeof v === "string") return v;
+  // js-moi-sdk 0.9 decodes an `identifier` output as its raw 32 bytes.
+  if (v instanceof Uint8Array) return `0x${Buffer.from(v).toString("hex")}`;
   if (v && typeof v === "object" && "toHex" in v && typeof (v as { toHex: unknown }).toHex === "function") {
     return (v as { toHex: () => string }).toHex();
   }
   return undefined;
 }
 
-/** Registry values arrive as bigint/Identifier; make them JSON-safe. */
-function jsonSafe(value: unknown): unknown {
+/** Registry values arrive as bigint / Identifier / raw byte arrays; make them JSON-safe. */
+export function jsonSafe(value: unknown): unknown {
   if (typeof value === "bigint") return value.toString();
+  if (value instanceof Uint8Array) return str(value);
   if (Array.isArray(value)) return value.map(jsonSafe);
   if (value && typeof value === "object") {
     const hex = str(value);
@@ -180,10 +236,9 @@ async function fetchCard(cardUri: string | undefined, timeoutMs = 5_000): Promis
 
 async function profileFor(driver: RegistryDriver, agentId: string): Promise<RawProfile | undefined> {
   const out = (await callRoutine(driver, "GetAgentProfile", [agentId])) as
-    | { profile?: RawProfile; found?: boolean }
+    | { profile?: RawProfile; found?: unknown }
     | undefined;
-  if (!out) return undefined;
-  if (out.found === false) return undefined;
+  if (!out || out.found === false) return undefined;
   return out.profile ?? (out as RawProfile);
 }
 
@@ -202,8 +257,9 @@ export async function resolveAgent(
   const needle = query.trim();
   if (!needle) return NOT_FOUND;
 
-  // Fast path: the query is already an agent id.
-  if (/^0x[0-9a-fA-F]+$/.test(needle)) {
+  // Fast path: the query is already an agent id. The registry names them
+  // "agent_<n>"; a hex id is accepted for registries that key differently.
+  if (/^agent_\d+$/i.test(needle) || /^0x[0-9a-fA-F]+$/.test(needle)) {
     try {
       const raw = await profileFor(driver, needle);
       if (raw) return toOutput(raw, needle, await fetchCard(str(raw.card_uri)));
@@ -282,4 +338,139 @@ export async function agentCount(signer: ReadOnlySigner, logicId?: string): Prom
   }
   const value = typeof raw === "object" && raw !== null && "count" in raw ? (raw as { count: unknown }).count : raw;
   return Number(typeof value === "bigint" ? value : BigInt(String(value ?? 0)));
+}
+
+export type AgentSummary = {
+  agentId: string;
+  /** False when the registry lists the id but its profile cannot be read. */
+  found: boolean;
+  owner?: string;
+  address?: string;
+  status?: string;
+  url?: string;
+  cardUri?: string;
+  score?: string;
+  /** Unix nanoseconds as the registry stores it, as a decimal string. */
+  createdAt?: string;
+};
+
+export type AgentPage = {
+  agents: AgentSummary[];
+  offset: number;
+  limit: number;
+  /** As the registry reports it; absent when the routine did not say. */
+  total?: number;
+  /** Offset to pass next; absent on the last page. */
+  nextOffset?: number;
+};
+
+export const MAX_PAGE = 50;
+
+function summaryOf(agentId: string, raw: RawProfile | undefined): AgentSummary {
+  if (!raw) return { agentId, found: false };
+  const owner = str(raw.owner);
+  const address = str(raw.agent_wallet);
+  const status = str(raw.status);
+  const url = str(raw.url);
+  const cardUri = str(raw.card_uri);
+  const score = raw.score === undefined ? undefined : String(jsonSafe(raw.score));
+  const createdAt = raw.created_at === undefined ? undefined : String(jsonSafe(raw.created_at));
+  return {
+    agentId,
+    found: true,
+    ...(owner ? { owner } : {}),
+    ...(address ? { address } : {}),
+    ...(status ? { status } : {}),
+    ...(url ? { url } : {}),
+    ...(cardUri ? { cardUri } : {}),
+    ...(score !== undefined ? { score } : {}),
+    ...(createdAt !== undefined ? { createdAt } : {}),
+  };
+}
+
+function idsOf(page: unknown): { ids: string[]; total?: number } {
+  const typed = page as { ids?: unknown[]; total?: unknown } | unknown[] | undefined;
+  const rawIds = Array.isArray(typed) ? typed : (typed?.ids ?? []);
+  const ids = rawIds.map(str).filter((id): id is string => typeof id === "string" && id.length > 0);
+  const rawTotal = Array.isArray(typed) ? undefined : typed?.total;
+  const total =
+    typeof rawTotal === "bigint" || typeof rawTotal === "number" || typeof rawTotal === "string"
+      ? Number(rawTotal)
+      : undefined;
+  return { ids, ...(total !== undefined && Number.isFinite(total) ? { total } : {}) };
+}
+
+/**
+ * One page of the registry: every agent, or those an owner registered. Each
+ * id is followed by its profile, so a page costs limit + 1 node calls; the
+ * cap keeps that bounded.
+ */
+export async function listAgents(
+  signer: ReadOnlySigner,
+  options: { owner?: string; offset?: number; limit?: number; logicId?: string } = {},
+): Promise<AgentPage> {
+  const driver = await getRegistryDriver(signer, options.logicId ?? registryLogicId());
+  const offset = Math.max(0, Math.trunc(options.offset ?? 0));
+  const limit = Math.min(MAX_PAGE, Math.max(1, Math.trunc(options.limit ?? 20)));
+
+  let page: unknown;
+  try {
+    page = options.owner
+      ? await callRoutine(driver, "GetAgentsByOwner", [options.owner, offset, limit])
+      : await callRoutine(driver, "GetAllAgentIds", [offset, limit]);
+  } catch (err) {
+    if (isEmptyRegistryError(err)) return { agents: [], offset, limit, total: 0 };
+    throw err;
+  }
+  const { ids, total } = idsOf(page);
+
+  const agents: AgentSummary[] = [];
+  for (const agentId of ids) {
+    let raw: RawProfile | undefined;
+    try {
+      raw = await profileFor(driver, agentId);
+    } catch (err) {
+      if (!isEmptyRegistryError(err)) throw err;
+    }
+    agents.push(summaryOf(agentId, raw));
+  }
+
+  const more = total !== undefined ? offset + ids.length < total : ids.length === limit;
+  return {
+    agents,
+    offset,
+    limit,
+    ...(total !== undefined ? { total } : {}),
+    ...(more && ids.length > 0 ? { nextOffset: offset + ids.length } : {}),
+  };
+}
+
+/**
+ * The registry's id for the agent whose wallet this is, under this owner,
+ * watching for it to appear for up to `waitMs` after a registration was
+ * broadcast. Undefined when it has not shown up in time, or the registry
+ * cannot be read: a registration already on chain must not fail on that.
+ */
+export async function findAgentByWallet(
+  signer: ReadOnlySigner,
+  owner: string,
+  agentWallet: string,
+  waitMs: number,
+  options: { logicId?: string; pollMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<string | undefined> {
+  const wanted = agentWallet.toLowerCase();
+  const pollMs = options.pollMs ?? 3_000;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      const page = await listAgents(signer, { owner, limit: MAX_PAGE, ...(options.logicId ? { logicId: options.logicId } : {}) });
+      const hit = page.agents.find((a) => a.address?.toLowerCase() === wanted);
+      if (hit) return hit.agentId;
+    } catch {
+      return undefined;
+    }
+    if (Date.now() >= deadline) return undefined;
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+  }
 }

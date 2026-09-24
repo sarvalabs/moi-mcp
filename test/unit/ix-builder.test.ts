@@ -18,6 +18,7 @@ import {
   FUEL_RESERVE,
   MIN_STORAGE_FUND,
   estimateFuelFor,
+  buildCreateAccount,
   buildLogicInvoke,
   buildTransfer,
   MAX_OPERATIONS,
@@ -164,6 +165,32 @@ describe("buildMint", () => {
   });
 });
 
+describe("buildCreateAccount", () => {
+  it("matches the SDK's ParticipantCreate shape: one weighted key, a KMOI funding transfer, the asset declared", () => {
+    const ix = buildCreateAccount(SENDER, {
+      id: "0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000",
+      publicKey: "0x03a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f679e9b37c57edb9f",
+      amount: 500_000_000_000n,
+    });
+    expect(ix.ix_operations).toHaveLength(1);
+    expect(ix.ix_operations[0]!.type).toBe(OpType.PARTICIPANT_CREATE);
+    const payload = ix.ix_operations[0]!.payload as {
+      id: string;
+      keys_payload: Array<{ public_key: string; weight: number; signature_algorithm: number }>;
+      value: { asset_id: string; callsite: string; calldata: string };
+    };
+    expect(payload.id).toBe("0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000");
+    expect(payload.keys_payload).toEqual([
+      { public_key: "0x03a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f679e9b37c57edb9f", weight: 1000, signature_algorithm: 0 },
+    ]);
+    expect(payload.value.asset_id.toLowerCase()).toBe(KMOI_ASSET_ID.toLowerCase());
+    expect(payload.value.callsite).toBe("Transfer");
+    expect(payload.value.calldata).toMatch(/^0x[0-9a-f]+$/);
+    // Only the asset is declared: the new account does not exist until this lands.
+    expect(ix.participants).toEqual([{ id: KMOI_ASSET_ID, lock_type: LockType.NO_LOCK }]);
+  });
+});
+
 describe("buildLogicInvoke", () => {
   it("emits LOGIC_INVOKE with the callsite", () => {
     const ix = buildLogicInvoke(SENDER, { logicId: "0xabc", callsite: "Increment", calldata: "0x0d5f" });
@@ -176,6 +203,48 @@ describe("buildLogicInvoke", () => {
   it("omits calldata entirely for a no-argument routine", () => {
     const ix = buildLogicInvoke(SENDER, { logicId: "0xabc", callsite: "Ping" });
     expect(ix.ix_operations[0]!.payload).not.toHaveProperty("calldata");
+  });
+
+  it("declares no participants unless asked, so plain routines keep the old shape", () => {
+    const ix = buildLogicInvoke(SENDER, { logicId: "0xabc", callsite: "Ping", participants: [] });
+    expect(ix).not.toHaveProperty("participants");
+  });
+
+  it("declares the named participants with their locks and adds the logic as mutate", () => {
+    // A DEX buy: the pool owner's balances change, the two assets are listed
+    // so the asset engine can see them, and the logic's own reserves move.
+    const ix = buildLogicInvoke(SENDER, {
+      logicId: "0xABC",
+      callsite: "Buy",
+      calldata: "0x01",
+      participants: [
+        { id: "0xOWNER", lock: "mutate" },
+        { id: "0xTOKEN", lock: "none" },
+        { id: "0xBASE", lock: "none" },
+      ],
+    });
+    expect(ix.participants).toEqual([
+      { id: "0xowner", lock_type: LockType.MUTATE_LOCK },
+      { id: "0xtoken", lock_type: LockType.NO_LOCK },
+      { id: "0xbase", lock_type: LockType.NO_LOCK },
+      { id: "0xabc", lock_type: LockType.MUTATE_LOCK },
+    ]);
+  });
+
+  it("keeps the strongest lock when an id is named twice and respects an explicit lock on the logic", () => {
+    const ix = buildLogicInvoke(SENDER, {
+      logicId: "0xabc",
+      callsite: "Buy",
+      participants: [
+        { id: "0xowner", lock: "none" },
+        { id: "0xOWNER", lock: "mutate" },
+        { id: "0xabc", lock: "read" },
+      ],
+    });
+    expect(ix.participants).toEqual([
+      { id: "0xowner", lock_type: LockType.MUTATE_LOCK },
+      { id: "0xabc", lock_type: LockType.READ_LOCK },
+    ]);
   });
 });
 

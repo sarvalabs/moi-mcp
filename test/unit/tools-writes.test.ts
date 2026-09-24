@@ -513,10 +513,9 @@ describe("moi_call_logic", () => {
     // Deliberately NOT seeding a session.
     const result = await h.call("moi_call_logic", { logicId: LOGIC, routine: "Ping", kind: "view" });
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toEqual({
-      routine: "Ping",
-      outputs: { output: null, error: null },
-    });
+    // The SDK's { output, error } envelope is unwrapped; a routine with no
+    // outputs reads as an empty record, not as the envelope itself.
+    expect(result.structuredContent).toEqual({ routine: "Ping", outputs: {} });
     expect(wallet.request).not.toHaveBeenCalled();
     // REGRESSION: the view path must not even CONSTRUCT the wallet client.
     // `request` staying unused is too weak — currentSession() with no session

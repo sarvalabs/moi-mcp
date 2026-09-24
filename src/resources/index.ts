@@ -29,6 +29,7 @@ Reads need no wallet. Ask your agent:
 - "did interaction 0x… land" → \`moi_get_interaction\`
 - "what routines does logic 0x… expose" → \`moi_get_logic\`
 - "find the agent called pricefeed-01" → \`moi_resolve_agent\`
+- "which agents has 0x… registered" → \`moi_list_agents\`
 
 ## 3. Pair, then write
 
@@ -36,6 +37,16 @@ Reads need no wallet. Ask your agent:
 Then \`moi_transfer\`, \`moi_create_asset\` and \`moi_call_logic\` build an
 interaction here and send it to your phone for approval. Nothing moves until
 you tap Send.
+
+## 4. Agents on the MOI Agent Launchpad (hosted server only)
+
+\`moi_launchpad_templates\` lists what you can build. \`moi_launchpad_sign_in\`
+signs one message with the paired wallet; the session lasts a week. Then
+\`moi_launchpad_create_agent\`, \`moi_launchpad_register_agent\` (one tap on
+the phone, the step that makes the agent live), \`moi_launchpad_telegram_link\`
+for the bot link, and \`moi_launchpad_setup_script\` for a one-time download
+link to the agent's setup script. \`moi_launchpad_status\` shows where things
+stand. \`moi_list_agents\` reads the on-chain registry itself.
 
 ## Vocabulary
 

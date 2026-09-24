@@ -155,6 +155,8 @@ const HostedConfigSchema = z.object({
   MOI_DATA_DIR: z.string().default("~/.moi-mcp-hosted"),
   /** Wall-clock budget for a hosted tool call. claude.ai allows 300s; stay under it. */
   HOSTED_TIMEOUT_MS: z.coerce.number().positive().default(240_000),
+  /** The MOI Agent Launchpad the moi_launchpad_* tools act on. */
+  MOI_LAUNCHPAD_URL: z.string().url().default("https://launchpad.moi.technology"),
 });
 
 export type HostedConfig = z.infer<typeof HostedConfigSchema> & {

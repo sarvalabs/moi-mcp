@@ -30,6 +30,7 @@ import type { AuthInfo } from "../auth/types.js";
 import { isExpired } from "../wc/lifetime.js";
 import {
   CallLogicInput,
+  CreateAccountInput,
   CreateAssetInput,
   ErrorCode,
   MintInput,
@@ -47,6 +48,7 @@ import {
   broadcastSigned,
   kmoiBalance,
   ok,
+  prepareCreateAccount,
   prepareCreateAsset,
   prepareLogicInvoke,
   prepareMint,
@@ -68,7 +70,15 @@ export interface HostedWriteDeps {
 
 const defaultPreviews = new PreviewRegistry();
 
-type WriteKind = "transfer" | "create_asset" | "mint" | "call_logic";
+export type WriteKind =
+  | "transfer"
+  | "create_account"
+  | "create_asset"
+  | "mint"
+  | "call_logic"
+  | "register_agent"
+  | "set_agent_status"
+  | "transfer_agent";
 
 /**
  * Record a signed-but-not-broadcast (or never-signed) attempt as failed once
@@ -109,7 +119,7 @@ function assertNetworkMatches(stored: StoredWalletSession, expectedNetwork?: str
 /**
  * Load and validate the user's wallet session from the store.
  */
-async function loadSession(
+export async function loadSession(
   deps: HostedWriteDeps,
   auth: AuthInfo,
   expectedNetwork?: string,
@@ -167,7 +177,7 @@ function requireAuth(auth: AuthInfo | null): AuthInfo {
   return auth;
 }
 
-const WRITE_ANNOTATIONS = {
+export const WRITE_ANNOTATIONS = {
   readOnlyHint: false,
   // These move funds or change chain state, and cannot be undone. The hint is
   // what a client uses to decide whether to ask before calling.
@@ -176,7 +186,7 @@ const WRITE_ANNOTATIONS = {
   openWorldHint: true,
 } as const;
 
-const ConfirmArg = z
+export const ConfirmArg = z
   .string()
   .min(1)
   .max(64)
@@ -185,7 +195,7 @@ const ConfirmArg = z
     "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone.",
   );
 
-const APPROVAL_PROTOCOL =
+export const APPROVAL_PROTOCOL =
   " Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, " +
   "the exact values the wallet will display, and a confirm token. Show the user the summary and those values and " +
   "get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus " +
@@ -229,7 +239,7 @@ function previewOf(
  * shortfall or a reverting call is reported before the user is asked for a
  * yes, not after.
  */
-async function runWrite(
+export async function runWrite(
   deps: HostedWriteDeps,
   auth: AuthInfo | null,
   kind: WriteKind,
@@ -328,6 +338,23 @@ export function registerHostedWrites(
   );
 
   server.registerTool(
+    "moi_create_account",
+    {
+      title: "Create a MOI account",
+      description:
+        "Register a brand-new MOI account on chain and fund it with KMOI from the user's paired wallet; nothing happens until they tap Send on their phone. " +
+        "Needed because a transfer to an address that has never existed is refused by the node. Takes the new account's address and its public key, " +
+        "which MOI Wallet or the SDK shows for a freshly generated account; the tool refuses a key that does not produce that address." +
+        APPROVAL_PROTOCOL,
+      inputSchema: { ...CreateAccountInput.shape, confirm: ConfirmArg },
+      outputSchema: WriteOutputShape,
+      annotations: WRITE_ANNOTATIONS,
+    },
+    async ({ confirm, ...args }) =>
+      runWrite(deps, auth, "create_account", args, confirm, (s) => prepareCreateAccount(s.address, args)),
+  );
+
+  server.registerTool(
     "moi_create_asset",
     {
       title: "Create a MOI asset",
@@ -364,7 +391,8 @@ export function registerHostedWrites(
     {
       title: "Call a MOI logic routine",
       description:
-        "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone." +
+        "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. " +
+        "If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...CallLogicInput.shape, confirm: ConfirmArg },
       annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },

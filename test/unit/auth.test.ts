@@ -513,20 +513,37 @@ describe("consent page when this browser already has a paired wallet", () => {
     expect(html).not.toContain("already paired");
   });
 
+  it("carries the MOI logo from the server's own origin, paired or not", async () => {
+    const c = await client();
+    const { verifier, challenge } = pkcePair();
+    const p = params(c, challenge);
+    const first = await consent(p);
+    expect(first.html).toContain('<img src="/logo.svg" alt="MOI"');
+
+    const { userId } = await decide(p, first.cookie, "approve", verifier, c);
+    paired.set(userId, "0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000");
+    const again = await consent(p, first.cookie);
+    expect(again.html).toContain("already paired");
+    expect(again.html).toContain('<img src="/logo.svg" alt="MOI"');
+  });
+
   it("shows the paired address and offers a fresh identity once the browser's identity has a wallet", async () => {
     const c = await client();
     const { verifier, challenge } = pkcePair();
     const p = params(c, challenge);
     const first = await consent(p);
     const { userId } = await decide(p, first.cookie, "approve", verifier, c);
-    const full = "0x4a91e2c04a0038a6e4940b6c7f3d17a85c119ec2e0deadbeef0011223344556677";
+    // A real-shaped identifier: four zero tag bytes, 24 fingerprint bytes, four zero variant bytes.
+    const full = "0x00000000a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f00000000";
     paired.set(userId, full);
 
     const again = await consent(p, first.cookie);
     expect(again.html).toContain("already paired");
     // Enough to recognise, not the whole thing: the page is shown before the
-    // person has proved anything, so the full address stays off it.
-    expect(again.html).toContain("0x4a91e2c0…556677");
+    // person has proved anything, so the full address stays off it. The cut
+    // must land inside the fingerprint; the tag and variant bytes at the
+    // ends are zeros on every ordinary wallet and identify nothing.
+    expect(again.html).toContain("0x00000000a27d9a3e…4d9a0d1f00000000");
     expect(again.html).not.toContain(full);
     expect(again.html).toContain('value="approve_fresh"');
     expect(again.html).toContain("Continue with this wallet");

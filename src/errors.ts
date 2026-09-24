@@ -26,6 +26,10 @@ const JSONRPC_FOR: Record<ErrorCode, number> = {
   [ErrorCode.REQUEST_TIMEOUT]: JsonRpcErrorCode.RequestTimeout,
   [ErrorCode.RPC_ERROR]: JsonRpcErrorCode.InternalError,
   [ErrorCode.RELAY_UNAVAILABLE]: JsonRpcErrorCode.InternalError,
+
+  // The Launchpad: sign in first, or it answered with an error.
+  [ErrorCode.LAUNCHPAD_NOT_SIGNED_IN]: JsonRpcErrorCode.InvalidRequest,
+  [ErrorCode.LAUNCHPAD_ERROR]: JsonRpcErrorCode.InternalError,
 };
 
 /** Build an McpError carrying the MOI string code in `data.code`. */

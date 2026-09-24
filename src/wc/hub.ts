@@ -8,14 +8,14 @@
  * INVARIANTS:
  * - One WalletConnectHub per process, created by main()
  * - One SignClient per process, owned exclusively by this hub
- * - Signing is only available via signInteractionFor(topic, ...)
+ * - Signing is only available via signInteractionFor / signMessageFor(topic, ...)
  * - Topic is never accepted from tool parameters; only from StoredWalletSession
  * - Identity reasoning (userId -> topic) is caller's job (hosted-writes.ts)
  */
 
 import type { UnsignedInteraction } from "../moi/ix-builder.js";
 import { MoiError } from "../moi-error.js";
-import { ErrorCode, WC_EVENTS, WC_METHODS, type Network } from "../schema.js";
+import { ErrorCode, WC_EVENTS, WC_METHODS, WcSignMessageResult, type Network } from "../schema.js";
 import { toWireJson } from "../moi/ix-builder.js";
 import { translateWcError, toSession, WC_NAMESPACE, type PairResult } from "./client.js";
 import { NETWORKS } from "../moi/provider.js";
@@ -29,6 +29,10 @@ export interface SignInteractionOpts {
 export interface HubSignResult {
   ix_args: string;
   signatures: string;
+}
+
+export interface HubSignMessageResult {
+  signature: string;
 }
 
 /**
@@ -46,6 +50,8 @@ export interface WalletConnectHubLike {
     ix: UnsignedInteraction,
     opts?: SignInteractionOpts,
   ): Promise<HubSignResult>;
+  /** Signs a plain-text message with the paired account (`moi.sign`). Nothing is broadcast. */
+  signMessageFor(topic: string, accountId: string, message: string): Promise<HubSignMessageResult>;
   onSessionDelete(handler: (topic: string) => void): () => void;
   /** Ends one session on the relay so the phone stops listing it. Best effort. */
   disconnect(topic: string): Promise<void>;
@@ -306,6 +312,56 @@ export class WalletConnectHub implements WalletConnectHubLike {
       }
 
       // Translate WalletConnect errors into readable MoiErrors.
+      throw translateWcError(err);
+    }
+  }
+
+  /**
+   * Ask the phone to sign a plain-text message with one of the paired
+   * accounts. This is `moi.sign`, the same method MOI's dapps use for
+   * Sign-In With MOI: the wallet shows the text, the person approves, and
+   * the signature comes back. No interaction is built or broadcast.
+   */
+  async signMessageFor(
+    topic: string,
+    accountId: string,
+    message: string,
+  ): Promise<HubSignMessageResult> {
+    const nativeSession = this.signClient.session.get(topic);
+    if (!nativeSession) {
+      throw new MoiError(
+        ErrorCode.WALLET_NOT_CONNECTED,
+        "The wallet session is no longer valid. Pair again with moi_connect_wallet.",
+      );
+    }
+    const chainId = chainIdFromSession(nativeSession) ?? this.defaultChainId;
+    if (!chainId) {
+      throw new MoiError(
+        ErrorCode.RELAY_UNAVAILABLE,
+        "Could not tell which chain this wallet session is on. Pair again with moi_connect_wallet.",
+      );
+    }
+    try {
+      const pending = this.signClient.request<unknown>({
+        topic,
+        chainId,
+        request: { method: "moi.sign", params: [accountId, message] },
+      });
+      // Same rule as interactions: a phone that never answers must not hold
+      // the request open for good.
+      const raw = this.requestTimeoutMs && this.requestTimeoutMs > 0
+        ? await withTimeout(pending, this.requestTimeoutMs)
+        : await pending;
+      const parsed = WcSignMessageResult.safeParse(raw);
+      if (!parsed.success) {
+        throw new MoiError(
+          ErrorCode.RPC_ERROR,
+          `MOI Wallet signed the message but returned an unexpected payload: ${JSON.stringify(raw)?.slice(0, 200)}`,
+        );
+      }
+      return parsed.data;
+    } catch (err) {
+      if (err instanceof MoiError) throw err;
       throw translateWcError(err);
     }
   }

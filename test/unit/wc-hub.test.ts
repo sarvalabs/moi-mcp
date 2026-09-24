@@ -304,6 +304,51 @@ describe("WalletConnectHub", () => {
     });
   });
 
+  describe("signMessageFor", () => {
+    const withSession = (request: SignClientLike["request"]) =>
+      fakeSignClient({
+        request,
+        session: {
+          keys: ["topic-a"],
+          get: vi.fn((topic: string) =>
+            topic === "topic-a" ? { topic: "topic-a", namespaces: REAL_NS } : undefined,
+          ),
+        },
+      });
+
+    it("sends moi.sign with the account and the exact message, and returns the signature", async () => {
+      const request = vi.fn(async () => ({ signature: "0xabc123" })) as unknown as SignClientLike["request"];
+      const hub = new WalletConnectHub(withSession(request));
+      const message =
+        "MOI Agent Launchpad wants you to sign in with your MOI account.\n\nWallet: 0xaaa\nNonce: n1";
+
+      const result = await hub.signMessageFor("topic-a", "0xaaa", message);
+
+      expect(result).toEqual({ signature: "0xabc123" });
+      // The wallet signs exactly what the dapp will verify: no reformatting.
+      expect(request).toHaveBeenCalledWith({
+        topic: "topic-a",
+        chainId: "moi:14",
+        request: { method: "moi.sign", params: ["0xaaa", message] },
+      });
+    });
+
+    it("throws WALLET_NOT_CONNECTED when the topic has no native session", async () => {
+      const hub = new WalletConnectHub(fakeSignClient());
+      await expect(hub.signMessageFor("gone", "0xaaa", "hi")).rejects.toMatchObject({
+        code: ErrorCode.WALLET_NOT_CONNECTED,
+      });
+    });
+
+    it("rejects a payload without a signature as RPC_ERROR", async () => {
+      const request = vi.fn(async () => ({ signed: true })) as unknown as SignClientLike["request"];
+      const hub = new WalletConnectHub(withSession(request));
+      await expect(hub.signMessageFor("topic-a", "0xaaa", "hi")).rejects.toMatchObject({
+        code: ErrorCode.RPC_ERROR,
+      });
+    });
+  });
+
   describe("concurrent signing (no shared mutable state)", () => {
     it("two different topics sign concurrently without interference", async () => {
       const fakeClient = fakeSignClient({

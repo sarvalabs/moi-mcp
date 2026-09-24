@@ -185,6 +185,58 @@ export const ResolveAgentOutput = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const ListAgentsInput = z.object({
+  owner: HexId.optional().describe(
+    "Only agents registered by this account (a participant id). Leave it out to page through every agent.",
+  ),
+  offset: z.number().int().min(0).default(0).describe("Where to start; pass back nextOffset from the previous page."),
+  limit: z.number().int().min(1).max(50).default(20),
+});
+
+export const AgentSummary = z.object({
+  agentId: z.string(),
+  /** False when the registry lists the id but its profile could not be read. */
+  found: z.boolean(),
+  owner: HexId.optional(),
+  address: HexId.optional(),
+  status: z.string().optional(),
+  url: z.string().optional(),
+  cardUri: z.string().optional(),
+  score: z.string().optional(),
+  /** Unix nanoseconds, as the registry stores it. */
+  createdAt: z.string().optional(),
+});
+
+/** The registry's own write routines, as tools. Ids are the registry's "agent_<n>". */
+export const RegisterAgentInput = z.object({
+  url: z.string().url().describe("Where the agent is served, its endpoint or home page."),
+  cardUri: z.string().url().describe("URL of the agent's card, the JSON that describes its name and skills."),
+  agentWallet: HexId.describe("The agent's own MOI account. It must already exist on chain."),
+});
+export const AGENT_STATUSES = ["ACTIVE", "DEPRECATED"] as const;
+export const SetAgentStatusInput = z.object({
+  agentId: z.string().regex(/^agent_\d+$/i, "expected the registry's agent_<n> id"),
+  status: z
+    .string()
+    .min(1)
+    .max(32)
+    .transform((v) => v.toUpperCase())
+    .describe("ACTIVE or DEPRECATED. Only the agent's owner can change it."),
+});
+export const TransferAgentInput = z.object({
+  agentId: z.string().regex(/^agent_\d+$/i, "expected the registry's agent_<n> id"),
+  newOwner: HexId.describe("The account that will own the agent from now on. Only the current owner can do this."),
+});
+
+export const ListAgentsOutput = z.object({
+  agents: z.array(AgentSummary),
+  offset: z.number().int(),
+  limit: z.number().int(),
+  total: z.number().int().optional(),
+  /** Absent on the last page. */
+  nextOffset: z.number().int().optional(),
+});
+
 // ---------------------------------------------------------------------------
 // 3. Write tools (build ix locally → moi.sendInteractions via WalletConnect)
 //    All write tools return the same envelope.
@@ -235,6 +287,28 @@ export const TransferInput = z.object({
   memo: z.string().max(140).optional(),
 });
 
+/**
+ * Registering a brand-new account. MOI accounts do not spring into being on
+ * first receipt: someone already on chain has to create the participant,
+ * naming its public key, and fund it in the same operation. A plain transfer
+ * to an unregistered address is refused by the node.
+ */
+export const CreateAccountInput = z.object({
+    registrationHash: HexId.optional().describe(
+      "The registration hash MOI Wallet shows for a new account (a long 0x string). It carries the " +
+        "address and public key together, so with it nothing else is needed.",
+    ),
+    address: HexId.optional().describe("The new account's identifier: 0x plus 64 hex characters. Use with publicKey when there is no registration hash."),
+    publicKey: HexId.optional().describe(
+      "The new account's compressed public key: 0x plus 66 hex characters. The address is derived from " +
+        "it, so the two must belong together; the tool checks before anything reaches the phone.",
+    ),
+    amount: WireAmount.describe(
+      "KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new " +
+        "account's own storage and fuel. The chain refuses less than 1 KMOI.",
+    ),
+  });
+
 export const CreateAssetInput = z.object({
   symbol: z.string().min(1).max(12),
   supply: WireAmount,
@@ -269,12 +343,35 @@ export const MintInput = z.object({
   to: HexId.optional().describe("Recipient. Defaults to the connected wallet."),
 });
 
+/**
+ * An account or asset a logic routine touches besides the caller. MOI runs
+ * interactions in parallel by declaring up front whose state they read or
+ * write, and the SDK cannot see inside a routine, so a call that moves other
+ * accounts' assets must name them here or the node refuses it.
+ */
+export const LogicParticipant = z.object({
+  id: HexId.describe("Account, asset or logic identifier."),
+  lock: z
+    .enum(["mutate", "read", "none"])
+    .default("mutate")
+    .describe("mutate: its balances or state change. read: only read. none: listed so the asset engine can see it, which is what an asset id needs."),
+});
+
 export const CallLogicInput = z.object({
   logicId: LogicId,
   routine: z.string().min(1),
   args: z.array(z.unknown()).default([]),
   /** "view" runs locally via provider (no wallet). "invoke" goes to wallet. */
   kind: z.enum(["invoke", "view"]).default("invoke"),
+  participants: z
+    .array(LogicParticipant)
+    .optional()
+    .describe(
+      "Other accounts and assets the routine moves value for, besides you. A DEX buy, for " +
+        "example, lists the pool owner (mutate), the token asset (none) and the payment asset (none). " +
+        "The logic's own docs or its Info-style read routine say what to list. Leave it out for " +
+        "routines that only touch your own state.",
+    ),
 });
 
 export const CallLogicViewOutput = z.object({
@@ -287,7 +384,7 @@ export const CallLogicViewOutput = z.object({
 //    Mirrors docs.wallet.moi.technology/features/dapp-connections
 // ---------------------------------------------------------------------------
 
-export const WC_METHODS = ["moi.signInteraction", "moi.sendInteractions"] as const;
+export const WC_METHODS = ["moi.signInteraction", "moi.sendInteractions", "moi.sign"] as const;
 export const WC_EVENTS = ["accountsChanged", "chainChanged"] as const;
 
 /** Namespace we request on pairing. */
@@ -449,6 +546,15 @@ export const WcSignInteractionResult = z.object({
   signatures: PoloHex,
 });
 
+/**
+ * What MOI Wallet returns for `moi.sign` (params `[accountId, message]`): a
+ * signature over the plain-text message, nothing broadcast. Used for
+ * Sign-In With MOI and other off-chain proofs that the person holds the key.
+ */
+export const WcSignMessageResult = z.object({
+  signature: z.string().regex(/^(0x)?[0-9a-fA-F]+$/, "expected signature hex"),
+});
+
 // ---------------------------------------------------------------------------
 // 5. Session store  (~/.moi-mcp/session.json)
 // ---------------------------------------------------------------------------
@@ -506,6 +612,10 @@ export const ErrorCode = {
   AGENT_NOT_FOUND: "AGENT_NOT_FOUND",
   LOGIC_ROUTINE_NOT_FOUND: "LOGIC_ROUTINE_NOT_FOUND",
   RELAY_UNAVAILABLE: "RELAY_UNAVAILABLE",
+  /** No Launchpad session for this user, or the Launchpad no longer accepts it. */
+  LAUNCHPAD_NOT_SIGNED_IN: "LAUNCHPAD_NOT_SIGNED_IN",
+  /** The Launchpad answered with an error, or could not be reached. */
+  LAUNCHPAD_ERROR: "LAUNCHPAD_ERROR",
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
@@ -522,8 +632,13 @@ export const TOOLS = {
   moi_get_interaction:   { input: GetInteractionInput,   write: false },
   moi_get_logic:         { input: GetLogicInput,         write: false },
   moi_resolve_agent:     { input: ResolveAgentInput,     write: false },
+  moi_list_agents:       { input: ListAgentsInput,       write: false },
   moi_transfer:          { input: TransferInput,         write: true  },
+  moi_create_account:    { input: CreateAccountInput,    write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
+  moi_register_agent:    { input: RegisterAgentInput,    write: true  },
+  moi_set_agent_status:  { input: SetAgentStatusInput,   write: true  },
+  moi_transfer_agent:    { input: TransferAgentInput,    write: true  },
 } as const;
 export type ToolName = keyof typeof TOOLS;

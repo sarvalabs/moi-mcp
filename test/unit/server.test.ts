@@ -82,6 +82,9 @@ class FakeHub implements WalletConnectHubLike {
     throw new Error("FakeHub does not pair; these tests drive signing only");
   }
 
+  async signMessageFor(): Promise<{ signature: string }> {
+    throw new Error("FakeHub.signMessageFor is not exercised by this test file");
+  }
   async signInteractionFor(): Promise<{ ix_args: string; signatures: string }> {
     throw new Error("FakeHub.signInteractionFor is not exercised by this test file");
   }

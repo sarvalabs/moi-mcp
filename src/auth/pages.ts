@@ -9,9 +9,19 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// The background is stated, not inherited: a browser in dark mode may paint
+// its own canvas dark, and the page's dark text would vanish into it.
 const STYLE =
   "font-family:system-ui,-apple-system,sans-serif;max-width:28rem;margin:4rem auto;" +
-  "padding:0 1.5rem;color:#1a1a1a;line-height:1.5";
+  "padding:0 1.5rem;color:#1a1a1a;background:#fff;line-height:1.5";
+
+/**
+ * The MOI lockup, served by the server itself at /logo.svg (see branding.ts),
+ * so the page needs nothing from another origin and the CSP's img-src 'self'
+ * covers it. 52x40 is the 26x20 artwork at a whole-number scale, as the brand
+ * book asks.
+ */
+const LOGO = `<img src="/logo.svg" alt="MOI" width="52" height="40" style="display:block;margin-bottom:1.25rem">`;
 
 export function renderErrorPage(title: string, detail: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title></head>
@@ -50,6 +60,7 @@ export function renderConsentPage(opts: {
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Authorize ${esc(opts.clientName)}</title></head>
 <body style="${STYLE}">
+${LOGO}
 <h1 style="font-size:1.25rem">${esc(opts.clientName)} wants to connect</h1>
 <p>After you approve, you will be sent back to <strong>${esc(opts.redirectOrigin)}</strong>. If that is not the app you are using, deny this.</p>
 <p>It is asking to:</p>
@@ -88,9 +99,14 @@ const PAIRED_BUTTONS = `<button type="submit" name="decision" value="approve"
  * Enough of a MOI address (66 hex characters) for its owner to recognise it,
  * and no more. The page is shown to whoever is at this browser, before they
  * have proved anything, so the full address stays off it.
+ *
+ * A MOI identifier opens with four tag bytes and closes with four variant
+ * bytes, and both are zero for nearly every wallet, so a cut at the ends
+ * shows only zeros. Keep four bytes of the fingerprint on each side of the
+ * ellipsis instead: "0x00000000a27d9a3e…4d9a0d1f00000000".
  */
 function shortAddress(address: string): string {
-  return address.length > 20 ? `${address.slice(0, 10)}…${address.slice(-6)}` : address;
+  return address.length > 34 ? `${address.slice(0, 18)}…${address.slice(-16)}` : address;
 }
 
 function renderPairedNotice(address: string): string {
