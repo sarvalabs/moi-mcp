@@ -1,27 +1,11 @@
-/**
- * HTTP client for the MOI Agent Launchpad (sarvalabs/moi-agent-launchpad).
- *
- * The Launchpad has no API keys. An owner is whoever holds its `moi_session`
- * cookie, which it issues after Sign-In With MOI: it hands out a message, the
- * wallet signs it, the signature comes back. Everything here is that cookie
- * plus the handful of JSON routes the dashboard itself uses, read against the
- * Launchpad source on 2026-09-23. No MCP imports: plain TS library.
- */
-
 import { z } from "zod";
 
+import { DappClient, sessionCookieFrom } from "../dapp/client.js";
 import { MoiError } from "../moi-error.js";
 import { ErrorCode } from "../schema.js";
 
-/** Per-request budget. The Launchpad geocodes and hits the chain on some routes. */
-const TIMEOUT_MS = 20_000;
-const SESSION_COOKIE = "moi_session";
-/** What the Launchpad sets when the cookie carries no Max-Age. Its own default. */
-const DEFAULT_SESSION_SECONDS = 7 * 24 * 60 * 60;
+export type { FetchLike } from "../dapp/client.js";
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
-
-const Nonce = z.object({ nonce: z.string().min(1), message: z.string().min(20) });
 const Profile = z.object({ id: z.string(), walletAddress: z.string() });
 const Verified = z.object({ ok: z.literal(true), profile: Profile });
 const Me = z.object({
@@ -109,53 +93,21 @@ export interface LaunchpadSession {
   profile: z.infer<typeof Profile>;
 }
 
-/** The Launchpad's own error string, when its JSON body carries one. */
-function errorOf(body: unknown, status: number): string {
-  if (body && typeof body === "object") {
-    const o = body as Record<string, unknown>;
-    const parts = [o["error"], o["message"], o["reason"], o["detail"]].filter(
-      (v): v is string => typeof v === "string" && v.length > 0,
-    );
-    if (parts.length > 0) return parts.join(": ");
-  }
-  return `HTTP ${status}`;
-}
+export class LaunchpadClient extends DappClient {
+  // -- auth: Sign-In With MOI is the generic client's; verify also returns the profile
 
-export class LaunchpadClient {
-  readonly baseUrl: string;
-  private readonly fetchImpl: FetchLike;
-
-  constructor(baseUrl: string, fetchImpl: FetchLike = (input, init) => fetch(input, init)) {
-    this.baseUrl = baseUrl.replace(/\/+$/, "");
-    this.fetchImpl = fetchImpl;
-  }
-
-  // -- auth ---------------------------------------------------------------
-
-  async nonce(walletAddress: string): Promise<z.infer<typeof Nonce>> {
-    return this.json("POST", "/api/auth/nonce", { body: { walletAddress }, schema: Nonce });
-  }
-
-  /**
-   * Exchange the signed message for a session. The cookie comes out of the
-   * Set-Cookie header; the body only says who signed in.
-   */
-  async verify(input: { address: string; message: string; signature: string }): Promise<LaunchpadSession> {
+  override async verify(input: { address: string; message: string; signature: string }): Promise<LaunchpadSession> {
     const res = await this.request("POST", "/api/auth/verify", { body: input });
-    const body = await this.parse(res, Verified, "/api/auth/verify");
+    const body = await this.parse(res, Verified, "/api/auth/verify", false);
     const cookie = sessionCookieFrom(res);
     if (!cookie) {
       throw new MoiError(ErrorCode.LAUNCHPAD_ERROR, "The Launchpad accepted the signature but set no session cookie.");
     }
-    return { cookie: cookie.value, expiresAt: cookie.expiresAt, profile: body.profile };
+    return { cookie: cookie.cookie, expiresAt: cookie.expiresAt, profile: body.profile };
   }
 
   async me(cookie: string): Promise<z.infer<typeof Me>> {
     return this.json("GET", "/api/me", { cookie, schema: Me });
-  }
-
-  async logout(cookie: string): Promise<void> {
-    await this.request("POST", "/api/auth/logout", { cookie });
   }
 
   // -- templates and agents ------------------------------------------------
@@ -190,8 +142,9 @@ export class LaunchpadClient {
   }
 
   /**
-   * The agent's setup script, private key embedded. Fetched only at the moment
-   * a one-time download link is opened; never returned through a tool.
+   * The agent's setup script, private key embedded. Read by the setup-script
+   * tool only to describe it with secrets blanked, and by the one-time
+   * download page to hand it to a browser. The body never becomes a tool result.
    */
   async setupScript(cookie: string, id: string): Promise<{ filename: string; body: string }> {
     const res = await this.request("GET", `/api/agents/${encodeURIComponent(id)}/setup-script`, { cookie });
@@ -211,99 +164,4 @@ export class LaunchpadClient {
     const res = await this.request(method, path, opts);
     return this.parse(res, opts.schema, path, opts.cookie !== undefined);
   }
-
-  private async request(
-    method: "GET" | "POST",
-    path: string,
-    opts: { cookie?: string; body?: unknown } = {},
-  ): Promise<Response> {
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (opts.cookie) headers["cookie"] = `${SESSION_COOKIE}=${opts.cookie}`;
-    if (opts.body !== undefined) headers["content-type"] = "application/json";
-    try {
-      return await this.fetchImpl(this.baseUrl + path, {
-        method,
-        headers,
-        ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
-        redirect: "manual",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-    } catch (err) {
-      throw new MoiError(
-        ErrorCode.LAUNCHPAD_ERROR,
-        `Could not reach the Launchpad at ${this.baseUrl}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  private async parse<T>(
-    res: Response,
-    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
-    path: string,
-    withSession = false,
-  ): Promise<T> {
-    if (!res.ok) await this.fail(res, path, withSession);
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      throw new MoiError(ErrorCode.LAUNCHPAD_ERROR, `The Launchpad answered ${path} with something other than JSON.`);
-    }
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
-      throw new MoiError(
-        ErrorCode.LAUNCHPAD_ERROR,
-        `The Launchpad answered ${path} in a shape this server does not understand: ${parsed.error.issues[0]?.message ?? "invalid"}.`,
-      );
-    }
-    return parsed.data;
-  }
-
-  /**
-   * A 401 to a request that carried the session means the session is dead.
-   * A 401 to sign-in itself means the signature was refused; that is an
-   * ordinary error, and the caller has no session to forget.
-   */
-  private async fail(res: Response, path: string, withSession: boolean): Promise<never> {
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      body = undefined;
-    }
-    const detail = errorOf(body, res.status);
-    if (res.status === 401 && withSession) {
-      throw new MoiError(
-        ErrorCode.LAUNCHPAD_NOT_SIGNED_IN,
-        "The Launchpad does not recognise this session. Sign in again with moi_launchpad_sign_in.",
-      );
-    }
-    throw new MoiError(ErrorCode.LAUNCHPAD_ERROR, `Launchpad ${path} refused: ${detail}`, {
-      status: res.status,
-      ...(body && typeof body === "object" ? { body } : {}),
-    });
-  }
-}
-
-/** The session cookie out of a response, with when the Launchpad says it ends. */
-export function sessionCookieFrom(res: Response): { value: string; expiresAt: number } | undefined {
-  const all: string[] =
-    typeof (res.headers as { getSetCookie?: () => string[] }).getSetCookie === "function"
-      ? (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
-      : ([res.headers.get("set-cookie")].filter(Boolean) as string[]);
-  for (const line of all) {
-    const [pair, ...attrs] = line.split(";").map((s) => s.trim());
-    if (!pair) continue;
-    const eq = pair.indexOf("=");
-    if (eq < 0 || pair.slice(0, eq) !== SESSION_COOKIE) continue;
-    const value = pair.slice(eq + 1);
-    if (!value) continue;
-    let seconds = DEFAULT_SESSION_SECONDS;
-    for (const attr of attrs) {
-      const m = /^max-age=(\d+)$/i.exec(attr);
-      if (m) seconds = Number(m[1]);
-    }
-    return { value, expiresAt: Math.floor(Date.now() / 1000) + seconds };
-  }
-  return undefined;
 }

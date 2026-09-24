@@ -21,7 +21,8 @@ import { getConfig } from "../config.js";
 import { messageOf, toMcpError } from "../errors.js";
 import type { AgentRecord, LaunchpadClient, RegisterIntent } from "../launchpad/client.js";
 import * as S from "../launchpad/schema.js";
-import { isLaunchpadSessionExpired, type LaunchpadSessionStore, type StoredLaunchpadSession } from "../launchpad/store.js";
+import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
+import { describeSetupScript } from "../launchpad/setup-script.js";
 import { MoiError } from "../moi-error.js";
 import { getReadOnlySigner, NETWORKS } from "../moi/provider.js";
 import { findAgentByWallet } from "../moi/registry.js";
@@ -32,7 +33,7 @@ import { asWriteResult, ok } from "./write-core.js";
 
 export interface LaunchpadDeps {
   client: LaunchpadClient;
-  sessions: LaunchpadSessionStore;
+  sessions: DappSessionStore;
   /** The wallet side: pairing store, hub, journal, previews. */
   writes: HostedWriteDeps;
   /** Where one-time download links point; the connector's own origin. */
@@ -57,10 +58,10 @@ function requireAuth(auth: AuthInfo | null): AuthInfo {
   return auth;
 }
 
-async function requireLaunchpadSession(deps: LaunchpadDeps, userId: string): Promise<StoredLaunchpadSession> {
-  const rec = await deps.sessions.get(userId);
-  if (rec && !isLaunchpadSessionExpired(rec) && rec.baseUrl === deps.client.baseUrl) return rec;
-  if (rec) await deps.sessions.delete(userId);
+async function requireLaunchpadSession(deps: LaunchpadDeps, userId: string): Promise<StoredDappSession> {
+  const rec = await deps.sessions.get(userId, deps.client.baseUrl);
+  if (rec && !isDappSessionExpired(rec)) return rec;
+  if (rec) await deps.sessions.delete(userId, deps.client.baseUrl);
   throw new MoiError(
     ErrorCode.LAUNCHPAD_NOT_SIGNED_IN,
     rec
@@ -71,7 +72,7 @@ async function requireLaunchpadSession(deps: LaunchpadDeps, userId: string): Pro
 
 /** A Launchpad answer of "who are you" means the stored session is dead; forget it. */
 async function forgetIfRejected(deps: LaunchpadDeps, userId: string, err: unknown): Promise<void> {
-  if (err instanceof MoiError && err.code === ErrorCode.LAUNCHPAD_NOT_SIGNED_IN) await deps.sessions.delete(userId);
+  if (err instanceof MoiError && err.code === ErrorCode.LAUNCHPAD_NOT_SIGNED_IN) await deps.sessions.delete(userId, deps.client.baseUrl);
 }
 
 function toAgent(rec: AgentRecord): S.LaunchpadAgent {
@@ -126,9 +127,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
     async () =>
       run<StatusValue>(async () => {
         const userId = requireAuth(auth).userId;
-        const rec = await deps.sessions.get(userId);
-        if (!rec || isLaunchpadSessionExpired(rec) || rec.baseUrl !== launchpad) {
-          if (rec) await deps.sessions.delete(userId);
+        const rec = await deps.sessions.get(userId, launchpad);
+        if (!rec || isDappSessionExpired(rec)) {
+          if (rec) await deps.sessions.delete(userId, launchpad);
           return {
             value: {
               launchpad,
@@ -297,7 +298,7 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
     },
     async ({ agentId, confirm }) => {
       const write = deps.write ?? runWrite;
-      let launch: StoredLaunchpadSession;
+      let launch: StoredDappSession;
       let agent: AgentRecord;
       let intent: RegisterIntent;
       let owner: string;
@@ -478,15 +479,26 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
             `The Launchpad can no longer read the key of agent "${agent.name}", so no setup script can be produced. Create a new agent.`,
           );
         }
+        // Read the script now, with the person's session, to say what it does.
+        // Its secrets are blanked before anything leaves this function; the
+        // file itself only ever goes to a browser through the link.
+        let script: ReturnType<typeof describeSetupScript> | undefined;
+        try {
+          script = describeSetupScript((await deps.client.setupScript(rec.cookie, agentId)).body);
+        } catch (err) {
+          await forgetIfRejected(deps, userId, err);
+          throw err;
+        }
         const link = deps.createDownloadLink(userId, agentId);
-        const value = { downloadUrl: link.url, expiresAt: iso(link.expiresAt), agent: toAgent(agent) };
+        const value = { downloadUrl: link.url, expiresAt: iso(link.expiresAt), agent: toAgent(agent), script };
         return {
           value,
           text:
             `Download link for "${agent.name}" (works once, for ten minutes): ${link.url}\n` +
             "It fetches the setup script from the Launchpad with your session and hands it straight to the browser. " +
             "The script holds the agent's private key, so it is never shown in this chat. Run it with bash on the " +
-            "machine that will host the agent.",
+            "machine that will host the agent.\n\nWhat the script does:\n" +
+            script.summary.map((s) => `- ${s}`).join("\n"),
         };
       }),
   );
@@ -502,8 +514,8 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
     async () =>
       run(async () => {
         const userId = requireAuth(auth).userId;
-        const rec = await deps.sessions.get(userId);
-        await deps.sessions.delete(userId);
+        const rec = await deps.sessions.get(userId, launchpad);
+        await deps.sessions.delete(userId, launchpad);
         if (rec) {
           try {
             await deps.client.logout(rec.cookie);

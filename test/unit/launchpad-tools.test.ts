@@ -98,7 +98,7 @@ describe("moi_launchpad_sign_in", () => {
     const verify = fake.requests.find((r) => r.path === "/api/auth/verify")!;
     expect(verify.body).toEqual({ address: ACCOUNT, message, signature: "0xfeed" });
 
-    const stored = sessions.records.get(USER)!;
+    const stored = [...sessions.records.values()].find((r) => r.userId === USER)!;
     expect(stored.cookie).toBe(COOKIE);
     expect(stored.baseUrl).toBe(fake.url);
     expect(stored.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 604_000);
@@ -129,7 +129,7 @@ describe("moi_launchpad_status", () => {
     const client = await connectLaunchpad(launchpadDeps(fake, wallet(), sessions));
     expect(structured(await callTool(client, "moi_launchpad_status"))).toEqual({ launchpad: fake.url, signedIn: false });
 
-    sessions.records.set(USER, signedInRecord(fake.url));
+    await sessions.set(signedInRecord(fake.url));
     const on = structured<{ signedIn: boolean; telegramLinked: boolean; agents: Array<{ id: string; status: string }> }>(
       await callTool(client, "moi_launchpad_status"),
     );
@@ -334,8 +334,11 @@ describe("moi_launchpad_setup_script", () => {
     expect(structured(res)).toMatchObject({ downloadUrl: `https://mcp.test/launchpad/download/tok-${RECORD_ID}`, agent: { id: RECORD_ID } });
     expect(d.createDownloadLink).toHaveBeenCalledWith(USER, RECORD_ID);
     expect(JSON.stringify(res)).not.toContain("very-secret");
-    // Only the agent lookup went to the Launchpad; the script is fetched when the link is opened.
-    expect(fake.requests.map((r) => r.path)).toEqual([`/api/agents/${RECORD_ID}`]);
+    // The script is read once to describe it, secrets blanked; the file itself only goes through the link.
+    const script = structured<{ script: { summary: string[]; preview: string } }>(res).script;
+    expect(script.summary.length).toBeGreaterThan(0);
+    expect(script.preview).toContain("AGENT_KEY=<redacted>");
+    expect(fake.requests.map((r) => r.path)).toEqual([`/api/agents/${RECORD_ID}`, `/api/agents/${RECORD_ID}/setup-script`]);
   });
 
   it("refuses when the Launchpad can no longer read the agent's key", async () => {
