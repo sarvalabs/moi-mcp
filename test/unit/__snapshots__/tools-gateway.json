@@ -1,0 +1,557 @@
+[
+  {
+    "name": "ping",
+    "title": "Ping MOI MCP (read-only)",
+    "description": "Health check for the read-only MOI MCP endpoint. Returns the server version and the network it is pointed at. This endpoint has no wallet and cannot write.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "server": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "server",
+        "version",
+        "transport",
+        "network",
+        "readOnly"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_account",
+    "title": "Get MOI account",
+    "description": "Read a MOI participant account: its nonce, whether it is registered on chain, and its balance in every asset it holds. Takes a participant id (0x-prefixed). Use this to check a balance before proposing a transfer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Account address (0x…). Required; ask moi_wallet_status for the paired wallet's address if the user means their own."
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "nonce": {
+          "type": "number"
+        },
+        "balances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?$"
+              }
+            },
+            "required": [
+              "assetId",
+              "amount"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "isRegistered": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "address",
+        "nonce",
+        "balances",
+        "isRegistered"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_asset",
+    "title": "Get MOI asset",
+    "description": "Read a MOI native asset by its asset id: symbol, standard (MAS0/MAS1/MAS2), circulating supply, decimal dimension, and owner. Use this to learn an asset's dimension before interpreting raw balances.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "assetId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "standard": {
+          "type": "string"
+        },
+        "supply": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$"
+        },
+        "decimals": {
+          "type": "number"
+        },
+        "dimension": {
+          "type": "number"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "isLogical": {
+          "type": "boolean"
+        },
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "assetId",
+        "symbol",
+        "standard",
+        "supply",
+        "decimals",
+        "dimension",
+        "owner",
+        "isLogical"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_interaction",
+    "title": "Get MOI interaction",
+    "description": "Look up a MOI interaction (MOI's term for a transaction) by hash. Returns its status (pending/success/failed), sender, operations and fuel used. Use this after moi_transfer to confirm the interaction landed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "success",
+            "failed",
+            "unknown"
+          ]
+        },
+        "sender": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "payload"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "fuelUsed": {
+          "type": "number"
+        },
+        "blockHeight": {
+          "type": "number"
+        },
+        "receipt": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "hash",
+        "status",
+        "sender",
+        "operations"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_logic",
+    "title": "Get MOI logic",
+    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "logicId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "routines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "invoke",
+                  "deploy",
+                  "enlist",
+                  "view"
+                ]
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "inputs",
+              "outputs"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "logicId",
+        "routines"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_resolve_agent",
+    "title": "Resolve MOI agent",
+    "description": "Look up an AI agent in the MOI agent registry by handle, name, or address. Returns the agent's on-chain id, wallet address, capabilities and service endpoint. Use before paying or calling an agent. Returns found:false when the agent is not registered — that is a normal answer, not an error.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "found": {
+          "type": "boolean"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "found"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_list_agents",
+    "title": "List MOI agents",
+    "description": "Page through the MOI agent registry: every registered agent, or only those a given account registered. Each entry has the agent id, owner, wallet address, status and service URL. Use moi_resolve_agent for one agent's full profile and card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Only agents registered by this account (a participant id). Leave it out to page through every agent."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Where to start; pass back nextOffset from the previous page."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "found": {
+                "type": "boolean"
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "status": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "cardUri": {
+                "type": "string"
+              },
+              "score": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "found"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "nextOffset": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agents",
+        "offset",
+        "limit"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  }
+]

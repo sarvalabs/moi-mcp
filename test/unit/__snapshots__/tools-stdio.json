@@ -1,0 +1,1532 @@
+[
+  {
+    "name": "moi_get_account",
+    "title": "Get MOI account",
+    "description": "Read a MOI participant account: its nonce, whether it is registered on chain, and its balance in every asset it holds. Takes a participant id (0x-prefixed). Use this to check a balance before proposing a transfer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Account address (0x…). Required; ask moi_wallet_status for the paired wallet's address if the user means their own."
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "nonce": {
+          "type": "number"
+        },
+        "balances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?$"
+              }
+            },
+            "required": [
+              "assetId",
+              "amount"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "isRegistered": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "address",
+        "nonce",
+        "balances",
+        "isRegistered"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_asset",
+    "title": "Get MOI asset",
+    "description": "Read a MOI native asset by its asset id: symbol, standard (MAS0/MAS1/MAS2), circulating supply, decimal dimension, and owner. Use this to learn an asset's dimension before interpreting raw balances.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "assetId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "standard": {
+          "type": "string"
+        },
+        "supply": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$"
+        },
+        "decimals": {
+          "type": "number"
+        },
+        "dimension": {
+          "type": "number"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "isLogical": {
+          "type": "boolean"
+        },
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "assetId",
+        "symbol",
+        "standard",
+        "supply",
+        "decimals",
+        "dimension",
+        "owner",
+        "isLogical"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_interaction",
+    "title": "Get MOI interaction",
+    "description": "Look up a MOI interaction (MOI's term for a transaction) by hash. Returns its status (pending/success/failed), sender, operations and fuel used. Use this after moi_transfer to confirm the interaction landed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "success",
+            "failed",
+            "unknown"
+          ]
+        },
+        "sender": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "payload"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "fuelUsed": {
+          "type": "number"
+        },
+        "blockHeight": {
+          "type": "number"
+        },
+        "receipt": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "hash",
+        "status",
+        "sender",
+        "operations"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_logic",
+    "title": "Get MOI logic",
+    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "logicId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "routines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "invoke",
+                  "deploy",
+                  "enlist",
+                  "view"
+                ]
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "inputs",
+              "outputs"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "logicId",
+        "routines"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_resolve_agent",
+    "title": "Resolve MOI agent",
+    "description": "Look up an AI agent in the MOI agent registry by handle, name, or address. Returns the agent's on-chain id, wallet address, capabilities and service endpoint. Use before paying or calling an agent. Returns found:false when the agent is not registered — that is a normal answer, not an error.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "found": {
+          "type": "boolean"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "found"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_list_agents",
+    "title": "List MOI agents",
+    "description": "Page through the MOI agent registry: every registered agent, or only those a given account registered. Each entry has the agent id, owner, wallet address, status and service URL. Use moi_resolve_agent for one agent's full profile and card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Only agents registered by this account (a participant id). Leave it out to page through every agent."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Where to start; pass back nextOffset from the previous page."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "found": {
+                "type": "boolean"
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "status": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "cardUri": {
+                "type": "string"
+              },
+              "score": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "found"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "nextOffset": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agents",
+        "offset",
+        "limit"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_connect_wallet",
+    "title": "Connect MOI Wallet",
+    "description": "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code to scan. Approval happens on the phone, so this returns immediately — call moi_wallet_status afterwards to confirm the pairing landed. No private key ever reaches this server.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "network": {
+          "type": "string",
+          "enum": [
+            "voyage",
+            "mainnet",
+            "custom"
+          ],
+          "default": "voyage"
+        },
+        "qr": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "idempotentHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "awaiting_scan",
+            "connected",
+            "already_connected"
+          ]
+        },
+        "uri": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "number"
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "voyage",
+            "mainnet",
+            "custom"
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_wallet_status",
+    "title": "MOI Wallet status",
+    "description": "Report whether a MOI Wallet is paired, which account and network, when the session expires, and whether this server is configured correctly. Check this first when a MOI tool fails.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "connected": {
+          "type": "boolean"
+        },
+        "account": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "network": {
+          "type": "string",
+          "enum": [
+            "voyage",
+            "mainnet",
+            "custom"
+          ]
+        },
+        "chainId": {
+          "type": "string"
+        },
+        "peerName": {
+          "type": "string"
+        },
+        "expiry": {
+          "type": "number"
+        },
+        "pendingRequests": {
+          "type": "number"
+        },
+        "configOk": {
+          "type": "boolean"
+        },
+        "configError": {
+          "type": "string"
+        },
+        "caip2Verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connected",
+        "pendingRequests",
+        "configOk"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_disconnect_wallet",
+    "title": "Disconnect MOI Wallet",
+    "description": "End the WalletConnect session and delete the local session file.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_transfer",
+    "title": "Transfer a MOI asset",
+    "description": "Propose a transfer of a MOI native asset. Builds the interaction here and sends it to MOI Wallet on your phone — nothing moves until you tap Send there. The balance is checked first. Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation before anything reaches your phone. Returns the interaction hash once broadcast.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Native asset id. Use MOI asset id for gas token."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "memo": {
+          "type": "string",
+          "maxLength": 140
+        }
+      },
+      "required": [
+        "to",
+        "assetId",
+        "amount"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_create_account",
+    "title": "Create a MOI account",
+    "description": "Register a brand-new MOI account on chain and fund it with KMOI from your paired wallet. A transfer to an address that has never existed is refused by the node, so this is how a fresh account gets its first KMOI. Takes the new account's address and compressed public key; the tool refuses a key that does not produce that address. Sent to MOI Wallet for approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "registrationHash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The registration hash MOI Wallet shows for a new account (a long 0x string). It carries the address and public key together, so with it nothing else is needed."
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The new account's identifier: 0x plus 64 hex characters. Use with publicKey when there is no registration hash."
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The new account's compressed public key: 0x plus 66 hex characters. The address is derived from it, so the two must belong together; the tool checks before anything reaches the phone."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new account's own storage and fuel. The chain refuses less than 1 KMOI."
+        }
+      },
+      "required": [
+        "amount"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_create_asset",
+    "title": "Create a MOI asset",
+    "description": "Propose creating a new MOI native asset (a token). `supply` sets the MAXIMUM supply — it does not mint anything, so circulating supply starts at 0 and you will hold none until you call moi_mint. `decimals` is the number of decimal places (2 gives cents). Only the MAS0 standard can be created for now; MAS1, MAS2 and MASX are not supported yet, so leave `standard` out. Storage funding is handled automatically. Sent to MOI Wallet for approval on your phone.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12
+        },
+        "supply": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "storageFund": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason."
+        },
+        "decimals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18,
+          "default": 0
+        },
+        "dimension": {
+          "type": "number",
+          "enum": [
+            0,
+            1
+          ],
+          "default": 0
+        },
+        "standard": {
+          "type": "string",
+          "enum": [
+            "MAS0"
+          ],
+          "default": "MAS0",
+          "description": "Asset standard. Only MAS0 is supported so far."
+        },
+        "isStateful": {
+          "type": "boolean",
+          "default": false
+        },
+        "isFungible": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "required": [
+        "symbol",
+        "supply"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_mint",
+    "title": "Mint tokens of a MOI asset",
+    "description": "Mint tokens of an asset you manage, to yourself or another account. Creating an asset sets a maximum supply but mints nothing — until you mint, circulating supply is 0, you hold none, and the asset does not appear in a wallet. Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation before anything reaches your phone. Sent to MOI Wallet for approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset to mint. You must be its manager."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "How many tokens to mint, scaled by the asset's decimals."
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Recipient. Defaults to the connected wallet."
+        }
+      },
+      "required": [
+        "assetId",
+        "amount"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_call_logic",
+    "title": "Call a MOI logic routine",
+    "description": "Call a routine on a deployed MOI logic. kind:'view' reads the result immediately and needs no wallet. kind:'invoke' changes state and is sent to MOI Wallet for approval. Call moi_get_logic first to learn the routine names and argument order.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "routine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {},
+          "default": []
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "invoke",
+            "view"
+          ],
+          "default": "invoke"
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$",
+                "description": "Account, asset or logic identifier."
+              },
+              "lock": {
+                "type": "string",
+                "enum": [
+                  "mutate",
+                  "read",
+                  "none"
+                ],
+                "default": "mutate",
+                "description": "mutate: its balances or state change. read: only read. none: listed so the asset engine can see it, which is what an asset id needs."
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Other accounts and assets the routine moves value for, besides you. A DEX buy, for example, lists the pool owner (mutate), the token asset (none) and the payment asset (none). The logic's own docs or its Info-style read routine say what to list. Leave it out for routines that only touch your own state."
+        }
+      },
+      "required": [
+        "logicId",
+        "routine"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_register_agent",
+    "title": "Register an agent in the MOI agent registry",
+    "description": "Register an AI agent in the on-chain MOI agent registry, owned by your paired wallet. Takes the agent's own MOI account, the URL it is served at, and the URL of its card. Sent to MOI Wallet for approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Where the agent is served, its endpoint or home page."
+        },
+        "cardUri": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the agent's card, the JSON that describes its name and skills."
+        },
+        "agentWallet": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The agent's own MOI account. It must already exist on chain."
+        }
+      },
+      "required": [
+        "url",
+        "cardUri",
+        "agentWallet"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_set_agent_status",
+    "title": "Set an agent's status in the MOI agent registry",
+    "description": "Mark an agent you own ACTIVE or DEPRECATED in the on-chain MOI agent registry. Sent to MOI Wallet for approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_\\d+$"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "ACTIVE or DEPRECATED. Only the agent's owner can change it."
+        }
+      },
+      "required": [
+        "agentId",
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_transfer_agent",
+    "title": "Transfer an agent to a new owner",
+    "description": "Hand an agent you own in the on-chain MOI agent registry to another account. Sent to MOI Wallet for approval.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_\\d+$"
+        },
+        "newOwner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account that will own the agent from now on. Only the current owner can do this."
+        }
+      },
+      "required": [
+        "agentId",
+        "newOwner"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  }
+]

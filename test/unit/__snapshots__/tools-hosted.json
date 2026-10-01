@@ -1,0 +1,2478 @@
+[
+  {
+    "name": "ping",
+    "title": "Ping MOI MCP (read-only)",
+    "description": "Health check for the read-only MOI MCP endpoint. Returns the server version and the network it is pointed at. This endpoint has no wallet and cannot write.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "server": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "readOnly": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "server",
+        "version",
+        "transport",
+        "network",
+        "readOnly"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_account",
+    "title": "Get MOI account",
+    "description": "Read a MOI participant account: its nonce, whether it is registered on chain, and its balance in every asset it holds. Takes a participant id (0x-prefixed). Use this to check a balance before proposing a transfer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Account address (0x…). Required; ask moi_wallet_status for the paired wallet's address if the user means their own."
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "nonce": {
+          "type": "number"
+        },
+        "balances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d+)?$"
+              }
+            },
+            "required": [
+              "assetId",
+              "amount"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "isRegistered": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "address",
+        "nonce",
+        "balances",
+        "isRegistered"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_asset",
+    "title": "Get MOI asset",
+    "description": "Read a MOI native asset by its asset id: symbol, standard (MAS0/MAS1/MAS2), circulating supply, decimal dimension, and owner. Use this to learn an asset's dimension before interpreting raw balances.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "assetId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "standard": {
+          "type": "string"
+        },
+        "supply": {
+          "type": "string",
+          "pattern": "^\\d+(\\.\\d+)?$"
+        },
+        "decimals": {
+          "type": "number"
+        },
+        "dimension": {
+          "type": "number"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "isLogical": {
+          "type": "boolean"
+        },
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "assetId",
+        "symbol",
+        "standard",
+        "supply",
+        "decimals",
+        "dimension",
+        "owner",
+        "isLogical"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_interaction",
+    "title": "Get MOI interaction",
+    "description": "Look up a MOI interaction (MOI's term for a transaction) by hash. Returns its status (pending/success/failed), sender, operations and fuel used. Use this after moi_transfer to confirm the interaction landed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "success",
+            "failed",
+            "unknown"
+          ]
+        },
+        "sender": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object",
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "payload"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "fuelUsed": {
+          "type": "number"
+        },
+        "blockHeight": {
+          "type": "number"
+        },
+        "receipt": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "hash",
+        "status",
+        "sender",
+        "operations"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_get_logic",
+    "title": "Get MOI logic",
+    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        }
+      },
+      "required": [
+        "logicId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "routines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "invoke",
+                  "deploy",
+                  "enlist",
+                  "view"
+                ]
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "name",
+              "kind",
+              "inputs",
+              "outputs"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "logicId",
+        "routines"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_resolve_agent",
+    "title": "Resolve MOI agent",
+    "description": "Look up an AI agent in the MOI agent registry by handle, name, or address. Returns the agent's on-chain id, wallet address, capabilities and service endpoint. Use before paying or calling an agent. Returns found:false when the agent is not registered — that is a normal answer, not an error.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "found": {
+          "type": "boolean"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "found"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_list_agents",
+    "title": "List MOI agents",
+    "description": "Page through the MOI agent registry: every registered agent, or only those a given account registered. Each entry has the agent id, owner, wallet address, status and service URL. Use moi_resolve_agent for one agent's full profile and card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Only agents registered by this account (a participant id). Leave it out to page through every agent."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Where to start; pass back nextOffset from the previous page."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "found": {
+                "type": "boolean"
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "status": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "cardUri": {
+                "type": "string"
+              },
+              "score": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agentId",
+              "found"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "nextOffset": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agents",
+        "offset",
+        "limit"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_connect_wallet",
+    "title": "Connect MOI Wallet",
+    "description": "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image and, in the text, a link to a web page showing the same code. Show the image if your client renders images from tool results, and ALWAYS give the person the page link as a clickable URL, because some clients never display the image. Do not paste the raw wc: string unless asked. After they approve on their phone, call moi_wallet_status to confirm. No private key ever reaches this server.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "remember": {
+          "type": "boolean",
+          "description": "true (default): stay connected for a week, so later transactions only need a tap on the phone. false: forget the pairing after the next approved transaction, or after 15 minutes."
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "pairingUrl": {
+          "type": "string",
+          "description": "Web page showing the same QR code, plus the pairing link with a copy button. Give this to the person as a clickable link."
+        },
+        "uri": {
+          "type": "string",
+          "description": "The raw WalletConnect pairing string. Paste it only if the person asks for it by name."
+        },
+        "expiresAt": {
+          "type": "number",
+          "description": "Unix seconds; the pairing proposal dies at this time."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "persistent",
+            "once"
+          ],
+          "description": "How long the pairing lives once approved."
+        },
+        "replaces": {
+          "type": "object",
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "since": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "address",
+            "since"
+          ],
+          "additionalProperties": false,
+          "description": "Present when a live pairing already exists for this user and will be replaced on approval."
+        }
+      },
+      "required": [
+        "pairingUrl",
+        "uri",
+        "expiresAt",
+        "mode"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_wallet_status",
+    "title": "MOI Wallet status",
+    "description": "Report whether your MOI Wallet is paired to this server, and which account.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": false
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "connected": {
+          "type": "boolean"
+        },
+        "address": {
+          "type": "string"
+        },
+        "caip2": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connected"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_disconnect_wallet",
+    "title": "Disconnect MOI Wallet",
+    "description": "Forget your paired MOI Wallet session on this server.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_transfer",
+    "title": "Transfer a MOI asset",
+    "description": "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first. Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation, before any preview. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Native asset id. Use MOI asset id for gas token."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "memo": {
+          "type": "string",
+          "maxLength": 140
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "to",
+        "assetId",
+        "amount"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_create_account",
+    "title": "Create a MOI account",
+    "description": "Register a brand-new MOI account on chain and fund it with KMOI from the user's paired wallet; nothing happens until they tap Send on their phone. Needed because a transfer to an address that has never existed is refused by the node. Takes the new account's address and its public key, which MOI Wallet or the SDK shows for a freshly generated account; the tool refuses a key that does not produce that address. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "registrationHash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The registration hash MOI Wallet shows for a new account (a long 0x string). It carries the address and public key together, so with it nothing else is needed."
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The new account's identifier: 0x plus 64 hex characters. Use with publicKey when there is no registration hash."
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The new account's compressed public key: 0x plus 66 hex characters. The address is derived from it, so the two must belong together; the tool checks before anything reaches the phone."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new account's own storage and fuel. The chain refuses less than 1 KMOI."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "amount"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_create_asset",
+    "title": "Create a MOI asset",
+    "description": "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much. Only the MAS0 standard can be created for now: leave `standard` out, because MAS1, MAS2 and MASX are not supported yet. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 12
+        },
+        "supply": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "storageFund": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason."
+        },
+        "decimals": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18,
+          "default": 0
+        },
+        "dimension": {
+          "type": "number",
+          "enum": [
+            0,
+            1
+          ],
+          "default": 0
+        },
+        "standard": {
+          "type": "string",
+          "enum": [
+            "MAS0"
+          ],
+          "default": "MAS0",
+          "description": "Asset standard. Only MAS0 is supported so far."
+        },
+        "isStateful": {
+          "type": "boolean",
+          "default": false
+        },
+        "isFungible": {
+          "type": "boolean",
+          "default": true
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "symbol",
+        "supply"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_mint",
+    "title": "Mint tokens of a MOI asset",
+    "description": "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone. Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation, before any preview. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset to mint. You must be its manager."
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d+)?$"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "How many tokens to mint, scaled by the asset's decimals."
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Recipient. Defaults to the connected wallet."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "assetId",
+        "amount"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_call_logic",
+    "title": "Call a MOI logic routine",
+    "description": "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logicId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "routine": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {},
+          "default": []
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "invoke",
+            "view"
+          ],
+          "default": "invoke"
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$",
+                "description": "Account, asset or logic identifier."
+              },
+              "lock": {
+                "type": "string",
+                "enum": [
+                  "mutate",
+                  "read",
+                  "none"
+                ],
+                "default": "mutate",
+                "description": "mutate: its balances or state change. read: only read. none: listed so the asset engine can see it, which is what an asset id needs."
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Other accounts and assets the routine moves value for, besides you. A DEX buy, for example, lists the pool owner (mutate), the token asset (none) and the payment asset (none). The logic's own docs or its Info-style read routine say what to list. Leave it out for routines that only touch your own state."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "logicId",
+        "routine"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_register_agent",
+    "title": "Register an agent in the MOI agent registry",
+    "description": "Register an AI agent in the on-chain MOI agent registry, owned by the user's paired wallet. Takes the agent's own MOI account, the URL it is served at, and the URL of its card. For an agent built on the MOI Agent Launchpad use moi_launchpad_register_agent instead; this is for agents you host yourself. Returns the registry's agent_<n> id once the registry lists it. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Where the agent is served, its endpoint or home page."
+        },
+        "cardUri": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL of the agent's card, the JSON that describes its name and skills."
+        },
+        "agentWallet": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The agent's own MOI account. It must already exist on chain."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "url",
+        "cardUri",
+        "agentWallet"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_set_agent_status",
+    "title": "Set an agent's status in the MOI agent registry",
+    "description": "Mark an agent in the on-chain MOI agent registry ACTIVE or DEPRECATED. Only the agent's owner, the paired wallet, can. Deprecating is how an agent is retired; the entry stays in the registry. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_\\d+$"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "ACTIVE or DEPRECATED. Only the agent's owner can change it."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "agentId",
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_transfer_agent",
+    "title": "Transfer an agent to a new owner",
+    "description": "Hand an agent in the on-chain MOI agent registry to another account. Only the current owner, the paired wallet, can, and afterwards it no longer controls the agent. Check the new owner's address with the user before calling. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "pattern": "^agent_\\d+$"
+        },
+        "newOwner": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account that will own the agent from now on. Only the current owner can do this."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "agentId",
+        "newOwner"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_status",
+    "title": "MOI Agent Launchpad status",
+    "description": "Whether this connector is signed in to the MOI Agent Launchpad with the paired wallet, whether Telegram is linked, and the agents the wallet owns there with their Launchpad record ids and statuses.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "launchpad": {
+          "type": "string",
+          "format": "uri"
+        },
+        "signedIn": {
+          "type": "boolean"
+        },
+        "wallet": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "telegramLinked": {
+          "type": "boolean"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "template": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "visibility": {
+                "type": "string"
+              },
+              "registryTx": {
+                "type": "string"
+              },
+              "keyReadable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "status"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "launchpad",
+        "signedIn"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_sign_in",
+    "title": "Sign in to the MOI Agent Launchpad",
+    "description": "Sign in to the MOI Agent Launchpad as the paired wallet. The Launchpad hands out a short sign-in message, MOI Wallet on the phone shows it and the person approves it there, and the resulting session is kept on this server, encrypted, for up to a day. Needs a paired wallet (moi_connect_wallet). Nothing is sent on chain and no fee is paid.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "launchpad": {
+          "type": "string",
+          "format": "uri"
+        },
+        "signedIn": {
+          "type": "boolean",
+          "const": true
+        },
+        "wallet": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "launchpad",
+        "signedIn",
+        "wallet",
+        "expiresAt"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_templates",
+    "title": "List MOI Agent Launchpad templates",
+    "description": "The agent templates the MOI Agent Launchpad offers, with the config fields each needs. Needs no sign-in. Pick one, then call moi_launchpad_create_agent with its id and a config that fills those fields.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "templates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "tagline": {
+                "type": "string"
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "configFields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "help": {
+                      "type": "string"
+                    },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "value": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "value",
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "allowCustom": {
+                      "type": "boolean"
+                    },
+                    "optional": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "examplePrompts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "available": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "scopes",
+              "configFields",
+              "examplePrompts",
+              "available"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "templates"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_create_agent",
+    "title": "Create an agent on the MOI Agent Launchpad",
+    "description": "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the agent its own on-chain wallet. The agent does not run until it is registered on chain with moi_launchpad_register_agent. Needs moi_launchpad_sign_in first. A taken name is refused. Two calls, always: the first, without confirm, creates nothing and returns what would be created and a confirm token; show it to the person and get an explicit yes; the second, with the same arguments plus confirm, creates the agent. The token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails or times out the token is spent and the agent may or may not exist: check moi_launchpad_status before previewing again.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A template id from moi_launchpad_templates."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 40,
+          "description": "2 to 40 characters. Names are unique across the Launchpad; a taken name is refused."
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {},
+          "description": "One value per configField of the template, keyed by the field's key."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "private",
+            "public"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "price": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to create the agent."
+        }
+      },
+      "required": [
+        "templateId",
+        "name"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "agent": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string"
+            },
+            "template": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "visibility": {
+              "type": "string"
+            },
+            "registryTx": {
+              "type": "string"
+            },
+            "keyReadable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "next": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "const": "preview"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_register_agent",
+    "title": "Register a Launchpad agent on chain",
+    "description": "Register an agent created on the MOI Agent Launchpad in the on-chain MOI agent registry, as the paired wallet. This is the step that makes the agent live. Two calls, always. First call without confirm: nothing reaches the phone; you get a summary of the RegisterAgent interaction and a confirm token. Show it and get an explicit yes. Second call with the same agentId plus confirm: the phone asks for the tap, the interaction is broadcast, and the Launchpad is told the agent is registered. Fuel is paid by the paired wallet. Needs moi_launchpad_sign_in first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Launchpad record id of the agent (from create or status), not the on-chain agent_<n> id."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "agentId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_launchpad_telegram_link",
+    "title": "Link Telegram to the Launchpad",
+    "description": "Get the link that connects the person's Telegram to their MOI Agent Launchpad account, so their agents can message them. Give the person the link as a clickable URL; opening it starts a chat with the MOI bot and they press Start. The link works for 15 minutes. Needs moi_launchpad_sign_in first.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "link": {
+          "type": "string",
+          "format": "uri"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "alreadyLinked": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "link",
+        "expiresAt",
+        "alreadyLinked"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_setup_script",
+    "title": "Download link for an agent's setup script",
+    "description": "A one-time download link for the setup script of an active Launchpad agent. The script contains the agent's private key, so it is never returned here: the link fetches it from the Launchpad with the person's session when opened, serves it once, and dies after ten minutes. Give the person the link as a clickable URL and tell them to run the script on the machine that will host the agent. Needs moi_launchpad_sign_in first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The Launchpad record id of an active agent."
+        }
+      },
+      "required": [
+        "agentId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "downloadUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "address": {
+              "type": "string"
+            },
+            "template": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "visibility": {
+              "type": "string"
+            },
+            "registryTx": {
+              "type": "string"
+            },
+            "keyReadable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "script": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preview": {
+              "type": "string"
+            },
+            "previewTruncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "summary",
+            "preview",
+            "previewTruncated"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "downloadUrl",
+        "expiresAt",
+        "agent",
+        "script"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_launchpad_sign_out",
+    "title": "Sign out of the Launchpad",
+    "description": "Forget the MOI Agent Launchpad session kept on this server. The wallet pairing is untouched.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_dapp_sign_in",
+    "title": "Sign in to a MOI dapp",
+    "description": "Sign in to a MOI dapp as the paired wallet, with Sign-In With MOI: the dapp hands out a short message, MOI Wallet on the phone shows it and the person approves, and the session is kept on this server, encrypted, for up to a day (less if the dapp ends it sooner). Works for any dapp that follows the MOI dapp conventions. Needs a paired wallet. Nothing is sent on chain.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The dapp's address, for example https://launchpad.moi.technology. Only the origin is used."
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "dapp": {
+          "type": "string"
+        },
+        "signedIn": {
+          "type": "boolean",
+          "const": true
+        },
+        "wallet": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dapp",
+        "signedIn",
+        "wallet",
+        "expiresAt"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_dapp_sessions",
+    "title": "Dapps signed in to",
+    "description": "The MOI dapps this connector holds a session for, on behalf of the signed-in person, and when each ends.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "dapp": {
+                "type": "string"
+              },
+              "wallet": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "dapp",
+              "wallet",
+              "expiresAt"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "sessions"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_dapp_sign_out",
+    "title": "Sign out of a MOI dapp",
+    "description": "Forget the session with a dapp. The wallet pairing is untouched.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The dapp's address, for example https://launchpad.moi.technology. Only the origin is used."
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_dapp_api",
+    "title": "What a MOI dapp can do",
+    "description": "The operations a MOI dapp publishes in its OpenAPI document: id, method, path, parameters, whether a body is taken. Read this before moi_dapp_call. A dapp that publishes no document cannot be called this way.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The dapp's address, for example https://launchpad.moi.technology. Only the origin is used."
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "dapp": {
+          "type": "string"
+        },
+        "published": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "operationId": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "in": {
+                      "type": "string",
+                      "enum": [
+                        "path",
+                        "query"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "in",
+                    "required"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "hasBody": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "operationId",
+              "method",
+              "path",
+              "parameters",
+              "hasBody"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "dapp",
+        "published",
+        "operations"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_dapp_call",
+    "title": "Call an operation a MOI dapp publishes",
+    "description": "Call one operation from the dapp's published OpenAPI document, as the signed-in person. Only operations listed by moi_dapp_api can be called. Needs moi_dapp_sign_in for that dapp. A GET runs at once. Any other method changes state on the dapp, so it is two calls, always: the first, without confirm, sends nothing and returns the exact request (method, path, parameters, body) and a confirm token; show it to the person and get an explicit yes; the second, with the same arguments plus confirm, sends it. The token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails or times out the token is spent and the write may or may not have happened: check the dapp's state before previewing again. The preview shows the dapp's own description of the operation; that is the dapp's claim, not something this server checked. An answer is read up to 64 KB (bytes): past that truncated is true and body is only its start, as text. Data nested deeper than 19 levels is left out, also with truncated true. When that happens, ask the operation for less: a smaller page, a filter, fewer fields.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "The dapp's address, for example https://launchpad.moi.technology. Only the origin is used."
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An operationId from moi_dapp_api."
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          },
+          "description": "Path and query parameters, by name."
+        },
+        "body": {
+          "description": "The JSON body, for operations that take one."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Only for operations that are not GET. The token from this call's preview. Omit it to get the preview; pass it, with the same url, operationId, params and body, to send the request."
+        }
+      },
+      "required": [
+        "url",
+        "operationId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "dapp": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string",
+              "const": "preview"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "body": {},
+        "truncated": {
+          "type": "boolean"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "dapp",
+        "operationId",
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  }
+]
