@@ -47,6 +47,8 @@ the phone, the step that makes the agent live), \`moi_launchpad_telegram_link\`
 for the bot link, and \`moi_launchpad_setup_script\` for a one-time download
 link to the agent's setup script. \`moi_launchpad_status\` shows where things
 stand. \`moi_list_agents\` reads the on-chain registry itself.
+\`moi_launchpad_create_agent\` takes two calls: the first previews what would
+be created, the second, with the confirm token, creates it.
 
 \`moi_register_agent\`, \`moi_set_agent_status\` and \`moi_transfer_agent\` write to
 the registry for agents you host yourself.
@@ -56,7 +58,8 @@ the registry for agents you host yourself.
 A dapp that follows the MOI dapp conventions needs no code here:
 \`moi_dapp_sign_in\` signs in with the paired wallet, \`moi_dapp_api\` lists
 the operations it publishes, \`moi_dapp_call\` calls one as the signed-in
-person.
+person. A GET runs at once; any other method takes two calls, a preview of the
+exact request and then the same call with the confirm token.
 
 ## Vocabulary
 

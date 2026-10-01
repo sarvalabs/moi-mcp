@@ -13,15 +13,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import type { AuthInfo } from "../auth/types.js";
-import { getConfig } from "../config.js";
-import { DappClient, type DappApi, type DappOperation } from "../dapp/client.js";
+import { getConfig, log } from "../config.js";
+import { DappClient, requestFor, type DappApi, type DappOperation } from "../dapp/client.js";
 import { dappOrigin } from "../dapp/origin.js";
 import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
 import { toMcpError } from "../errors.js";
 import { MoiError } from "../moi-error.js";
 import { NETWORKS } from "../moi/provider.js";
 import { ErrorCode } from "../schema.js";
-import { loadSession, type HostedWriteDeps } from "./hosted-writes.js";
+import { ConfirmArg, loadSession, previewsOf, type HostedWriteDeps } from "./hosted-writes.js";
+import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "./preview.js";
 
 export interface DappDeps {
   sessions: DappSessionStore;
@@ -37,6 +38,8 @@ const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: true }
 const ACT = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true } as const;
 /** A dapp's operation list is re-read after this long. */
 const API_CACHE_MS = 5 * 60 * 1000;
+/** How much of the dapp's own description of an operation a preview shows. */
+const DAPP_SUMMARY_CHARS = 200;
 
 const UrlArg = z.string().url().describe("The dapp's address, for example https://launchpad.moi.technology. Only the origin is used.");
 
@@ -57,6 +60,24 @@ function requireAuth(auth: AuthInfo | null): AuthInfo {
 function iso(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toISOString();
 }
+
+/** The dapp's own text on one line, with no control or direction characters, so it cannot lay out the preview. */
+const plain = (s: string) => s.replace(/[\p{C}\p{Zl}\p{Zp}\s]+/gu, " ").trim();
+
+/** What moi_dapp_call returns: the dapp's answer, or for a write the preview that comes first. */
+type DappCallValue = {
+  dapp: string;
+  operationId: string;
+  status: number | "preview";
+  ok?: boolean;
+  body?: unknown;
+  truncated?: boolean;
+  confirm?: string;
+  summary?: string;
+  details?: Record<string, string>;
+  expiresAt?: string;
+  note?: string;
+};
 
 async function run<T extends Record<string, unknown>>(fn: () => Promise<{ value: T; text?: string }>) {
   try {
@@ -221,8 +242,13 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
       title: "Call an operation a MOI dapp publishes",
       description:
         "Call one operation from the dapp's published OpenAPI document, as the signed-in person. Only operations listed by " +
-        "moi_dapp_api can be called. This can change state on the dapp: confirm with the person first for anything that is " +
-        "not a plain read. Needs moi_dapp_sign_in for that dapp.",
+        "moi_dapp_api can be called. Needs moi_dapp_sign_in for that dapp. A GET runs at once. Any other method changes " +
+        "state on the dapp, so it is two calls, always: the first, without confirm, sends nothing and returns the exact " +
+        "request (method, path, parameters, body) and a confirm token; show it to the person and get an explicit yes; the " +
+        "second, with the same arguments plus confirm, sends it. The token works once, for ten minutes, for this person, " +
+        "this wallet and these arguments. If the second call fails or times out the token is spent and the write may or " +
+        "may not have happened: check the dapp's state before previewing again. The preview shows the dapp's own " +
+        "description of the operation; that is the dapp's claim, not something this server checked.",
       inputSchema: {
         url: UrlArg,
         operationId: z.string().min(1).describe("An operationId from moi_dapp_api."),
@@ -231,19 +257,29 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
           .optional()
           .describe("Path and query parameters, by name."),
         body: z.unknown().optional().describe("The JSON body, for operations that take one."),
+        confirm: ConfirmArg.describe(
+          "Only for operations that are not GET. The token from this call's preview. Omit it to get the preview; pass it, " +
+            "with the same url, operationId, params and body, to send the request.",
+        ),
       },
+      // Each expression is written out on its own: one zod instance used twice in a shape makes the JSON schema emit a $ref.
       outputSchema: {
         dapp: z.string(),
         operationId: z.string(),
-        status: z.number(),
-        ok: z.boolean(),
+        status: z.union([z.number(), z.literal("preview")]),
+        ok: z.boolean().optional(),
         body: z.unknown(),
-        truncated: z.boolean(),
+        truncated: z.boolean().optional(),
+        confirm: z.string().optional(),
+        summary: z.string().optional(),
+        details: z.record(z.string(), z.string()).optional(),
+        expiresAt: z.string().optional(),
+        note: z.string().optional(),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
-    async ({ url, operationId, params, body }) =>
-      run(async () => {
+    async ({ url, operationId, params, body, confirm }) =>
+      run<DappCallValue>(async () => {
         const userId = requireAuth(auth).userId;
         const dapp = origin(url);
         const rec = await requireSession(userId, dapp);
@@ -257,10 +293,88 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
               : `${dapp} publishes no OpenAPI document, so nothing can be called on it this way.`,
           );
         }
+        const args = { ...(params ? { params } : {}), ...(body !== undefined ? { body } : {}) };
+        // Anything that is not a GET, including a method this code does not know, is gated.
+        const isWrite = op.method !== "GET";
+        if (isWrite) {
+          // Worked out before any token is issued, so a missing parameter or a ".." fails here and no token exists for it.
+          const req = requestFor(op, args);
+          const pending = redeemOrIssue(
+            previewsOf(deps.writes),
+            {
+              userId,
+              kind: "dapp_call",
+              // The token is bound to everything the call depends on: the operation as the dapp defines it now (method,
+              // path template, the filled target, so a dapp that redefines it between the calls fails to redeem), the
+              // wallet signed in as (so a re-sign-in as another paired wallet does too), and the arguments. The dapp's
+              // summary is left out: it is the dapp's text, and one that varied would make every confirm re-preview.
+              fingerprint: fingerprintDigest({
+                dapp,
+                operationId,
+                method: op.method,
+                path: op.path,
+                target: req.target,
+                wallet: rec.walletAddress,
+                params: params ?? {},
+                body: req.body,
+              }),
+            },
+            confirm,
+          );
+          if (pending) {
+            // The server's own account of the request. The dapp's description goes last, on one line, quoted and
+            // labelled, so it reads as the dapp's claim and cannot continue the sentences around it.
+            const details: Record<string, string> = {
+              Dapp: dapp,
+              Operation: plain(operationId),
+              As: rec.walletAddress,
+              Request: plain(`${op.method} ${req.target}`),
+              Body:
+                req.body !== undefined
+                  ? cut(JSON.stringify(req.body), PREVIEW_BODY_CHARS)
+                  : body !== undefined
+                    ? "(not sent: this operation takes no body)"
+                    : "(none)",
+              ...(op.summary
+                ? { "The dapp says (its own words, not checked)": JSON.stringify(cut(plain(op.summary), DAPP_SUMMARY_CHARS)) }
+                : {}),
+            };
+            const summary = `${op.method} ${dapp}${plain(req.target)}`;
+            return {
+              value: {
+                dapp,
+                operationId,
+                status: "preview" as const,
+                confirm: pending.token,
+                summary,
+                details,
+                expiresAt: new Date(pending.expiresAt).toISOString(),
+                ...(pending.note ? { note: pending.note } : {}),
+              },
+              text: previewBlock({
+                what: dapp,
+                summary,
+                details,
+                token: pending.token,
+                expiresAt: pending.expiresAt,
+                ...(pending.note ? { note: pending.note } : {}),
+              }),
+            };
+          }
+        }
+        // One info line per write, with no params, body, query, cookie, token or error message in it. This is not a
+        // durable audit trail: log() drops info at the default LOG_LEVEL=error, and only the pm2 apps set info.
+        // Dapp writes are not journaled on purpose. src/journal.ts tracks the life of a signed chain interaction, and
+        // reconcileJournalOnBoot would mislabel any entry left unfinished as an orphaned interaction that cannot be
+        // re-broadcast, which a dapp write is not.
         try {
-          const result = await clientFor(dapp).call(rec.cookie, op, { ...(params ? { params } : {}), ...(body !== undefined ? { body } : {}) });
+          const result = await clientFor(dapp).call(rec.cookie, op, args);
+          if (isWrite) log("info", `dapp write: user ${userId} ${op.method} ${operationId} on ${dapp} -> ${result.status}`);
           return { value: { dapp, operationId, ...result } };
         } catch (err) {
+          if (isWrite) {
+            log("info", `dapp write: user ${userId} ${op.method} ${operationId} on ${dapp} -> failed${err instanceof MoiError ? ` (${err.code})` : ""}`);
+          }
           if (err instanceof MoiError && err.code === ErrorCode.LAUNCHPAD_NOT_SIGNED_IN) await deps.sessions.delete(userId, dapp);
           throw err;
         }

@@ -156,6 +156,48 @@ export function checkSignInMessage(
   return { ok: true };
 }
 
+/**
+ * The request one published operation becomes: path parameters fill the template, query parameters go on the URL, the
+ * body is kept only where the operation declares one. Pure, and the one place this is worked out, so the preview shown
+ * for a write and the request that is sent cannot differ.
+ */
+export function requestFor(
+  op: DappOperation,
+  args: { params?: Record<string, string | number | boolean>; body?: unknown } = {},
+): { method: DappOperation["method"]; target: string; body?: unknown } {
+  const params = args.params ?? {};
+  let path = op.path;
+  const query = new URLSearchParams();
+  for (const p of op.parameters) {
+    const value = params[p.name];
+    if (value === undefined) {
+      if (p.required) throw new MoiError(ErrorCode.INVALID_ARGS, `${op.operationId} needs the parameter "${p.name}".`);
+      continue;
+    }
+    if (p.in === "path") path = path.replace(`{${p.name}}`, encodeURIComponent(String(value)));
+    else query.set(p.name, String(value));
+  }
+  if (/\{[^}]+\}/.test(path)) {
+    throw new MoiError(ErrorCode.INVALID_ARGS, `${op.operationId} has an unfilled path parameter in ${op.path}.`);
+  }
+  // encodeURIComponent leaves "." alone and fetch resolves dot segments, so an id of ".." would send
+  // DELETE /api/agents/.. as DELETE /api/, a path the dapp never published, under a preview that showed the other.
+  // "%2e%2e" is safe: encodeURIComponent turns its "%" into "%25". The filled path is checked, not each value, so
+  // two adjacent parameters that are each "." are caught too.
+  if (path.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      `${op.operationId}: a path parameter cannot be "." or "..", because the URL would resolve to a path the dapp did not publish.`,
+    );
+  }
+  const qs = query.toString();
+  return {
+    method: op.method,
+    target: qs ? `${path}?${qs}` : path,
+    ...(op.hasBody && args.body !== undefined ? { body: args.body } : {}),
+  };
+}
+
 export class DappClient {
   readonly baseUrl: string;
   protected readonly fetchImpl: FetchLike;
@@ -230,25 +272,10 @@ export class DappClient {
     op: DappOperation,
     args: { params?: Record<string, string | number | boolean>; body?: unknown } = {},
   ): Promise<DappCallResult> {
-    const params = args.params ?? {};
-    let path = op.path;
-    const query = new URLSearchParams();
-    for (const p of op.parameters) {
-      const value = params[p.name];
-      if (value === undefined) {
-        if (p.required) throw new MoiError(ErrorCode.INVALID_ARGS, `${op.operationId} needs the parameter "${p.name}".`);
-        continue;
-      }
-      if (p.in === "path") path = path.replace(`{${p.name}}`, encodeURIComponent(String(value)));
-      else query.set(p.name, String(value));
-    }
-    if (/\{[^}]+\}/.test(path)) {
-      throw new MoiError(ErrorCode.INVALID_ARGS, `${op.operationId} has an unfilled path parameter in ${op.path}.`);
-    }
-    const qs = query.toString();
-    const res = await this.request(op.method, qs ? `${path}?${qs}` : path, {
+    const req = requestFor(op, args);
+    const res = await this.request(req.method, req.target, {
       cookie,
-      ...(op.hasBody && args.body !== undefined ? { body: args.body } : {}),
+      ...(req.body !== undefined ? { body: req.body } : {}),
     });
     const text = await res.text();
     const truncated = text.length > MAX_BODY_BYTES;

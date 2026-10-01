@@ -11,7 +11,8 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/moi/registry.js";
 import { ErrorCode } from "../../src/schema.js";
 import type { runWrite } from "../../src/tools/hosted-writes.js";
-import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, session, structured, TOPIC, USER } from "../helpers/hosted.js";
+import { PreviewRegistry } from "../../src/tools/preview.js";
+import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, send, session, structured, TOPIC, USER } from "../helpers/hosted.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {
   AGENT_WALLET,
@@ -69,10 +70,10 @@ function primeRegistry(registered: () => boolean) {
   });
 }
 
-function wallet(paired = true) {
+function wallet(paired = true, previews?: PreviewRegistry) {
   const records = new Map([[USER, session()]]);
   if (!paired) records.clear();
-  return writeDeps(fakeStore(records), fakeHub(), fakeJournal());
+  return writeDeps(fakeStore(records), fakeHub(), fakeJournal(), previews);
 }
 
 async function callTool(client: Client, name: string, args: Record<string, unknown> = {}) {
@@ -218,26 +219,118 @@ describe("moi_launchpad_templates", () => {
 });
 
 describe("moi_launchpad_create_agent", () => {
-  it("creates the agent with the session cookie and says what comes next", async () => {
-    const sessions = fakeSessions(new Map([[USER, signedInRecord(fake.url)]]));
-    const client = await connectLaunchpad(launchpadDeps(fake, wallet(), sessions));
-    const res = await callTool(client, "moi_launchpad_create_agent", {
-      templateId: "weather_brief",
-      name: "Rain Check",
-      config: { city: "Bengaluru", time: "07:30" },
+  type Preview = { status?: string; confirm?: string; summary?: string; details?: Record<string, string>; note?: string; agent?: unknown };
+  const NEW = { templateId: "weather_brief", name: "Rain Check", config: { city: "Bengaluru", time: "07:30" } };
+  const posts = () => fake.requests.filter((r) => r.method === "POST" && r.path === "/api/agents");
+  const NOTE = /did not match/;
+
+  async function rig(over: { sessions?: ReturnType<typeof fakeSessions> } = {}) {
+    const sessions = over.sessions ?? fakeSessions(new Map([[USER, signedInRecord(fake.url)]]));
+    const previews = new PreviewRegistry({ maxPerUser: 50 });
+    const writes = wallet(true, previews);
+    const client = await connectLaunchpad(launchpadDeps(fake, writes, sessions));
+    return { client, sessions, previews, writes };
+  }
+
+  it("creates nothing on the first call, and shows what would be created", async () => {
+    const { client, previews } = await rig();
+    const res = await callTool(client, "moi_launchpad_create_agent", { ...NEW, visibility: "public", category: "weather", price: 5 });
+    expect(res.isError).toBeFalsy();
+    const out = structured<Preview>(res);
+    expect(out.status).toBe("preview");
+    expect(out.confirm).toMatch(/^[A-Za-z0-9_-]{12}$/);
+    expect(out.agent).toBeUndefined();
+    expect(out.details).toMatchObject({
+      Launchpad: fake.url,
+      Action: "Create agent",
+      As: "0xowner",
+      Template: "weather_brief",
+      Name: "Rain Check",
+      Config: '{"city":"Bengaluru","time":"07:30"}',
+      Visibility: "public",
+      Category: "weather",
+      Price: "5",
     });
+    expect(out.details!["Effect"]).toMatch(/does not run until registered/);
+    expect((res.content as Array<{ text: string }>)[0]!.text).toContain(`Nothing has been sent to ${fake.url}`);
+    expect(posts()).toHaveLength(0);
+    expect(previews.size).toBe(1);
+  });
+
+  it("creates the agent with the session cookie once confirmed, and says what comes next", async () => {
+    const { client } = await rig();
+    const res = await send(client, "moi_launchpad_create_agent", NEW);
     expect(res.isError).toBeFalsy();
     const out = structured<{ agent: { id: string; status: string }; next: string }>(res);
     expect(out.agent).toMatchObject({ id: RECORD_ID, name: "Rain Check", address: AGENT_WALLET, template: "weather_brief", status: "pending_grant" });
     expect(out.next).toMatch(/moi_launchpad_register_agent/);
 
-    const post = fake.requests.find((r) => r.method === "POST" && r.path === "/api/agents")!;
+    expect(posts()).toHaveLength(1);
+    const post = posts()[0]!;
     expect(post.cookie).toBe(`moi_session=${COOKIE}`);
     expect(post.body).toMatchObject({ templateId: "weather_brief", name: "Rain Check", config: { city: "Bengaluru", time: "07:30" } });
     expect((post.body as { avatarSeed: string }).avatarSeed).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  it("refuses without a Launchpad session, before touching the Launchpad", async () => {
+  it("works once per token", async () => {
+    const { client } = await rig();
+    const first = structured<Preview>(await callTool(client, "moi_launchpad_create_agent", NEW));
+    expect(structured<Preview>(await callTool(client, "moi_launchpad_create_agent", { ...NEW, confirm: first.confirm })).agent).toBeDefined();
+    const replay = structured<Preview>(await callTool(client, "moi_launchpad_create_agent", { ...NEW, confirm: first.confirm }));
+    expect(replay.status).toBe("preview");
+    expect(replay.note).toMatch(NOTE);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["the name", { name: "Rain Check 2" }],
+    ["the template", { templateId: "job_search" }],
+    ["a config value", { config: { city: "Mumbai", time: "07:30" } }],
+    ["an extra config field", { config: { city: "Bengaluru", time: "07:30", extra: "x" } }],
+    ["the visibility", { visibility: "public" }],
+    ["the category", { category: "weather" }],
+    ["the price", { price: 1 }],
+  ])("gives a fresh preview and creates nothing when %s changed between the calls", async (_what, change) => {
+    const { client } = await rig();
+    const first = structured<Preview>(await callTool(client, "moi_launchpad_create_agent", NEW));
+    const res = structured<Preview>(await callTool(client, "moi_launchpad_create_agent", { ...NEW, ...change, confirm: first.confirm }));
+    expect(res.status).toBe("preview");
+    expect(res.note).toMatch(NOTE);
+    expect(posts()).toHaveLength(0);
+    // The token the person saw is still good for what they saw.
+    expect(structured<Preview>(await callTool(client, "moi_launchpad_create_agent", { ...NEW, confirm: first.confirm })).agent).toBeDefined();
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("gives a fresh preview when the person signed in again as another wallet", async () => {
+    const { client, sessions } = await rig();
+    const first = structured<Preview>(await callTool(client, "moi_launchpad_create_agent", NEW));
+    await sessions.set(signedInRecord(fake.url, { walletAddress: "0xsomeoneelse" }));
+    const res = structured<Preview>(await callTool(client, "moi_launchpad_create_agent", { ...NEW, confirm: first.confirm }));
+    expect(res.status).toBe("preview");
+    expect(res.note).toMatch(NOTE);
+    expect(res.details!["As"]).toBe("0xsomeoneelse");
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("will not let another person redeem the token", async () => {
+    const sessions = fakeSessions(
+      new Map([
+        ["a", signedInRecord(fake.url)],
+        ["b", signedInRecord(fake.url, { userId: "user-b" })],
+      ]),
+    );
+    const owner = await rig({ sessions });
+    const first = structured<Preview>(await callTool(owner.client, "moi_launchpad_create_agent", NEW));
+    const writes = wallet(true, owner.previews);
+    const other = await connectLaunchpad(launchpadDeps(fake, writes, sessions), authFor("user-b"));
+    const res = structured<Preview>(await callTool(other, "moi_launchpad_create_agent", { ...NEW, confirm: first.confirm }));
+    expect(res.status).toBe("preview");
+    expect(res.note).toMatch(NOTE);
+    expect(posts()).toHaveLength(0);
+  });
+
+  it("refuses without a Launchpad session, before touching the Launchpad and before any token", async () => {
     const client = await connectLaunchpad(launchpadDeps(fake, wallet(), fakeSessions()));
     const res = await callTool(client, "moi_launchpad_create_agent", { templateId: "weather_brief", name: "Rain Check" });
     expect(res.isError).toBe(true);
@@ -245,12 +338,20 @@ describe("moi_launchpad_create_agent", () => {
     expect(fake.requests).toHaveLength(0);
   });
 
-  it("passes a taken name back as the Launchpad's own refusal", async () => {
-    const sessions = fakeSessions(new Map([[USER, signedInRecord(fake.url)]]));
-    const client = await connectLaunchpad(launchpadDeps(fake, wallet(), sessions));
-    const res = await callTool(client, "moi_launchpad_create_agent", { templateId: "weather_brief", name: "Taken" });
+  it("passes a taken name back as the Launchpad's own refusal, after the confirm", async () => {
+    const { client, previews } = await rig();
+    const res = await send(client, "moi_launchpad_create_agent", { templateId: "weather_brief", name: "Taken" });
     expect(res.isError).toBe(true);
     expect(JSON.stringify(res.content)).toMatch(/name_taken/);
+    expect(posts()).toHaveLength(1);
+    expect(previews.size).toBe(0);
+  });
+
+  it("asks for no tap on the phone", async () => {
+    const { client, writes } = await rig();
+    await send(client, "moi_launchpad_create_agent", NEW);
+    expect((writes.hub as ReturnType<typeof fakeHub>).signInteractionFor).not.toHaveBeenCalled();
+    expect((writes.hub as ReturnType<typeof fakeHub>).signMessageFor).not.toHaveBeenCalled();
   });
 });
 
@@ -355,9 +456,12 @@ describe("moi_launchpad_telegram_link", () => {
   it("returns the bot link as text and structure", async () => {
     const sessions = fakeSessions(new Map([[USER, signedInRecord(fake.url)]]));
     const client = await connectLaunchpad(launchpadDeps(fake, wallet(), sessions));
+    // One call, no confirm, no preview: it only mints a code the person has to open by hand, so it is not gated.
     const res = await callTool(client, "moi_launchpad_telegram_link");
     expect(res.isError).toBeFalsy();
     expect(structured(res)).toMatchObject({ link: "https://t.me/moinetworkbot?start=abc-123", alreadyLinked: false });
+    expect(structured<{ status?: string }>(res).status).toBeUndefined();
+    expect(fake.requests.filter((r) => r.path === "/api/telegram/link")).toHaveLength(1);
     expect(JSON.stringify(res.content)).toContain("https://t.me/moinetworkbot?start=abc-123");
   });
 });

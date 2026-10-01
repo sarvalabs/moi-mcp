@@ -4,7 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { fingerprint, PreviewRegistry } from "../../src/tools/preview.js";
+import { cut, fingerprint, fingerprintDigest, PreviewRegistry, previewBlock, redeemOrIssue } from "../../src/tools/preview.js";
 import { KMOI, OTHER, SENT_HASH, startMockNode, type MockNode } from "../helpers/mock-node.js";
 import { fakeWallet, installWallet, startHarness, type Harness } from "../helpers/harness.js";
 import {
@@ -77,6 +77,89 @@ describe("PreviewRegistry", () => {
       fingerprint({ c: [1, { x: 1, y: 2 }], a: 1 }),
     );
     expect(fingerprint({ a: 1 })).not.toBe(fingerprint({ a: 2 }));
+  });
+});
+
+describe("redeemOrIssue, the gate for a call with no phone behind it", () => {
+  const key = { userId: "u", kind: "dapp_call", fingerprint: fingerprintDigest({ op: "echo", body: { a: 1 } }) };
+
+  it("issues a token with no note when there is no confirm", () => {
+    const r = new PreviewRegistry();
+    const out = redeemOrIssue(r, key, undefined)!;
+    expect(out.token).toMatch(/^[A-Za-z0-9_-]{12}$/);
+    expect(out.note).toBeUndefined();
+    expect(r.size).toBe(1);
+  });
+
+  it("lets a matching token through once, and spends it", () => {
+    const r = new PreviewRegistry();
+    const { token } = redeemOrIssue(r, key, undefined)!;
+    expect(redeemOrIssue(r, key, token)).toBeUndefined();
+    expect(r.size).toBe(0);
+    // The same token again is a fresh preview with the note, and still sends nothing.
+    const again = redeemOrIssue(r, key, token)!;
+    expect(again.token).not.toBe(token);
+    expect(again.note).toMatch(/did not match/);
+  });
+
+  it("gives a fresh preview and a note for a wrong, expired or other-user token, leaving the owner's alone", () => {
+    let t = 1000;
+    const r = new PreviewRegistry({ ttlMs: 100, now: () => t });
+    const { token } = redeemOrIssue(r, key, undefined)!;
+    expect(redeemOrIssue(r, key, "nope")!.note).toMatch(/did not match/);
+    expect(redeemOrIssue(r, { ...key, userId: "someone-else" }, token)!.note).toMatch(/did not match/);
+    expect(redeemOrIssue(r, { ...key, kind: "launchpad_create_agent" }, token)!.note).toMatch(/did not match/);
+    expect(redeemOrIssue(r, { ...key, fingerprint: fingerprintDigest({ op: "echo", body: { a: 2 } }) }, token)!.note).toMatch(/did not match/);
+    // None of those burned the owner's token.
+    expect(redeemOrIssue(r, key, token)).toBeUndefined();
+
+    const second = redeemOrIssue(r, key, undefined)!.token;
+    t = 1100;
+    expect(redeemOrIssue(r, key, second)!.note).toMatch(/did not match/);
+  });
+
+  it("says nothing was sent in the note, and never mentions the phone", () => {
+    const r = new PreviewRegistry();
+    const note = redeemOrIssue(r, key, "nope")!.note!;
+    expect(note).toMatch(/Nothing was sent/);
+    expect(note).not.toMatch(/phone/);
+  });
+
+  it("lets exactly one of two concurrent confirms with one token through", async () => {
+    const r = new PreviewRegistry();
+    const { token } = redeemOrIssue(r, key, undefined)!;
+    const results = await Promise.all([0, 1].map(async () => redeemOrIssue(r, key, token)));
+    expect(results.filter((x) => x === undefined)).toHaveLength(1);
+  });
+
+  it("digests the same arguments the same way and different ones differently, at a fixed size", () => {
+    expect(fingerprintDigest({ b: 2, a: [1, { y: 2, x: 1 }] })).toBe(fingerprintDigest({ a: [1, { x: 1, y: 2 }], b: 2 }));
+    expect(fingerprintDigest({ a: 1 })).not.toBe(fingerprintDigest({ a: 2 }));
+    expect(fingerprintDigest({ big: "x".repeat(1_000_000) })).toMatch(/^[0-9a-f]{64}$/);
+    // The last byte of a large value still moves it.
+    expect(fingerprintDigest({ big: "x".repeat(1_000_000) + "a" })).not.toBe(fingerprintDigest({ big: "x".repeat(1_000_000) + "b" }));
+  });
+
+  it("cuts long text and says how much was left out", () => {
+    expect(cut("abc", 3)).toBe("abc");
+    expect(cut("abcdef", 3)).toBe("abc… (3 more characters)");
+  });
+
+  it("writes the preview block with the note first, the request, and the token to send back", () => {
+    const text = previewBlock({
+      what: "https://dapp.example",
+      summary: "POST https://dapp.example/api/echo",
+      details: { Request: "POST /api/echo", Body: "{}" },
+      token: "tok123",
+      expiresAt: Date.UTC(2026, 0, 1),
+      note: "A note.",
+    });
+    expect(text.split("\n")[0]).toBe("A note.");
+    expect(text).toContain("Nothing has been sent to https://dapp.example");
+    expect(text).toContain("  Request: POST /api/echo");
+    expect(text).toContain('confirm="tok123"');
+    expect(text).toContain("2026-01-01T00:00:00.000Z");
+    expect(text).not.toMatch(/phone/);
   });
 });
 

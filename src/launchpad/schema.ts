@@ -85,10 +85,19 @@ export const LaunchpadCreateAgentInput = z.object({
   price: z.number().int().min(0).max(1_000_000).optional(),
 });
 export const LaunchpadCreateAgentOutput = z.object({
-  agent: LaunchpadAgent,
-  /** What to do next, for the model to relay. */
-  next: z.string(),
+  /** The created agent. Absent on the preview that comes first, which creates nothing. */
+  agent: LaunchpadAgent.optional(),
+  /** What to do next, for the model to relay. Present with `agent`. */
+  next: z.string().optional(),
+  /** "preview" on a call without a valid confirm token; absent once the agent exists. */
+  status: z.literal("preview").optional(),
+  confirm: z.string().optional(),
+  summary: z.string().optional(),
+  details: z.record(z.string(), z.string()).optional(),
+  expiresAt: z.string().optional(),
+  note: z.string().optional(),
 });
+export type LaunchpadCreateAgentOutputType = z.infer<typeof LaunchpadCreateAgentOutput>;
 
 export const LaunchpadRegisterAgentInput = z.object({
   agentId: z.string().min(1).describe("The Launchpad record id of the agent (from create or status), not the on-chain agent_<n> id."),

@@ -27,7 +27,8 @@ import { MoiError } from "../moi-error.js";
 import { getReadOnlySigner, NETWORKS } from "../moi/provider.js";
 import { findAgentByWallet } from "../moi/registry.js";
 import { ErrorCode } from "../schema.js";
-import { ConfirmArg, loadSession, runWrite, type HostedWriteDeps } from "./hosted-writes.js";
+import { ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "./hosted-writes.js";
+import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "./preview.js";
 import { prepareRegisterAgent } from "./registry-core.js";
 import { asWriteResult, ok } from "./write-core.js";
 
@@ -244,16 +245,71 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
       description:
         "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the " +
         "agent its own on-chain wallet. The agent does not run until it is registered on chain with " +
-        "moi_launchpad_register_agent. Needs moi_launchpad_sign_in first. Confirm the template, name and config with the " +
-        "person before calling; a taken name is refused.",
-      inputSchema: S.LaunchpadCreateAgentInput.shape,
+        "moi_launchpad_register_agent. Needs moi_launchpad_sign_in first. A taken name is refused. Two calls, always: " +
+        "the first, without confirm, creates nothing and returns what would be created and a confirm token; show it to " +
+        "the person and get an explicit yes; the second, with the same arguments plus confirm, creates the agent. The " +
+        "token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails " +
+        "or times out the token is spent and the agent may or may not exist: check moi_launchpad_status before " +
+        "previewing again.",
+      inputSchema: {
+        ...S.LaunchpadCreateAgentInput.shape,
+        confirm: ConfirmArg.describe(
+          "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to create the agent.",
+        ),
+      },
       outputSchema: S.LaunchpadCreateAgentOutput.shape,
       annotations: ACT,
     },
-    async ({ templateId, name, config, visibility, category, price }) =>
-      run(async () => {
+    async ({ templateId, name, config, visibility, category, price, confirm }) =>
+      run<S.LaunchpadCreateAgentOutputType>(async () => {
         const userId = requireAuth(auth).userId;
         const rec = await requireLaunchpadSession(deps, userId);
+        // Bound to the wallet signed in as, so a re-sign-in as another paired wallet between the calls fails to redeem.
+        // The avatar seed is random and minted after this gate, so it is not part of what the token binds.
+        const pending = redeemOrIssue(
+          previewsOf(deps.writes),
+          {
+            userId,
+            kind: "launchpad_create_agent",
+            fingerprint: fingerprintDigest({ launchpad, wallet: rec.walletAddress, templateId, name, config, visibility, category, price }),
+          },
+          confirm,
+        );
+        if (pending) {
+          const details: Record<string, string> = {
+            Launchpad: launchpad,
+            Action: "Create agent",
+            As: rec.walletAddress,
+            Template: templateId,
+            Name: name,
+            Config: cut(JSON.stringify(config), PREVIEW_BODY_CHARS),
+            Visibility: visibility ?? "the Launchpad's default",
+            ...(category ? { Category: category } : {}),
+            ...(price !== undefined ? { Price: String(price) } : {}),
+            Effect:
+              "Creates the agent record and an on-chain wallet for it on the Launchpad. It does not run until registered on " +
+              "chain, which is a separate step with a phone tap.",
+          };
+          const summary = `Create agent "${name}" from template ${templateId} on ${launchpad}`;
+          return {
+            value: {
+              status: "preview" as const,
+              confirm: pending.token,
+              summary,
+              details,
+              expiresAt: new Date(pending.expiresAt).toISOString(),
+              ...(pending.note ? { note: pending.note } : {}),
+            },
+            text: previewBlock({
+              what: launchpad,
+              summary,
+              details,
+              token: pending.token,
+              expiresAt: pending.expiresAt,
+              ...(pending.note ? { note: pending.note } : {}),
+            }),
+          };
+        }
         try {
           const created = await deps.client.createAgent(rec.cookie, {
             templateId,
@@ -331,6 +387,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
 
       // Already in the registry under this owner (a broadcast whose confirm
       // never reached the Launchpad): just tell the Launchpad, no new tap.
+      // Single-call on purpose, unlike create_agent: this records a fact the
+      // person already signed with an earlier tap. Nothing new is created or
+      // sent on chain, so there is nothing left for a preview to show.
       const already = await findRegistryAgentId(owner, agentWallet, 0);
       if (already) {
         try {
@@ -419,6 +478,10 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
       outputSchema: S.LaunchpadTelegramLinkOutput.shape,
       annotations: ACT,
     },
+    // Single-call on purpose, unlike create_agent: this only mints a code.
+    // Nothing changes until the person opens the link in Telegram and presses
+    // Start, a second human action in another app, and the text below already
+    // warns when it would replace a link that exists.
     async () =>
       run(async () => {
         const userId = requireAuth(auth).userId;

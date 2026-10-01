@@ -70,6 +70,13 @@ export interface HostedWriteDeps {
 
 const defaultPreviews = new PreviewRegistry();
 
+/**
+ * The registry for these deps: one per process unless a test injects one. The hosted server rebuilds McpServer and
+ * re-registers every tool on each request, so a registry created inside a register* function would be empty on the
+ * confirm call. moi_dapp_call and moi_launchpad_create_agent use it too.
+ */
+export const previewsOf = (d: HostedWriteDeps): PreviewRegistry => d.previews ?? defaultPreviews;
+
 export type WriteKind =
   | "transfer"
   | "create_account"
@@ -247,7 +254,7 @@ export async function runWrite(
   confirm: string | undefined,
   prepare: (session: StoredWalletSession) => Promise<PreparedWrite>,
 ) {
-  const previews = deps.previews ?? defaultPreviews;
+  const previews = previewsOf(deps);
   const id = randomUUID();
   let proposed = false;
   let signed = false;
