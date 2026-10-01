@@ -9,8 +9,9 @@
  *   pm2 start ecosystem.config.cjs --only moi-mcp-read
  *   pm2 start ecosystem.config.cjs --only moi-mcp-write
  *
- * Secrets do not belong here. Put WC_PROJECT_ID in a .env file next to this
- * one; the server loads it. This file is committed, that one is not.
+ * Secrets do not belong here. Put WC_PROJECT_ID and MOI_SESSION_KEY in a .env
+ * file next to this one; the server loads it. This file is committed, that one
+ * is not. Without MOI_SESSION_KEY the write gateway exits at boot.
  */
 module.exports = {
   apps: [

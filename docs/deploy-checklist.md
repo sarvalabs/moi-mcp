@@ -27,7 +27,7 @@ Two independent Node.js services, both in this repo, built by `npm run build`:
 | Tools | 6 (reads + ping) | 13 (reads + wallet + transactions) |
 | State | None — stateless, no secrets | Wallet pairing per user + write journal |
 | Sign-in | None — public endpoint | OAuth (the service itself is the issuer; `PUBLIC_URL` must equal the public hostname) |
-| Secrets | None | `WC_PROJECT_ID` (WalletConnect project id) in `.env` |
+| Secrets | None | `WC_PROJECT_ID` (WalletConnect project id) and `MOI_SESSION_KEY` (encrypts stored dapp sessions) in `.env` |
 | Storage | None | `MOI_DATA_DIR` (`/var/lib/moi-mcp`) on disk |
 | Scaling | Any number of copies | Exactly one process — the live WalletConnect client is per-process |
 
@@ -109,7 +109,7 @@ sudo npm install -g pm2
 
 ```bash
 cd /opt/moi-mcp
-printf 'WC_PROJECT_ID=REPLACE_ME\n' > .env
+printf 'WC_PROJECT_ID=REPLACE_ME\nMOI_SESSION_KEY=%s\n' "$(openssl rand -base64 32)" > .env
 chmod 600 .env
 # now edit .env and put the real project id in place of REPLACE_ME —
 # left unedited, the server refuses to start with a message saying exactly this
