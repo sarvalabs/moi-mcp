@@ -325,7 +325,18 @@ export const CreateAssetInput = z.object({
   decimals: z.number().int().min(0).max(18).default(0),
   /** The asset's kind. The chain accepts only 0 (Economic) or 1 (Possession). */
   dimension: z.union([z.literal(0), z.literal(1)]).default(0),
-  standard: z.string().default("MAS0"),
+  /**
+   * Only MAS0 can be created for now: buildCreateAsset sends no Init payload for MAS1 and MAS2 and no manifest for
+   * MASX, so those creates would be malformed. A one-value list rather than dropping the field, because zod strips an
+   * unknown field silently and a request for MAS1 would then create a MAS0 asset.
+   */
+  standard: z
+    .enum(["MAS0"], {
+      message:
+        "Only MAS0 can be created for now. MAS1, MAS2 and MASX are not supported yet; leave `standard` out or pass MAS0.",
+    })
+    .default("MAS0")
+    .describe("Asset standard. Only MAS0 is supported so far."),
   isStateful: z.boolean().default(false),
   isFungible: z.boolean().default(true),
 });

@@ -7,15 +7,21 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_FUEL_PRICE } from "../../src/moi/ix-builder.js";
+import { isMoiError } from "../../src/moi-error.js";
 import { WriteResult } from "../../src/schema.js";
+import { assertStandardSupported } from "../../src/tools/write-core.js";
 import {
   ACCOUNT,
   KMOI,
   MAS0_ASSET,
+  MAS1_ASSET,
+  MAS2_ASSET,
+  MASX_ASSET,
   LOGIC,
   OTHER,
   RpcFailure,
   SENT_HASH,
+  UNKNOWN_STANDARD_ASSET,
   startMockNode,
   type MockNode,
 } from "../helpers/mock-node.js";
@@ -401,13 +407,86 @@ describe("moi_create_asset", () => {
     expect(node.methods()).not.toContain("moi.SendInteractions");
   });
 
-  it("unknown standard is refused before any node traffic past the nonce", async () => {
+  // Only MAS0 can be created for now. The schema refuses the rest before any handler runs, so a standard that is not
+  // MAS0 never reaches the session, the node or the phone. This is the SDK's own validation error, not a [CODE] result.
+  it.each(["MAS1", "MAS2", "MASX", "MAS9"])(
+    "standard %s is refused by the schema before any node or wallet traffic",
+    async (standard) => {
+      seedSession(h.home);
+      const result = await h.call("moi_create_asset", { ...CREATE, standard });
+      expect(result.isError).toBe(true);
+      expect(result.text).toMatch(/Only MAS0 can be created for now/);
+      expect(result.text).toMatch(/MAS1, MAS2 and MASX are not supported yet/);
+      expect(wallet.request).not.toHaveBeenCalled();
+      expect(node.calls).toHaveLength(0);
+    },
+  );
+
+  it("standard defaults to MAS0 when it is left out", async () => {
     seedSession(h.home);
-    const result = await h.call("moi_create_asset", { ...CREATE, standard: "MAS9" });
+    const result = await h.call("moi_create_asset", { symbol: "TST", supply: "1000" });
+    expect(result.structuredContent).toMatchObject({ status: "sent" });
+    expect(opsOf(signedIx(0))[0]!.payload["standard"]).toBe(0);
+  });
+
+  it("the tool schema lists MAS0 as the only standard, which is what the model reads", async () => {
+    const { tools } = await h.client.listTools();
+    const create = tools.find((t) => t.name === "moi_create_asset")!;
+    const standard = (create.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties[
+      "standard"
+    ]!;
+    expect(standard.enum).toEqual(["MAS0"]);
+  });
+});
+
+describe("moi_transfer asset standards", () => {
+  // MAS1 and MAS2 transfers name a token id and a MASX asset defines its own Transfer, so none of them is built. The
+  // last row is an id the SDK cannot decode a standard from: an allow-list refuses it like the rest.
+  it.each([
+    ["MAS1", MAS1_ASSET],
+    ["MAS2", MAS2_ASSET],
+    ["MASX", MASX_ASSET],
+    ["UNKNOWN(9)", UNKNOWN_STANDARD_ASSET],
+    ["unreadable", OTHER],
+  ])("%s asset is refused before the balance is read, with nothing sent", async (standard, assetId) => {
+    seedSession(h.home);
+    const result = await h.call("moi_transfer", { to: OTHER, assetId, amount: "1" });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/Unknown asset standard "MAS9"/);
+    expect(result.structuredContent).toMatchObject({ status: "error", code: "INVALID_ARGS" });
+    expect(result.text).toMatch(/^\[INVALID_ARGS\] moi_transfer does not support /);
+    expect(result.text).toContain(assetId);
+    expect(result.text).toContain(`its standard is ${standard}`);
+    expect(result.text).toMatch(/only MAS0 assets and KMOI can be transferred/);
     expect(wallet.request).not.toHaveBeenCalled();
-    expect(node.methods()).not.toContain("moi.FuelEstimate");
+    // The asset read is all the node saw: no balance, nonce, fuel estimate, simulation or broadcast.
+    expect(node.methods()).toEqual(["moi.AssetInfoByAssetID"]);
+  });
+
+  it("says why for a MAS1 or MAS2 asset, and for a MASX one", async () => {
+    seedSession(h.home);
+    const mas2 = await h.call("moi_transfer", { to: OTHER, assetId: MAS2_ASSET, amount: "1" });
+    expect(mas2.text).toMatch(/A MAS2 transfer names a token id/);
+    const masx = await h.call("moi_transfer", { to: OTHER, assetId: MASX_ASSET, amount: "1" });
+    expect(masx.text).toMatch(/A MASX asset defines its own Transfer/);
+  });
+
+  it("reports the standard before it complains about the amount", async () => {
+    seedSession(h.home);
+    const result = await h.call("moi_transfer", { to: OTHER, assetId: MAS1_ASSET, amount: "1.5" });
+    expect(result.text).toMatch(/its standard is MAS1/);
+    expect(result.text).not.toMatch(/dimension is 0/);
+  });
+
+  it("still sends KMOI (MASN) and a MAS0 asset", async () => {
+    seedSession(h.home);
+    // The success-path test above pins every byte of the KMOI transfer; this is the other half of the allow-list.
+    const kmoi = await h.call("moi_transfer", TRANSFER);
+    expect(kmoi.structuredContent).toMatchObject({ status: "sent" });
+
+    node.on("moi.TDU", () => [{ asset_id: MAS0_ASSET, token_id: "0x0", amount: "0x64" }]);
+    const mas0 = await h.call("moi_transfer", { to: OTHER, assetId: MAS0_ASSET, amount: "1" });
+    expect(mas0.structuredContent).toMatchObject({ status: "sent" });
+    expect(opsOf(signedIx(1))[0]!.payload["asset_id"]).toBe(MAS0_ASSET);
   });
 });
 
@@ -498,6 +577,52 @@ describe("moi_mint", () => {
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/dimension is 0/);
     expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  // MAS1 mint takes no amount and a MASX asset defines its own Mint. Mint needs no token id in the SDK, so the
+  // message must not say it does.
+  it.each([
+    ["MAS1", MAS1_ASSET, /A MAS1 Mint takes only a recipient and no amount/],
+    ["MASX", MASX_ASSET, /A MASX asset defines its own Mint/],
+    ["UNKNOWN(9)", UNKNOWN_STANDARD_ASSET, /does not recognise that standard/],
+    ["unreadable", OTHER, /does not recognise that standard/],
+  ])("%s asset is refused before simulation, with nothing sent", async (standard, assetId, why) => {
+    seedSession(h.home);
+    const result = await h.call("moi_mint", { assetId, amount: "1" });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ status: "error", code: "INVALID_ARGS" });
+    expect(result.text).toMatch(/^\[INVALID_ARGS\] moi_mint does not support /);
+    expect(result.text).toContain(assetId);
+    expect(result.text).toContain(`its standard is ${standard}`);
+    expect(result.text).toMatch(/only MAS0 and MAS2 assets can be minted/);
+    expect(result.text).toMatch(why);
+    expect(result.text).not.toMatch(/token id/);
+    expect(wallet.request).not.toHaveBeenCalled();
+    expect(node.methods()).toEqual(["moi.AssetInfoByAssetID"]);
+  });
+
+  it("KMOI cannot be minted: it is refused with a message that says the native asset is reserved", async () => {
+    seedSession(h.home);
+    const result = await h.call("moi_mint", { assetId: KMOI, amount: "1" });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ status: "error", code: "INVALID_ARGS" });
+    expect(result.text).toMatch(/^\[INVALID_ARGS\] moi_mint cannot mint /);
+    expect(result.text).toMatch(/native asset \(standard MASN\)/);
+    expect(result.text).toMatch(/reserves minting it for the protocol/);
+    expect(wallet.request).not.toHaveBeenCalled();
+    expect(node.methods()).toEqual(["moi.AssetInfoByAssetID"]);
+  });
+
+  it("a MAS2 asset still mints, with exactly the calldata a MAS0 asset gets", async () => {
+    seedSession(h.home);
+    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
+    const mas2 = await h.call("moi_mint", { assetId: MAS2_ASSET, amount: "500" });
+    expect(mas2.structuredContent).toMatchObject({ status: "sent" });
+
+    const [asMas0, asMas2] = [opsOf(signedIx(0))[0]!, opsOf(signedIx(1))[0]!];
+    expect(asMas2.payload["asset_id"]).toBe(MAS2_ASSET);
+    expect(asMas2.payload["callsite"]).toBe("Mint");
+    expect(asMas2.payload["calldata"]).toBe(asMas0.payload["calldata"]);
   });
 
   it("unpaired wallet → rejected/wallet_disconnected before any node or wallet traffic", async () => {
@@ -644,5 +769,61 @@ describe("storageFund is optional in practice, not just in the schema", () => {
     const res = await h.call("moi_create_asset", { symbol: "POOR", supply: 1000 });
     expect(res.text).toMatch(/base units of KMOI|INSUFFICIENT_BALANCE/);
     expect(wallet.request).not.toHaveBeenCalled();
+  });
+});
+
+describe("assertStandardSupported", () => {
+  const asset = (assetId: string, standard: string) => ({ assetId, symbol: "TST", standard });
+  const refusal = (fn: () => void) => {
+    try {
+      fn();
+    } catch (err) {
+      expect(isMoiError(err)).toBe(true);
+      return err as { code: string; message: string; data: Record<string, unknown> };
+    }
+    throw new Error("expected a refusal");
+  };
+
+  it("lets KMOI transfer whatever name the SDK gives its standard", () => {
+    // KMOI changed standard once (MAS0 to MASN). A rename must never block the most common write.
+    for (const standard of ["MASN", "MAS0", "UNKNOWN(70000)", ""]) {
+      expect(() => assertStandardSupported("moi_transfer", asset(KMOI, standard))).not.toThrow();
+    }
+    expect(() => assertStandardSupported("moi_transfer", asset(KMOI.toUpperCase().replace("0X", "0x"), "UNKNOWN(1)"))).not.toThrow();
+  });
+
+  it("transfer allows MAS0 and MASN and refuses everything else, naming the list", () => {
+    for (const standard of ["MAS0", "MASN"]) {
+      expect(() => assertStandardSupported("moi_transfer", asset(MAS0_ASSET, standard))).not.toThrow();
+    }
+    for (const standard of ["MAS1", "MAS2", "MASX", "UNKNOWN(9)", ""]) {
+      const err = refusal(() => assertStandardSupported("moi_transfer", asset(MAS0_ASSET, standard)));
+      expect(err.code).toBe("INVALID_ARGS");
+      expect(err.data).toMatchObject({ assetId: MAS0_ASSET, standard, supported: ["MAS0", "MASN"] });
+    }
+  });
+
+  it("mint allows MAS0 and MAS2 and refuses everything else", () => {
+    for (const standard of ["MAS0", "MAS2"]) {
+      expect(() => assertStandardSupported("moi_mint", asset(MAS0_ASSET, standard))).not.toThrow();
+    }
+    for (const standard of ["MAS1", "MASX", "UNKNOWN(9)", ""]) {
+      const err = refusal(() => assertStandardSupported("moi_mint", asset(MAS0_ASSET, standard)));
+      expect(err.data).toMatchObject({ standard, supported: ["MAS0", "MAS2"] });
+      expect(err.message).not.toMatch(/token id/);
+    }
+  });
+
+  it("mint refuses KMOI by its id even if its standard is renamed, and any MASN asset, as native", () => {
+    for (const [assetId, standard] of [
+      [KMOI, "MASN"],
+      [KMOI, "UNKNOWN(70000)"],
+      [KMOI, "MAS0"],
+      [MAS0_ASSET, "MASN"],
+    ] as const) {
+      expect(refusal(() => assertStandardSupported("moi_mint", asset(assetId, standard))).message).toMatch(
+        /native asset/,
+      );
+    }
   });
 });

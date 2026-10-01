@@ -99,7 +99,7 @@ The hosted server and the local stdio server each list 13 tools. Reads are defin
 | `moi_wallet_status` | no | Whether a wallet is paired, and which account |
 | `moi_disconnect_wallet` | no | Forget the pairing |
 | `moi_transfer` | yes | Propose an asset transfer; balance checked first |
-| `moi_create_asset` | yes | Propose a new asset; funds its storage and previews the amount |
+| `moi_create_asset` | yes | Propose a new asset (MAS0 only for now); funds its storage and previews the amount |
 | `moi_mint` | yes | Propose minting more of an asset the paired wallet manages |
 | `moi_call_logic` | view: no, invoke: yes | Call a logic routine; `view` reads, `invoke` changes state |
 | `moi_create_account` | yes | Register and fund a brand-new account from the paired wallet |

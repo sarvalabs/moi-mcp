@@ -43,6 +43,19 @@ export const KMOI = "0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da10
  * makes this one MAS0.
  */
 export const MAS0_ASSET = "0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000";
+/**
+ * The same asset id with another standard in bytes 2..3. The mock answers moi.AssetInfoByAssetID the same for any
+ * valid id and the tools read the standard off the id (assetStandardName in src/moi/reads.ts), so the id is all a test
+ * needs to change. The mock reports the symbol KMOI for every id, so assert on the id and the standard, not the symbol.
+ */
+export function assetWithStandard(code: number): string {
+  return MAS0_ASSET.slice(0, 6) + code.toString(16).padStart(4, "0") + MAS0_ASSET.slice(10);
+}
+export const MAS1_ASSET = assetWithStandard(1);
+export const MAS2_ASSET = assetWithStandard(2);
+export const MASX_ASSET = assetWithStandard(0xffff);
+/** A standard code the SDK has no name for: assetStandardName reports it as UNKNOWN(9). */
+export const UNKNOWN_STANDARD_ASSET = assetWithStandard(9);
 export const IX_HASH = "0x3c568254d339090d1e0ec256f9ac46fe288aab7d7739275e2267ddff3fdbc009";
 export const LOGIC = "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb00000000";
 /** A second participant (fingerprint 0x07…), valid but distinct from ACCOUNT. */

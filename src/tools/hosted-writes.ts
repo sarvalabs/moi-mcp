@@ -334,7 +334,8 @@ export function registerHostedWrites(
     {
       title: "Transfer a MOI asset",
       description:
-        "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first." +
+        "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first. " +
+        "Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation, before any preview." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...TransferInput.shape, confirm: ConfirmArg },
       outputSchema: WriteOutputShape,
@@ -366,7 +367,8 @@ export function registerHostedWrites(
     {
       title: "Create a MOI asset",
       description:
-        "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much." +
+        "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much. " +
+        "Only the MAS0 standard can be created for now: leave `standard` out, because MAS1, MAS2 and MASX are not supported yet." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...CreateAssetInput.shape, confirm: ConfirmArg },
       outputSchema: WriteOutputShape,
@@ -383,7 +385,8 @@ export function registerHostedWrites(
     {
       title: "Mint tokens of a MOI asset",
       description:
-        "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone." +
+        "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone. " +
+        "Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation, before any preview." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...MintInput.shape, confirm: ConfirmArg },
       outputSchema: WriteOutputShape,

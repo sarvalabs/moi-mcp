@@ -412,6 +412,68 @@ export async function prepareCreateAccount(
   };
 }
 
+/**
+ * The asset standards each write is built for. Transfer is MAS0 and MASN: KMOI is MASN and takes the MAS0 calldata
+ * (MASNAssetLogic.transfer in js-moi-asset). Mint is MAS0 and MAS2, whose Mint takes {beneficiary, amount} in both
+ * (MINT_SCHEMA in mas0-schema and mas2-schema), so the MAS0AssetLogic that buildMint uses writes the same bytes for
+ * either. MAS1 and MAS2 transfers name a token id, MAS1 mint takes no amount, and MASX defines its own routines, so
+ * nothing here builds those. Widen a list when the builder behind it is right for that standard, and not before.
+ */
+const TRANSFERABLE_STANDARDS: readonly string[] = ["MAS0", "MASN"];
+const MINTABLE_STANDARDS: readonly string[] = ["MAS0", "MAS2"];
+
+/**
+ * Refuse an asset this write is not built for, before anything is simulated, previewed or sent to the phone. It lives
+ * here so the stdio and hosted servers both get it. An allow-list, so a standard the SDK cannot name (UNKNOWN(n), or
+ * "" when the id does not decode) is refused like any other. KMOI is the exception: its standard has been renamed once
+ * already (MAS0 to MASN), and a rename must never stop KMOI transfers, so transfer lets its id through whatever name the
+ * SDK decodes. For mint the same id check keeps the "native asset" message when it is renamed again.
+ */
+export function assertStandardSupported(
+  tool: "moi_transfer" | "moi_mint",
+  asset: { assetId: string; symbol: string; standard: string },
+): void {
+  const { assetId, standard } = asset;
+  const isKmoi = assetId.toLowerCase() === String(KMOI_ASSET_ID).toLowerCase();
+  const label = `${asset.symbol || "(no symbol)"} ${assetId}`;
+  const named = standard || "unreadable";
+  const unsupported = "This tool does not recognise that standard.";
+  let message: string;
+  let supported: readonly string[];
+
+  if (tool === "moi_transfer") {
+    if (isKmoi || TRANSFERABLE_STANDARDS.includes(standard)) return;
+    supported = TRANSFERABLE_STANDARDS;
+    const why =
+      standard === "MAS1" || standard === "MAS2"
+        ? `A ${standard} transfer names a token id, which this tool has no argument for.`
+        : standard === "MASX"
+          ? "A MASX asset defines its own Transfer, and this tool does not know its shape."
+          : unsupported;
+    message =
+      `moi_transfer does not support ${label}: its standard is ${named}, and only MAS0 assets and KMOI can be ` +
+      `transferred for now. ${why} Nothing was sent to your wallet.`;
+  } else if (isKmoi || standard === "MASN") {
+    supported = MINTABLE_STANDARDS;
+    message =
+      `moi_mint cannot mint ${label}: it is a native asset (standard ${named}), and the chain reserves minting it ` +
+      `for the protocol. Nothing was sent to your wallet.`;
+  } else {
+    if (MINTABLE_STANDARDS.includes(standard)) return;
+    supported = MINTABLE_STANDARDS;
+    const why =
+      standard === "MAS1"
+        ? "A MAS1 Mint takes only a recipient and no amount, so the call this tool builds does not fit it."
+        : standard === "MASX"
+          ? "A MASX asset defines its own Mint, and this tool does not know its shape."
+          : unsupported;
+    message =
+      `moi_mint does not support ${label}: its standard is ${named}, and only MAS0 and MAS2 assets can be minted ` +
+      `for now. ${why} Nothing was sent to your wallet.`;
+  }
+  throw new MoiError(ErrorCode.INVALID_ARGS, message, { assetId, standard, supported: [...supported] });
+}
+
 export async function prepareTransfer(
   account: string,
   params: z.infer<typeof TransferInput>,
@@ -419,6 +481,7 @@ export async function prepareTransfer(
   const cfg = getConfig();
   const provider = getProvider(providerOptions());
   const asset = await getAsset(provider, params.assetId);
+  assertStandardSupported("moi_transfer", asset);
   const raw = parseAmount(params.amount, asset.decimals);
 
   const accountState = await getAccount(provider, account);
@@ -512,6 +575,7 @@ export async function prepareMint(
   params: z.infer<typeof MintInput>,
 ): Promise<PreparedWrite> {
   const asset = await getAsset(getProvider(providerOptions()), params.assetId);
+  assertStandardSupported("moi_mint", asset);
   const recipient = params.to ?? account;
   const raw = parseAmount(params.amount, asset.decimals);
 

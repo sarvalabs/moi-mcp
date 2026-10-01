@@ -5,7 +5,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { cut, fingerprint, fingerprintDigest, PreviewRegistry, previewBlock, redeemOrIssue } from "../../src/tools/preview.js";
-import { KMOI, OTHER, SENT_HASH, startMockNode, type MockNode } from "../helpers/mock-node.js";
+import {
+  KMOI,
+  MAS0_ASSET,
+  MAS1_ASSET,
+  MAS2_ASSET,
+  MASX_ASSET,
+  OTHER,
+  SENT_HASH,
+  startMockNode,
+  type MockNode,
+} from "../helpers/mock-node.js";
 import { fakeWallet, installWallet, startHarness, type Harness } from "../helpers/harness.js";
 import {
   connect,
@@ -308,6 +318,81 @@ describe("a hosted write is previewed before it touches the phone", () => {
     const r = await client.callTool({ name: "moi_transfer", arguments: TRANSFER });
     expect(r.isError).toBe(true);
     expect((r.content as Array<{ text: string }>)[0]!.text).toMatch(/^\[INSUFFICIENT_BALANCE\]/);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+  });
+
+  // An asset standard the tools are not built for is refused where the preview is built, so no token is issued, the
+  // phone is never asked and nothing is journalled. KMOI cannot be minted, so it belongs in the mint rows.
+  it.each([
+    ["moi_mint", "MAS1", MAS1_ASSET],
+    ["moi_mint", "MASX", MASX_ASSET],
+    ["moi_mint", "KMOI (MASN)", KMOI],
+    ["moi_transfer", "MAS1", MAS1_ASSET],
+    ["moi_transfer", "MAS2", MAS2_ASSET],
+  ])("%s on a %s asset is refused at preview: no token, no phone, no journal entry", async (tool, _standard, assetId) => {
+    const previews = new PreviewRegistry();
+    const hub = fakeHub();
+    const journal = fakeJournal();
+    const records = new Map([[USER, session({ mode: "persistent", expiresAt: soon() })]]);
+    const client = await connect(deps(fakeStore(records), hub, journal, previews));
+    const args = tool === "moi_mint" ? { assetId, amount: "1" } : { to: OTHER, assetId, amount: "1" };
+    const textOf = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as Array<{ text: string }>)[0]!.text;
+
+    const first = await client.callTool({ name: tool, arguments: args });
+    expect(first.isError).toBe(true);
+    expect(structured<{ status: string; code: string }>(first)).toMatchObject({ status: "error", code: "INVALID_ARGS" });
+    expect(textOf(first)).toMatch(new RegExp(`^\\[INVALID_ARGS\\] ${tool} (does not support|cannot mint) `));
+    expect(textOf(first)).toContain(assetId);
+    expect(previews.size).toBe(0);
+    // The asset read is all the node saw: no balance, nonce, fuel estimate or simulation.
+    expect(node.methods()).toEqual(["moi.AssetInfoByAssetID"]);
+
+    // A made-up confirm gets the same refusal: the check runs before the token is looked at.
+    const again = await client.callTool({ name: tool, arguments: { ...args, confirm: "anything" } });
+    expect(again.isError).toBe(true);
+    expect(textOf(again)).toBe(textOf(first));
+    expect(previews.size).toBe(0);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+    expect(journal.append).not.toHaveBeenCalled();
+  });
+
+  it("moi_create_asset refuses another standard in the hosted schema, before the session is even read", async () => {
+    const previews = new PreviewRegistry();
+    const hub = fakeHub();
+    const journal = fakeJournal();
+    const store = fakeStore(new Map([[USER, session({ mode: "persistent", expiresAt: soon() })]]));
+    const client = await connect(deps(store, hub, journal, previews));
+
+    const r = await client.callTool({
+      name: "moi_create_asset",
+      arguments: { symbol: "TST", supply: "1000", standard: "MAS1" },
+    });
+    expect(r.isError).toBe(true);
+    expect((r.content as Array<{ text: string }>)[0]!.text).toMatch(/Only MAS0 can be created for now/);
+    expect(store.get).not.toHaveBeenCalled();
+    expect(previews.size).toBe(0);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+    expect(journal.append).not.toHaveBeenCalled();
+    expect(node.calls).toHaveLength(0);
+
+    const { tools } = await client.listTools();
+    const create = tools.find((t) => t.name === "moi_create_asset")!;
+    const standard = (create.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties["standard"]!;
+    expect(standard.enum).toEqual(["MAS0"]);
+  });
+
+  it.each([
+    ["MAS0", MAS0_ASSET],
+    ["MAS2", MAS2_ASSET],
+  ])("a mint of a %s asset is still previewed", async (_standard, assetId) => {
+    const hub = fakeHub();
+    const client = await connect(
+      deps(fakeStore(new Map([[USER, session({ mode: "persistent", expiresAt: soon() })]])), hub),
+    );
+    const out = structured<Preview>(await client.callTool({ name: "moi_mint", arguments: { assetId, amount: "1" } }));
+    expect(out.status).toBe("preview");
+    expect(out.confirm).toMatch(/^[A-Za-z0-9_-]{12}$/);
+    expect(out.details).toMatchObject({ Operation: "Mint" });
     expect(hub.signInteractionFor).not.toHaveBeenCalled();
   });
 });

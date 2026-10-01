@@ -72,7 +72,8 @@ export function registerWriteTools(server: McpServer): void {
       description:
         "Propose a transfer of a MOI native asset. Builds the interaction here and sends it to " +
         "MOI Wallet on your phone — nothing moves until you tap Send there. The balance is " +
-        "checked first. Returns the interaction hash once broadcast.",
+        "checked first. Works for MAS0 assets and KMOI; any other asset standard is refused with an " +
+        "explanation before anything reaches your phone. Returns the interaction hash once broadcast.",
       inputSchema: TransferInput.shape,
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
@@ -140,9 +141,10 @@ export function registerWriteTools(server: McpServer): void {
       description:
         "Propose creating a new MOI native asset (a token). `supply` sets the MAXIMUM supply — " +
         "it does not mint anything, so circulating supply starts at 0 and you will hold none " +
-        "until you call moi_mint. `dimension` is the number of decimal places; `standard` is " +
-        "MAS0, MAS1, MAS2 or MASX. Storage funding is handled automatically. Sent to MOI Wallet " +
-        "for approval on your phone.",
+        "until you call moi_mint. `decimals` is the number of decimal places (2 gives cents). " +
+        "Only the MAS0 standard can be created for now; MAS1, MAS2 and MASX are not supported " +
+        "yet, so leave `standard` out. Storage funding is handled automatically. Sent to MOI " +
+        "Wallet for approval on your phone.",
       inputSchema: CreateAssetInput.shape,
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
@@ -186,7 +188,9 @@ export function registerWriteTools(server: McpServer): void {
       description:
         "Mint tokens of an asset you manage, to yourself or another account. Creating an asset " +
         "sets a maximum supply but mints nothing — until you mint, circulating supply is 0, you " +
-        "hold none, and the asset does not appear in a wallet. Sent to MOI Wallet for approval.",
+        "hold none, and the asset does not appear in a wallet. Works for MAS0 and MAS2 assets; the " +
+        "native asset (KMOI) cannot be minted and other standards are refused with an explanation " +
+        "before anything reaches your phone. Sent to MOI Wallet for approval.",
       inputSchema: MintInput.shape,
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
