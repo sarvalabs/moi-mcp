@@ -12,7 +12,7 @@ There is no account. The wallet is the identity, and the dapp proves it holds th
 | `POST /api/auth/verify` | `{ "address": "0x…", "message": "…", "signature": "…" }` | `200 { "ok": true, … }` and a `Set-Cookie: moi_session=…; HttpOnly; Max-Age=…` |
 | `POST /api/auth/logout` | none | `{ "ok": true }` |
 
-The message is plain text. The Launchpad's form, which other dapps are encouraged to reuse, is:
+The message is plain text, and the connector signs this form and no other. It is the form the Launchpad builds:
 
 ```
 <Dapp name> wants you to sign in with your MOI account.
@@ -22,6 +22,17 @@ Nonce: <nonce>
 Issued At: <ISO time>
 Origin: <dapp origin>
 ```
+
+Exactly these six lines, in this order, joined with `\n` (never `\r\n`), nothing before or after, at most 1024 characters. The dapp name is 1 to 80 characters with no control, format (zero-width, direction-override) or line-separator characters. Every other value is printable ASCII with no space: `Wallet` and `Nonce` at most 128 characters, `Issued At` at most 40, `Origin` at most 200. The connector checks the message before it asks the phone, and refuses it, sending nothing to the wallet and nothing to `/api/auth/verify`, when:
+
+- `Origin` is not the origin the connector is calling (case is ignored, and one trailing `/` is accepted);
+- `Wallet` is not the paired wallet's address (case is ignored);
+- `Issued At` is not an ISO 8601 time ending in `Z` or an offset written `+HH:MM` or `-HH:MM`, or is more than five minutes from the connector's clock, earlier or later;
+- `Nonce` is missing or empty, or any line is missing, repeated, extra or out of order.
+
+The person then sees `Not signing: the sign-in message from <origin> ...`. A dapp that adds lines to the message (a statement, an expiry) is refused until this form changes.
+
+The connector can only vouch for the `Origin` the dapp itself wrote, so the dapp's own `/api/auth/verify` must reject a message whose `Origin` is not that dapp's own origin. Without that check, a hostile dapp could take a nonce from this one, put it in a message carrying the hostile dapp's own origin, have the wallet sign that, and replay the signature here.
 
 The signature is what MOI Wallet returns for `moi.sign`: the MOI signature envelope as hex (type byte, DER length, DER body, parity byte), with or without `0x`. The dapp verifies it by recovering the public key from the signature over `blake2b256(message)` and checking it derives the address; no public key is sent. Nonces are single-use and short-lived. The cookie is the session; `Max-Age` tells the connector how long to keep it.
 
@@ -46,3 +57,4 @@ Give each operation an `operationId` and a one-line `summary`; that is what the 
 - It never sends a dapp's cookie anywhere but that dapp's origin, and only over https to a public host.
 - It never calls a path the dapp did not publish.
 - It never returns a secret the dapp hands out (a private key, an API key) as a tool result. The Launchpad's setup script, which embeds an agent key, is served to a browser through a one-time link instead.
+- It never asks the wallet to sign anything but a sign-in message of the form in section 1, for that dapp's origin and the paired wallet. No tool takes text to sign.

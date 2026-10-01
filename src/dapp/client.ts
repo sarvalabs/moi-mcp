@@ -3,6 +3,8 @@
  *
  * Sign-In With MOI: the dapp hands out a message for a wallet address, the
  * wallet signs it, the dapp answers the signature with a session cookie.
+ * The message is checked (checkSignInMessage) before nonce() returns it, so
+ * the phone is only ever asked to sign a sign-in for this origin and this wallet.
  * Operations: the dapp publishes an OpenAPI document; the connector calls
  * only operations listed there, with the session cookie, and nothing else.
  * No MCP imports.
@@ -33,6 +35,11 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 
 const Nonce = z.object({ nonce: z.string().min(1).optional(), message: z.string().min(20) });
 const Verified = z.object({ ok: z.literal(true) }).passthrough();
+
+/** How far Issued At may be from this server's clock, either way. The Launchpad's own nonce lives five minutes. */
+export const SIGN_IN_WINDOW_MS = 5 * 60_000;
+/** A real message is about 200 characters; the Launchpad's verify route takes up to 2000. */
+const SIGN_IN_MAX_CHARS = 1024;
 
 export interface DappSession {
   cookie: string;
@@ -99,6 +106,56 @@ export function sessionCookieFrom(res: Response): DappSession | undefined {
   return undefined;
 }
 
+// The six-line form in docs/dapp-conventions.md and nothing else. The dapp name
+// is the one free-text slot, so it excludes control, format (zero-width,
+// direction-override, tag) and line-separator characters; every other field is
+// printable ASCII without a space. Anchored and bounded at every group, and only
+// run on text already capped at SIGN_IN_MAX_CHARS, so it cannot backtrack badly.
+const PRINTABLE = "[\\x21-\\x7e]";
+const SIGN_IN_FORM = new RegExp(
+  "^[^\\p{C}\\p{Zl}\\p{Zp}]{1,80} wants you to sign in with your MOI account\\.\\n\\n" +
+    `Wallet: (${PRINTABLE}{1,128})\\nNonce: ${PRINTABLE}{1,128}\\n` +
+    `Issued At: (${PRINTABLE}{1,40})\\nOrigin: (${PRINTABLE}{1,200})$`,
+  "u",
+);
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export type SignInVerdict = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Whether a message a dapp handed out may be put in front of the wallet: the
+ * six-line sign-in form, for this origin and this wallet, issued just now.
+ * Pure, with `now` a parameter, so a test needs no fake clock. The reasons are
+ * fixed text on purpose: the message and the dapp's name come from a host that
+ * may be hostile, and an error lands in the model's context. The Issued At rule
+ * does not stop a hostile dapp, which writes its own time; it stops a stale or
+ * cached relay. The security-carrying rules are the form, Origin and Wallet.
+ */
+export function checkSignInMessage(
+  message: string,
+  want: { origin: string; wallet: string; now?: number },
+): SignInVerdict {
+  if (message.length > SIGN_IN_MAX_CHARS) return { ok: false, reason: "is too long to be a sign-in message" };
+  const m = SIGN_IN_FORM.exec(message);
+  if (!m) return { ok: false, reason: "is not the standard sign-in message" };
+  const wallet = m[1] ?? "";
+  const issuedAt = m[2] ?? "";
+  const origin = (m[3] ?? "").toLowerCase();
+  const here = want.origin.toLowerCase();
+  // The Launchpad writes its configured origin verbatim and compares it as a
+  // plain string, so at most one trailing slash can differ. Do not parse this
+  // line with new URL(): that would admit a path, port or userinfo after the origin.
+  if (origin !== here && origin !== `${here}/`) return { ok: false, reason: "is for a different site" };
+  if (wallet.toLowerCase() !== want.wallet.trim().toLowerCase()) return { ok: false, reason: "is for a different wallet" };
+  const at = Date.parse(issuedAt);
+  if (!ISO_TIME.test(issuedAt) || !Number.isFinite(at)) return { ok: false, reason: "has no readable Issued At time" };
+  // Written as "not within" rather than "beyond" so a non-finite clock value refuses instead of passing.
+  if (!(Math.abs((want.now ?? Date.now()) - at) <= SIGN_IN_WINDOW_MS)) {
+    return { ok: false, reason: "was issued more than five minutes away from this server's clock" };
+  }
+  return { ok: true };
+}
+
 export class DappClient {
   readonly baseUrl: string;
   protected readonly fetchImpl: FetchLike;
@@ -112,7 +169,18 @@ export class DappClient {
 
   async nonce(walletAddress: string): Promise<{ message: string }> {
     const res = await this.request("POST", SIWM_ROUTES.nonce, { body: { walletAddress } });
-    return this.parse(res, Nonce, SIWM_ROUTES.nonce, false);
+    const out = await this.parse(res, Nonce, SIWM_ROUTES.nonce, false);
+    // The one place the message is minted for both sign-in tools (LaunchpadClient
+    // overrides only verify), so a bad one can reach neither the phone nor /verify.
+    const verdict = checkSignInMessage(out.message, { origin: new URL(this.baseUrl).origin, wallet: walletAddress });
+    if (!verdict.ok) {
+      throw new MoiError(
+        ErrorCode.LAUNCHPAD_ERROR,
+        `Not signing: the sign-in message from ${this.baseUrl} ${verdict.reason}. Nothing was sent to the wallet.`,
+        { reason: verdict.reason },
+      );
+    }
+    return out;
   }
 
   async verify(input: { address: string; message: string; signature: string }): Promise<DappSession> {

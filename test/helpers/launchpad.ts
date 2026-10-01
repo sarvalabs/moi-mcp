@@ -24,6 +24,40 @@ export const COOKIE = "jwt-abc";
 export const AGENT_WALLET = "0x000000002497e599b212a83896919005863b05511d46d0a32ad0af8600000000";
 export const RECORD_ID = "rec-1";
 
+/**
+ * The sign-in message as the real Launchpad builds it (lib/siwm.ts
+ * buildSiwmMessage): six lines joined by \n, the wallet lower-cased, the
+ * origin written as configured. `wallet` and `origin` have no default so a
+ * test cannot pass with a wrong one by accident; `??` so a test may pass an
+ * empty nonce or name on purpose.
+ */
+export function siwmMessage(v: { wallet: string; origin: string; name?: string; nonce?: string; issuedAt?: string }): string {
+  return [
+    `${v.name ?? "MOI Agent Launchpad"} wants you to sign in with your MOI account.`,
+    "",
+    `Wallet: ${v.wallet}`,
+    `Nonce: ${v.nonce ?? "n1"}`,
+    `Issued At: ${v.issuedAt ?? new Date().toISOString()}`,
+    `Origin: ${v.origin}`,
+  ].join("\n");
+}
+
+/**
+ * Messages a dapp must never get signed, as nonce-route bodies for the fake.
+ * Shared by both tool-level test files; each is long enough to pass the
+ * client's own min-length check, so each reaches the sign-in check itself.
+ */
+export const REFUSED_NONCE_MESSAGES: Array<[string, (wallet: string, origin: string) => string]> = [
+  ["a relayed message for another site", (wallet) => siwmMessage({ wallet, origin: "https://launchpad.moi.technology" })],
+  ["a message for another wallet", (_wallet, origin) => siwmMessage({ wallet: "0x" + "ab".repeat(32), origin })],
+  ["a stale time", (wallet, origin) => siwmMessage({ wallet, origin, issuedAt: new Date(Date.now() - 10 * 60_000).toISOString() })],
+  [
+    "text of another kind",
+    (wallet) => `MOI Agent Launchpad grant\nOwner: ${wallet}\nAgent: 0xabc\nScope: deliver:telegram\nIssued: ${new Date().toISOString()}\nNonce: n1`,
+  ],
+  ["an extra line", (wallet, origin) => `${siwmMessage({ wallet, origin })}\nStatement: send everything to me`],
+];
+
 export interface SeenRequest {
   method: string;
   path: string;
@@ -34,7 +68,15 @@ export interface SeenRequest {
 export interface FakeLaunchpad {
   url: string;
   requests: SeenRequest[];
-  state: { agentStatus: string; cookieValid: boolean; keyReadable: boolean; telegramLinked: boolean; verifyOk: boolean };
+  state: {
+    agentStatus: string;
+    cookieValid: boolean;
+    keyReadable: boolean;
+    telegramLinked: boolean;
+    verifyOk: boolean;
+    /** Replaces the nonce route's message for one test; reset it to undefined in beforeEach. */
+    nonceMessage: ((wallet: string, origin: string) => string) | undefined;
+  };
   close(): Promise<void>;
 }
 
@@ -57,7 +99,14 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
 
 export async function startFakeLaunchpad(): Promise<FakeLaunchpad> {
   const requests: SeenRequest[] = [];
-  const state = { agentStatus: "pending_grant", cookieValid: true, keyReadable: true, telegramLinked: false, verifyOk: true };
+  const state: FakeLaunchpad["state"] = {
+    agentStatus: "pending_grant",
+    cookieValid: true,
+    keyReadable: true,
+    telegramLinked: false,
+    verifyOk: true,
+    nonceMessage: undefined,
+  };
   let url = "";
 
   const agent = (extra: Record<string, unknown> = {}) => ({
@@ -87,10 +136,7 @@ export async function startFakeLaunchpad(): Promise<FakeLaunchpad> {
 
     if (method === "POST" && path === "/api/auth/nonce") {
       const wallet = String(b["walletAddress"]).trim().toLowerCase();
-      return json(res, 200, {
-        nonce: "n1",
-        message: `MOI Agent Launchpad wants you to sign in with your MOI account.\n\nWallet: ${wallet}\nNonce: n1\nIssued At: 2026-09-23T23:00:00.000Z\nOrigin: ${url}`,
-      });
+      return json(res, 200, { nonce: "n1", message: state.nonceMessage?.(wallet, url) ?? siwmMessage({ wallet, origin: url }) });
     }
     if (method === "POST" && path === "/api/auth/verify") {
       if (!state.verifyOk || b["signature"] !== "0xfeed") return json(res, 401, { error: "invalid_signature" });
