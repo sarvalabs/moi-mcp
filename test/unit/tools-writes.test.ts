@@ -2,7 +2,14 @@
  * Write tools through the real handlers. The node and the phone are both
  * faked, so every test can assert on the ORDER of side effects — which guard
  * fired, and that nothing reached the wallet or the node before it did.
+ *
+ * The handlers are the hosted ones, run with the stdio server's adapters
+ * (src/tools/local-writes.ts), so every write is two calls: `h.call` is the
+ * first (a preview, or a refusal), `h.send` is both.
  */
+
+import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -28,11 +35,13 @@ import {
 import {
   fakeWallet,
   installWallet,
+  journalLines,
   seedSession,
   signatureFor,
   startHarness,
   type FakeWallet,
   type Harness,
+  type ToolResult,
 } from "../helpers/harness.js";
 
 let node: MockNode;
@@ -77,9 +86,12 @@ function opsOf(ix: Record<string, unknown>): Op[] {
  * The operations the node was asked to DRY-RUN, from the `moi.Call` the
  * simulation guard made. The SDK sends `{ ix_args: toInteractionArgs(ix) }`,
  * so the operations arrive with their payloads POLO-encoded to hex.
+ *
+ * The LAST moi.Call: with two calls a write simulates twice, and the one that
+ * matters is the one made for the interaction that was signed.
  */
 function simulatedOps(): Array<{ type: number; payload: string }> {
-  const call = node.calls.find((c) => c.method === "moi.Call");
+  const call = node.calls.findLast((c) => c.method === "moi.Call");
   expect(call, "expected a moi.Call simulation").toBeDefined();
   const args = call!.params["ix_args"] as { ix_operations: Array<{ type: number; payload: string }> };
   return args.ix_operations;
@@ -167,10 +179,11 @@ describe("moi_transfer success path", () => {
   it("signs on the phone, broadcasts from here, returns the hash", async () => {
     seedSession(h.home);
 
-    const result = await h.call("moi_transfer", { ...TRANSFER, memo: "rent" });
+    const result = await h.send("moi_transfer", { ...TRANSFER, memo: "rent" });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual({
       status: "sent",
+      summary: `Transfer 10 KMOI to ${OTHER} — rent`,
       hash: SENT_HASH,
       explorerUrl: `https://voyage.moi.technology/interaction/?${SENT_HASH}`,
     });
@@ -241,7 +254,7 @@ describe("moi_transfer success path", () => {
   it("uses the pending interaction count as the sequence number", async () => {
     seedSession(h.home);
     node.on("moi.PendingInteractionCount", () => "0x2a");
-    await h.call("moi_transfer", TRANSFER);
+    await h.send("moi_transfer", TRANSFER);
     expect(signedIx()["sender"]).toMatchObject({ sequence: 42 });
     expect(node.calls.find((c) => c.method === "moi.PendingInteractionCount")?.params).toMatchObject({
       id: ACCOUNT,
@@ -254,7 +267,7 @@ describe("moi_transfer success path", () => {
     node.on("moi.FuelEstimate", () => {
       throw new Error("estimate unavailable");
     });
-    const result = await h.call("moi_transfer", TRANSFER);
+    const result = await h.send("moi_transfer", TRANSFER);
     expect(result.structuredContent?.["status"]).toBe("sent");
     expect(signedIx()["fuel_limit"]).toBe(200_000);
   });
@@ -273,7 +286,7 @@ describe("wallet outcomes map onto the WriteResult union", () => {
     seedSession(h.home);
     wallet.request.mockRejectedValueOnce({ code: 5000, message: "User rejected the request" });
 
-    const result = await h.call("moi_transfer", TRANSFER);
+    const result = await h.send("moi_transfer", TRANSFER);
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({ status: "rejected", reason: "user_rejected" });
     expect(node.methods()).not.toContain("moi.SendInteractions");
@@ -283,7 +296,7 @@ describe("wallet outcomes map onto the WriteResult union", () => {
     seedSession(h.home);
     installWallet(h.home, (wallet = fakeWallet(() => new Promise(() => {}))), { requestTimeoutMs: 50 });
 
-    const result = await h.call("moi_transfer", TRANSFER);
+    const result = await h.send("moi_transfer", TRANSFER);
     expect(result.structuredContent).toMatchObject({ status: "rejected", reason: "timeout" });
   });
 
@@ -291,7 +304,7 @@ describe("wallet outcomes map onto the WriteResult union", () => {
     seedSession(h.home);
     wallet.request.mockRejectedValueOnce({ code: 5000, message: "Failed to sign interaction" });
 
-    const result = await h.call("moi_transfer", TRANSFER);
+    const result = await h.send("moi_transfer", TRANSFER);
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/not a rejection/);
   });
@@ -301,7 +314,7 @@ describe("wallet outcomes map onto the WriteResult union", () => {
     node.on("moi.SendInteractions", () => {
       throw new Error("ixpool full");
     });
-    const result = await h.call("moi_transfer", TRANSFER);
+    const result = await h.send("moi_transfer", TRANSFER);
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/approved the interaction but broadcasting it failed/);
   });
@@ -316,7 +329,7 @@ describe("wallet outcomes map onto the WriteResult union", () => {
       }
       return "";
     });
-    const result = await h.call("moi_transfer", TRANSFER);
+    const result = await h.send("moi_transfer", TRANSFER);
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/accepted the interaction but returned no hash/);
   });
@@ -358,9 +371,9 @@ describe("moi_create_asset", () => {
   it("bundles ASSET_CREATE with a KMOI funding transfer and threads storageFund", async () => {
     seedSession(h.home);
 
-    const a = await h.call("moi_create_asset", { ...CREATE, storageFund: "8000000000" });
+    const a = await h.send("moi_create_asset", { ...CREATE, storageFund: "8000000000" });
     expect(a.structuredContent).toMatchObject({ status: "sent", hash: SENT_HASH });
-    const b = await h.call("moi_create_asset", { ...CREATE, storageFund: "20000000000" });
+    const b = await h.send("moi_create_asset", { ...CREATE, storageFund: "20000000000" });
     expect(b.structuredContent).toMatchObject({ status: "sent", hash: SENT_HASH });
 
     const opsA = opsOf(signedIx(0));
@@ -385,7 +398,7 @@ describe("moi_create_asset", () => {
     // asset being created. Same fund, decimals 6: the funding leg has to come
     // out byte-identical. Scaling it there would over-fund by 10^decimals,
     // and the inequality above would still hold.
-    const c = await h.call("moi_create_asset", { ...CREATE, decimals: 6, storageFund: "8000000000" });
+    const c = await h.send("moi_create_asset", { ...CREATE, decimals: 6, storageFund: "8000000000" });
     expect(c.structuredContent).toMatchObject({ status: "sent" });
     const opsC = opsOf(signedIx(2));
     expect(opsC[1]!.payload["calldata"]).toEqual(opsA[1]!.payload["calldata"]);
@@ -424,7 +437,7 @@ describe("moi_create_asset", () => {
 
   it("standard defaults to MAS0 when it is left out", async () => {
     seedSession(h.home);
-    const result = await h.call("moi_create_asset", { symbol: "TST", supply: "1000" });
+    const result = await h.send("moi_create_asset", { symbol: "TST", supply: "1000" });
     expect(result.structuredContent).toMatchObject({ status: "sent" });
     expect(opsOf(signedIx(0))[0]!.payload["standard"]).toBe(0);
   });
@@ -480,11 +493,11 @@ describe("moi_transfer asset standards", () => {
   it("still sends KMOI (MASN) and a MAS0 asset", async () => {
     seedSession(h.home);
     // The success-path test above pins every byte of the KMOI transfer; this is the other half of the allow-list.
-    const kmoi = await h.call("moi_transfer", TRANSFER);
+    const kmoi = await h.send("moi_transfer", TRANSFER);
     expect(kmoi.structuredContent).toMatchObject({ status: "sent" });
 
     node.on("moi.TDU", () => [{ asset_id: MAS0_ASSET, token_id: "0x0", amount: "0x64" }]);
-    const mas0 = await h.call("moi_transfer", { to: OTHER, assetId: MAS0_ASSET, amount: "1" });
+    const mas0 = await h.send("moi_transfer", { to: OTHER, assetId: MAS0_ASSET, amount: "1" });
     expect(mas0.structuredContent).toMatchObject({ status: "sent" });
     expect(opsOf(signedIx(1))[0]!.payload["asset_id"]).toBe(MAS0_ASSET);
   });
@@ -494,10 +507,11 @@ describe("moi_mint", () => {
   it("signs on the phone, broadcasts from here, returns the hash", async () => {
     seedSession(h.home);
 
-    const result = await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
+    const result = await h.send("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toEqual({
       status: "sent",
+      summary: `Mint 500 KMOI to ${ACCOUNT}`,
       hash: SENT_HASH,
       explorerUrl: `https://voyage.moi.technology/interaction/?${SENT_HASH}`,
     });
@@ -519,7 +533,7 @@ describe("moi_mint", () => {
 
   it("defaults the recipient to the connected wallet's own account when `to` is omitted", async () => {
     seedSession(h.home);
-    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1" });
+    await h.send("moi_mint", { assetId: MAS0_ASSET, amount: "1" });
 
     const ops = opsOf(signedIx());
     // The beneficiary is baked into the calldata, not a top-level field —
@@ -529,7 +543,7 @@ describe("moi_mint", () => {
 
   it("mints to an explicit recipient instead of the connected account", async () => {
     seedSession(h.home);
-    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "1", to: OTHER });
+    await h.send("moi_mint", { assetId: MAS0_ASSET, amount: "1", to: OTHER });
 
     const ops = opsOf(signedIx());
     expect(String(ops[0]!.payload["calldata"])).toContain(OTHER.slice(2));
@@ -539,7 +553,7 @@ describe("moi_mint", () => {
   it("mints the exact scaled amount, not a rounded or truncated one", async () => {
     seedSession(h.home);
     // KMOI's dimension is 0 in the mock node, so "500" must scale to exactly 500.
-    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
+    await h.send("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
     const ops = opsOf(signedIx());
     // Amount 500 POLO-encodes as `03 01f4` (uint16 0x01f4); a wrong scale
     // (e.g. dimension applied twice) would change this byte string.
@@ -615,8 +629,8 @@ describe("moi_mint", () => {
 
   it("a MAS2 asset still mints, with exactly the calldata a MAS0 asset gets", async () => {
     seedSession(h.home);
-    await h.call("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
-    const mas2 = await h.call("moi_mint", { assetId: MAS2_ASSET, amount: "500" });
+    await h.send("moi_mint", { assetId: MAS0_ASSET, amount: "500" });
+    const mas2 = await h.send("moi_mint", { assetId: MAS2_ASSET, amount: "500" });
     expect(mas2.structuredContent).toMatchObject({ status: "sent" });
 
     const [asMas0, asMas2] = [opsOf(signedIx(0))[0]!, opsOf(signedIx(1))[0]!];
@@ -668,7 +682,7 @@ describe("moi_call_logic", () => {
 
   it("kind:'invoke' paired → LOGIC_INVOKE signed on the phone and broadcast", async () => {
     seedSession(h.home);
-    const result = await h.call("moi_call_logic", { logicId: LOGIC, routine: "Ping", kind: "invoke" });
+    const result = await h.send("moi_call_logic", { logicId: LOGIC, routine: "Ping", kind: "invoke" });
     expect(result.structuredContent).toMatchObject({ status: "sent", hash: SENT_HASH });
 
     const ix = signedIx();
@@ -703,6 +717,133 @@ describe("moi_call_logic", () => {
   });
 });
 
+describe("every write is two calls, as on the hosted server", () => {
+  it("the first call previews: the node simulated it, nothing reached the phone, nothing was journaled", async () => {
+    seedSession(h.home);
+    const result = await h.call("moi_transfer", { ...TRANSFER, memo: "rent" });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      status: "preview",
+      summary: `Transfer 10 KMOI to ${OTHER} — rent`,
+      details: { Operation: "Transfer", Amount: "10", "Amount in base units": "10", To: OTHER, Memo: "rent" },
+      fuel: `up to ${Math.ceil(299 * 1.5)} at price ${DEFAULT_FUEL_PRICE}`,
+      network: "custom",
+    });
+    expect(String(result.structuredContent?.["confirm"]).length).toBeGreaterThan(0);
+    expect(result.text).toMatch(/^PREVIEW\. Nothing has been sent to the phone\./);
+    expect(wallet.request).not.toHaveBeenCalled();
+    expect(node.methods()).toContain("moi.Call"); // simulated here, before the person is asked
+    expect(node.methods()).not.toContain("moi.SendInteractions");
+    expect(journalLines(h.home)).toEqual([]);
+  });
+
+  it("the second call, with the token, sends: one request to the phone, the signed bytes broadcast, the summary back", async () => {
+    seedSession(h.home);
+    const token = String((await h.call("moi_transfer", TRANSFER)).structuredContent?.["confirm"]);
+    const sent = await h.call("moi_transfer", { ...TRANSFER, confirm: token });
+    expect(sent.structuredContent).toEqual({
+      status: "sent",
+      summary: `Transfer 10 KMOI to ${OTHER}`,
+      hash: SENT_HASH,
+      explorerUrl: `https://voyage.moi.technology/interaction/?${SENT_HASH}`,
+    });
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+    expect(node.calls.find((c) => c.method === "moi.SendInteractions")?.params).toEqual(
+      signatureFor(wallet.requests[0]!),
+    );
+  });
+
+  it("a token for other arguments gets a fresh preview and a note, and is not burned by the mismatch", async () => {
+    seedSession(h.home);
+    const token = String((await h.call("moi_transfer", TRANSFER)).structuredContent?.["confirm"]);
+    const other = await h.call("moi_transfer", { ...TRANSFER, amount: "11", confirm: token });
+    expect(other.structuredContent).toMatchObject({ status: "preview" });
+    expect(String(other.structuredContent?.["note"])).toMatch(/did not match this call/);
+    expect(other.structuredContent?.["confirm"]).not.toBe(token);
+    expect(wallet.request).not.toHaveBeenCalled();
+    // The registry leaves a token alone when someone else's arguments present it.
+    const sent = await h.call("moi_transfer", { ...TRANSFER, confirm: token });
+    expect(sent.structuredContent).toMatchObject({ status: "sent" });
+  });
+
+  it("a token works once", async () => {
+    seedSession(h.home);
+    const token = String((await h.call("moi_transfer", TRANSFER)).structuredContent?.["confirm"]);
+    const first = await h.call("moi_transfer", { ...TRANSFER, confirm: token });
+    expect(first.structuredContent).toMatchObject({ status: "sent" });
+    const again = await h.call("moi_transfer", { ...TRANSFER, confirm: token });
+    expect(again.structuredContent).toMatchObject({ status: "preview" });
+    expect(String(again.structuredContent?.["note"])).toMatch(/already used/);
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("numbers that moved between the preview and the confirm give a fresh preview, not a send", async () => {
+    seedSession(h.home);
+    // No storageFund: it is sized from the balance. Default mock balance affords the 10_000_000_000 default.
+    const create = { symbol: "TST", supply: "1000" };
+    const fundOf = (r: ToolResult): string | undefined =>
+      Object.entries(r.structuredContent?.["details"] as Record<string, string>).find(([k]) =>
+        k.startsWith("Storage fund"),
+      )?.[1];
+    const first = await h.call("moi_create_asset", create);
+    expect(fundOf(first)).toBe("10000000000");
+
+    node.state.kmoiBalance = 8_000_000_000n; // affords the 7_000_000_000 floor but not the default
+    const second = await h.call("moi_create_asset", { ...create, confirm: String(first.structuredContent?.["confirm"]) });
+    expect(second.structuredContent).toMatchObject({ status: "preview" });
+    expect(String(second.structuredContent?.["note"])).toMatch(/numbers changed/);
+    expect(fundOf(second)).toBe("7000000000");
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  it("journals proposed, signed, broadcast, confirmed under the local user, in a file only its owner can read", async () => {
+    seedSession(h.home);
+    await h.send("moi_transfer", TRANSFER);
+    const lines = journalLines(h.home);
+    expect(lines.map((l) => l["state"])).toEqual(["proposed", "signed", "broadcast", "confirmed"]);
+    expect(new Set(lines.map((l) => l["id"])).size).toBe(1);
+    for (const line of lines) expect(line).toMatchObject({ userId: "local", kind: "transfer" });
+    expect(lines[2]).toMatchObject({ ixHash: SENT_HASH });
+    expect(lines[3]).toMatchObject({ ixHash: SENT_HASH });
+    expect(statSync(join(h.home, "journal.jsonl")).mode & 0o777).toBe(0o600);
+  });
+
+  it("journals a tap that was refused as failed", async () => {
+    seedSession(h.home);
+    wallet.request.mockRejectedValueOnce({ code: 5000, message: "User rejected the request" });
+    await h.send("moi_transfer", TRANSFER);
+    expect(journalLines(h.home).map((l) => l["state"])).toEqual(["proposed", "failed"]);
+  });
+
+  it("journals a broadcast that failed after the tap as orphaned", async () => {
+    seedSession(h.home);
+    node.on("moi.SendInteractions", () => {
+      throw new Error("ixpool full");
+    });
+    await h.send("moi_transfer", TRANSFER);
+    expect(journalLines(h.home).map((l) => l["state"])).toEqual(["proposed", "signed", "orphaned"]);
+  });
+
+  it("moi_call_logic passes `participants` to the interaction and shows them in the preview", async () => {
+    // The stdio handler used to drop them silently although the schema advertised them.
+    seedSession(h.home);
+    const args = { logicId: LOGIC, routine: "Ping", participants: [{ id: OTHER, lock: "mutate" }] };
+    const preview = await h.call("moi_call_logic", args);
+    expect(preview.structuredContent?.["details"]).toMatchObject({ "Other participants": `${OTHER} (mutate)` });
+    await h.send("moi_call_logic", args);
+    const participants = signedIx()["participants"] as Array<{ id: string }>;
+    expect(participants.map((p) => p.id)).toContain(OTHER);
+  });
+
+  it("views, refusals and previews leave no journal behind", async () => {
+    await h.call("moi_transfer", TRANSFER); // unpaired: refused
+    seedSession(h.home);
+    await h.call("moi_transfer", TRANSFER); // preview
+    await h.call("moi_call_logic", { logicId: LOGIC, routine: "Ping", kind: "view" });
+    expect(existsSync(join(h.home, "journal.jsonl"))).toBe(false);
+  });
+});
+
 describe("amount inputs accept the JSON numbers clients actually send", () => {
   /**
    * Regression: `storageFund` and `supply` were string-only, so a client
@@ -712,7 +853,7 @@ describe("amount inputs accept the JSON numbers clients actually send", () => {
    */
   it("moi_create_asset takes a numeric storageFund", async () => {
     seedSession(h.home);
-    const res = await h.call("moi_create_asset", {
+    const res = await h.send("moi_create_asset", {
       symbol: "NUMTEST", supply: 1000, storageFund: 50000000000,
     });
     expect(res.isError ?? false, res.text).toBe(false);
@@ -721,10 +862,10 @@ describe("amount inputs accept the JSON numbers clients actually send", () => {
 
   it("produces the same interaction whether the amount is a number or a string", async () => {
     seedSession(h.home);
-    await h.call("moi_create_asset", { symbol: "SAME", supply: 1000, storageFund: 50000000000 });
+    await h.send("moi_create_asset", { symbol: "SAME", supply: 1000, storageFund: 50000000000 });
     const asNumber = signedIx(0);
 
-    await h.call("moi_create_asset", { symbol: "SAME", supply: "1000", storageFund: "50000000000" });
+    await h.send("moi_create_asset", { symbol: "SAME", supply: "1000", storageFund: "50000000000" });
     const asString = signedIx(1);
 
     expect(asNumber).toEqual(asString);
@@ -743,7 +884,7 @@ describe("amount inputs accept the JSON numbers clients actually send", () => {
 describe("storageFund is optional in practice, not just in the schema", () => {
   it("moi_create_asset works with no storageFund at all", async () => {
     seedSession(h.home);
-    const res = await h.call("moi_create_asset", { symbol: "AUTO", supply: 1000 });
+    const res = await h.send("moi_create_asset", { symbol: "AUTO", supply: 1000 });
     expect(res.isError ?? false, res.text).toBe(false);
     expect(res.structuredContent).toMatchObject({ status: "sent" });
 
@@ -754,10 +895,10 @@ describe("storageFund is optional in practice, not just in the schema", () => {
 
   it("an explicit storageFund still wins over the automatic one", async () => {
     seedSession(h.home);
-    await h.call("moi_create_asset", { symbol: "AUTO", supply: 1000 });
+    await h.send("moi_create_asset", { symbol: "AUTO", supply: 1000 });
     const auto = signedIx(0)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
 
-    await h.call("moi_create_asset", { symbol: "AUTO", supply: 1000, storageFund: 12_345_000_000 });
+    await h.send("moi_create_asset", { symbol: "AUTO", supply: 1000, storageFund: 12_345_000_000 });
     const explicit = signedIx(1)["ix_operations"] as Array<{ payload: Record<string, unknown> }>;
 
     expect(explicit[1]!.payload["calldata"]).not.toBe(auto[1]!.payload["calldata"]);

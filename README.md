@@ -18,7 +18,7 @@ If a write fails with "The wallet pairing has expired", call `moi_connect_wallet
 
 ## Run it locally
 
-The local stdio server runs as a child process of your MCP client and registers all 13 tools (`src/index.ts`).
+The local stdio server runs as a child process of your MCP client (`src/index.ts`). Its writes are the hosted server's: two calls, a preview and then a confirm, through the same code (`src/tools/hosted-writes.ts`, `src/tools/registry-writes.ts`), with one fixed local user, the pairing kept in `session.json`, and a journal at `$MOI_MCP_HOME/journal.jsonl` (`src/tools/local-writes.ts`).
 
 You need Node.js 20 or later (`package.json` engines) and the MOI Wallet app on your phone for writes. Reads work without the wallet. The default network, `voyage`, is MOI's devnet, a test network where currency has no real value; KMOI there is test currency, claimable from the [Voyage faucet](https://voyage.moi.technology/faucet/).
 
@@ -57,7 +57,7 @@ Environment variables, validated by `src/config.ts` against the schema at `src/s
 | `MOI_NETWORK` | `voyage` | `voyage`, `mainnet`, or `custom` |
 | `MOI_RPC_URL` | none | Required when `MOI_NETWORK=custom` |
 | `WC_PROJECT_ID` | none | Required for the stdio server; Reown ids are 32 hex characters, and the server warns on other shapes and rejects placeholders (`src/config.ts:36`) |
-| `MOI_MCP_HOME` | `~/.moi-mcp` | Session and WalletConnect keystore, created `0700` |
+| `MOI_MCP_HOME` | `~/.moi-mcp` | Session, WalletConnect keystore and write journal (`journal.jsonl`, `0600`), created `0700` |
 | `MOI_EXPLORER_URL` | `https://voyage.moi.technology` | Builds explorer links in write results |
 | `REQUEST_TIMEOUT_MS` | `55000` | How long to wait for the phone tap; keep it under the MCP client's own 60s timeout |
 | `LOG_LEVEL` | `error` | `silent`, `error`, `info`, `debug`; all logs go to stderr |
@@ -84,7 +84,7 @@ If pairing fails with "The WalletConnect relay refused the pairing", the `WC_PRO
 
 ## Tools
 
-The hosted server and the local stdio server each list 13 tools. Reads are defined in `src/tools/reads.ts`, the wallet surface in `src/server.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/tools/hosted-writes.ts` (hosted) and `src/tools/writes.ts` (stdio).
+The hosted server and the local stdio server list the same read tools and the same eight write tools. Reads are defined in `src/tools/reads.ts`, the wallet surface in `src/server.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/tools/hosted-writes.ts` and `src/tools/registry-writes.ts`, which both servers register; the stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
 
 | Tool | Phone approval | What it does |
 |---|---|---|
@@ -132,7 +132,7 @@ On `moi_create_asset`: a new MOI asset must hold KMOI to pay for its own storage
 - Wallet pairings expire: after a week by default, or after one approved transaction or 15 minutes with `remember: false` (`src/server.ts`).
 - Every hosted response carries security headers (`src/security-headers.ts`), and the MCP endpoint and every auth endpoint are rate limited (`src/server.ts:436`, `src/auth/rate-limit.ts`).
 
-Every write is also simulated against the node first and refused locally if it would fail, so nothing that would burn fuel for nothing reaches your phone. Writes are recorded through proposed, signed, broadcast, and confirmed states in a journal (`src/journal.ts`).
+Every write is also simulated against the node first and refused locally if it would fail, so nothing that would burn fuel for nothing reaches your phone. Writes are recorded through proposed, signed, broadcast, and confirmed states in a journal (`src/journal.ts`). The stdio server keeps its journal in `MOI_MCP_HOME`, the hosted one in its data directory.
 
 ## Documentation
 

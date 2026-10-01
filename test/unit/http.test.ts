@@ -24,7 +24,15 @@ describe("read-only HTTP server", () => {
       .filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+"/.test(line))
       .join("\n");
 
-    for (const forbidden of ["tools/writes", "tools/wallet", "wc/client", "wc/session"]) {
+    for (const forbidden of [
+      "tools/writes",
+      "tools/wallet",
+      "tools/hosted-writes",
+      "tools/local-writes",
+      "tools/registry-writes",
+      "wc/client",
+      "wc/session",
+    ]) {
       expect(imports, `http.ts must not import ${forbidden}`).not.toContain(forbidden);
     }
   });

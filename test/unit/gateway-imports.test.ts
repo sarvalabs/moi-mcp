@@ -22,6 +22,12 @@ function isWalletOrWriteCode(name: string): boolean {
     name === "src/tools/wallet.ts" ||
     name === "src/tools/writes.ts" ||
     name === "src/tools/hosted-writes.ts" ||
+    name === "src/tools/local-writes.ts" ||
+    name === "src/tools/registry-writes.ts" ||
+    name === "src/tools/registry-core.ts" ||
+    name === "src/tools/write-core.ts" ||
+    name === "src/tools/preview.ts" ||
+    name === "src/journal.ts" ||
     name === "@walletconnect" ||
     name.startsWith("@walletconnect/")
   );
@@ -47,7 +53,20 @@ describe("the read gateway's module graph", () => {
     // If a folder is renamed, the check above would pass by looking for the old name. Here the same
     // names must show up in the graphs that are supposed to contain them.
     const stdio = importGraph("src/index.ts");
-    expect(stdio.files).toEqual(expect.arrayContaining(["src/tools/writes.ts", "src/tools/wallet.ts", "src/wc/client.ts"]));
+    expect(stdio.files).toEqual(
+      expect.arrayContaining([
+        "src/tools/local-writes.ts",
+        "src/tools/hosted-writes.ts",
+        "src/tools/registry-writes.ts",
+        "src/tools/wallet.ts",
+        "src/wc/client.ts",
+        "src/journal.ts",
+      ]),
+    );
+    // The hosted and read-only entry points start themselves when loaded. Bundled into the stdio entry point they
+    // would start a second server inside it.
+    expect(stdio.files).not.toContain("src/server.ts");
+    expect(stdio.files).not.toContain("src/http.ts");
     expect(stdio.packages).toContain("@walletconnect/sign-client");
     expect(importGraph("src/server.ts").files).toContain("src/tools/hosted-writes.ts");
   });

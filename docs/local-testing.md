@@ -18,7 +18,8 @@ is scoped to a **read-only HTTP transport**, which has none of these problems.
 
 ## Which transport
 
-`moi-mcp` (stdio) is the local one your MCP client spawns — all 13 tools,
+`moi-mcp` (stdio) is the local one your MCP client spawns — all 18 tools
+(`ping`, the six reads, the three wallet tools and the eight writes),
 wallet included. `moi-mcp-http` is the read-only service — 6 tools, no wallet,
 no `WC_PROJECT_ID`, stateless, hostable. This page covers the stdio one; for
 the HTTP one, `PORT=8787 node dist/http.js` and point a client at
@@ -35,6 +36,14 @@ npm run build
 
 That produces `dist/index.js`. Rebuild after any source change — your client
 runs the built file, not the TypeScript.
+
+## How a write works here
+
+Every write is two tool calls, the same as on the hosted server (`src/tools/hosted-writes.ts`). The first call, without `confirm`, builds the interaction, simulates it against the node and answers `status: "preview"`: one sentence, the values your phone will show, the fuel and a `confirm` token. Nothing has reached the phone, and a preview is not a failure. The second call, with the same arguments and the token, asks the phone and waits for the tap. A token works once, for those arguments, for ten minutes; if the numbers moved in between, the second call answers with a fresh preview instead.
+
+A write tool is marked destructive, so a client that asks before running destructive tools will ask for each of the two calls.
+
+Every confirmed write is recorded in `$MOI_MCP_HOME/journal.jsonl` (mode 0600), one line per step: `proposed`, `signed`, `broadcast`, `confirmed`, or `failed` / `orphaned` when it stopped early. `orphaned` means the phone signed and the node did not take it. Previews, refusals and views write nothing.
 
 ## Point Claude Desktop at the local build
 
@@ -104,7 +113,7 @@ npm run inspect        # MCP Inspector against src/, no build step
 ```
 
 ```bash
-# Raw protocol — should print a JSON line listing 13 tools
+# Raw protocol — should print a JSON line listing 18 tools
 WC_PROJECT_ID=<id> node -e '
 const {spawn}=require("child_process");
 const c=spawn("node",["dist/index.js"]);
@@ -195,7 +204,8 @@ Reads are unaffected either way.
 Expected before pairing — reads never need a wallet. If you *are* paired, check
 in this order: `moi_wallet_status` (connected? config ok?), then the balance
 (`moi_get_account`), then whether your phone is showing an approval you haven't
-tapped.
+tapped. A write that answers `status: "preview"` has not failed: it is waiting
+for a yes, then a second call with its `confirm` token.
 
 ### Everything looks right and the first send still fails
 

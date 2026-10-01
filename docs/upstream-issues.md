@@ -207,15 +207,14 @@ has no memo or label field. The wallet therefore renders whatever it can decode
 from the raw operations. For a transfer that is legible; for an asset create,
 a mint, or a logic call with encoded calldata, it is much less so.
 
-**Workaround, and what the server ships:** every hosted write is two calls.
+**Workaround, and what the server ships:** every write is two calls, on the hosted and the stdio server.
 The first builds and simulates the interaction and returns a preview: the
 sentence, the values the wallet will render (amount in base units, asset id,
 recipient, storage fund), and a single-use confirm token bound to the user,
 the tool and the arguments. The second call, carrying the token, is the only
 path to the phone. So the chat shows the phone's own numbers before the phone
 does, the model cannot skip the step, and if the numbers move between the two
-calls the user gets a fresh preview rather than a send. The stdio server keeps
-the single-call flow with a confirm-before-call instruction.
+calls the user gets a fresh preview rather than a send.
 
 **Wallet-side fix:** accept an optional second param (or a `meta.description`
 like the `ix_args` style already models for `sendInteractions`) and render it

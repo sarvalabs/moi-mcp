@@ -1,13 +1,13 @@
 /**
- * Shared write-tool helpers extracted for use by both stdio (writes.ts) and
- * hosted (hosted-writes.ts) paths. Contains:
+ * Shared write-tool helpers. Every write goes through runWrite (src/tools/hosted-writes.ts), on the hosted server and
+ * on the stdio one. Contains:
  *   - balance/sender lookups
  *   - per-operation build logic (prepare* functions)
  *   - simulation and fuel-measurement infrastructure
  *   - broadcast and error handling
  *
- * Does NOT handle signing or session routing — callers pass already-validated
- * sessions (stdio) or fetch from a store by userId (hosted).
+ * Does NOT handle signing or session routing: runWrite loads the session and asks the hub to sign, and the prepare*
+ * functions are handed the account they build for.
  */
 
 import { z } from "zod";

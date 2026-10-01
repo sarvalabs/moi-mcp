@@ -1,10 +1,11 @@
 /**
- * Multi-user write tools for the hosted MOI MCP server.
+ * The write tools, and the one path every write takes: runWrite.
  *
- * Hosted-specific implementation of the write tools (moi_transfer,
- * moi_create_asset, moi_mint, moi_call_logic) that routes writes to the
- * authenticated user's WalletConnect session via the WalletConnectHub, then
- * broadcasts the signed interaction.
+ * The hosted server runs it with a signed-in user, the pairing store, the WalletConnect hub and a journal in its data
+ * directory. The stdio server runs the same code with a constant local user and small adapters over its own session
+ * file, WalletConnect client and journal file (src/tools/local-writes.ts). Nothing below knows which of the two it is
+ * under: it asks for a WriteDeps and an AuthInfo. A write routes to the paired wallet's WalletConnect session, then the
+ * signed interaction is broadcast from here.
  *
  * Identity is always auth.userId. The session is looked up via
  * deps.store.get(auth.userId), and signed on that session's topic. No tool
@@ -58,14 +59,28 @@ import {
 } from "./write-core.js";
 
 /**
- * Dependencies for hosted write tools.
+ * What the write path uses, and no more. The hosted server satisfies it with its real store, hub and journal
+ * (HostedWriteDeps below); the stdio server with small adapters over its own session file, WalletConnect client and
+ * journal file (src/tools/local-writes.ts). Naming the narrow shape is what lets the second exist without a cast.
  */
-export interface HostedWriteDeps {
+export interface WriteDeps {
+  /** get and delete are all the write path needs: it never pairs, lists, or looks a session up by topic. */
+  store: Pick<WalletSessionStore, "get" | "delete">;
+  /** signInteractionFor signs. disconnect runs only for a "once" pairing, which the stdio server never has. */
+  hub: Pick<WalletConnectHubLike, "signInteractionFor" | "disconnect">;
+  journal: Pick<WriteJournal, "append" | "update">;
+  /** Confirm tokens. One registry per process by default; injectable for tests. */
+  previews?: PreviewRegistry;
+}
+
+/**
+ * Dependencies for the hosted write tools: the full store, hub and journal. The Launchpad and dapp tools need more
+ * than the write path does (the hub signs their sign-in messages), so they take this.
+ */
+export interface HostedWriteDeps extends WriteDeps {
   store: WalletSessionStore;
   hub: WalletConnectHubLike;
   journal: WriteJournal;
-  /** Confirm tokens. One registry per process by default; injectable for tests. */
-  previews?: PreviewRegistry;
 }
 
 const defaultPreviews = new PreviewRegistry();
@@ -75,7 +90,7 @@ const defaultPreviews = new PreviewRegistry();
  * re-registers every tool on each request, so a registry created inside a register* function would be empty on the
  * confirm call. moi_dapp_call and moi_launchpad_create_agent use it too.
  */
-export const previewsOf = (d: HostedWriteDeps): PreviewRegistry => d.previews ?? defaultPreviews;
+export const previewsOf = (d: WriteDeps): PreviewRegistry => d.previews ?? defaultPreviews;
 
 export type WriteKind =
   | "transfer"
@@ -98,7 +113,7 @@ export type WriteKind =
  * best-effort: a journal I/O error must never mask the real tool error.
  */
 async function markUnwound(
-  journal: WriteJournal,
+  journal: Pick<WriteJournal, "update">,
   id: string,
   wasSigned: boolean,
   err: unknown,
@@ -127,7 +142,7 @@ function assertNetworkMatches(stored: StoredWalletSession, expectedNetwork?: str
  * Load and validate the user's wallet session from the store.
  */
 export async function loadSession(
-  deps: HostedWriteDeps,
+  deps: WriteDeps,
   auth: AuthInfo,
   expectedNetwork?: string,
 ): Promise<StoredWalletSession> {
@@ -152,7 +167,7 @@ export async function loadSession(
  * effort: the server-side deletion is the guarantee, the phone's list is
  * cosmetic.
  */
-async function afterSignedUse(deps: HostedWriteDeps, session: StoredWalletSession): Promise<void> {
+async function afterSignedUse(deps: WriteDeps, session: StoredWalletSession): Promise<void> {
   if (session.mode !== "once") return;
   try {
     await deps.store.delete(session.userId);
@@ -247,7 +262,7 @@ function previewOf(
  * yes, not after.
  */
 export async function runWrite(
-  deps: HostedWriteDeps,
+  deps: WriteDeps,
   auth: AuthInfo | null,
   kind: WriteKind,
   args: unknown,
@@ -326,7 +341,7 @@ export async function runWrite(
  */
 export function registerHostedWrites(
   server: McpServer,
-  deps: HostedWriteDeps,
+  deps: WriteDeps,
   auth: AuthInfo | null,
 ): void {
   server.registerTool(

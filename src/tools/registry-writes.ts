@@ -1,7 +1,7 @@
 /**
- * The agent registry's write routines as hosted tools: register an agent
+ * The agent registry's write routines as write tools, on the hosted and the stdio server: register an agent
  * you host yourself, change its status, hand it to a new owner. Each runs
- * the same two-call preview and confirm path as every other hosted write.
+ * the same two-call preview and confirm path as every other write.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -11,7 +11,7 @@ import { getConfig } from "../config.js";
 import { getReadOnlySigner } from "../moi/provider.js";
 import { findAgentByWallet } from "../moi/registry.js";
 import { RegisterAgentInput, SetAgentStatusInput, TransferAgentInput } from "../schema.js";
-import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type HostedWriteDeps } from "./hosted-writes.js";
+import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type WriteDeps } from "./hosted-writes.js";
 import { prepareRegisterAgent, prepareSetAgentStatus, prepareTransferAgent } from "./registry-core.js";
 import { WriteOutputShape } from "./write-core.js";
 
@@ -26,7 +26,7 @@ const DEFAULT_REGISTRY_WAIT_MS = 30_000;
 
 export function registerRegistryWrites(
   server: McpServer,
-  deps: HostedWriteDeps,
+  deps: WriteDeps,
   auth: AuthInfo | null,
   options: RegistryWriteOptions = {},
 ): void {

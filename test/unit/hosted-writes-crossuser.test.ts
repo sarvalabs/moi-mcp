@@ -574,16 +574,6 @@ describe("cross-user write tools isolation", () => {
   });
 
   // =========================================================================
-  // 11. Stdio path unchanged (already tested via tools-writes.test.ts)
-  // =========================================================================
-  it("11. [note] stdio path regression tested separately in tools-writes.test.ts", () => {
-    // This contract guarantees that write-core.ts extraction does not change
-    // stdio behavior. That is verified by the existing tools-writes.test.ts
-    // running against the refactored src/tools/writes.ts unmodified.
-    expect(true).toBe(true);
-  });
-
-  // =========================================================================
   // 12. One SignClient invariant — NOT covered here
   // =========================================================================
   // There used to be an `it(...)` here asserting `expect(true).toBe(true)`

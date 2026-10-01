@@ -669,7 +669,7 @@
   {
     "name": "moi_transfer",
     "title": "Transfer a MOI asset",
-    "description": "Propose a transfer of a MOI native asset. Builds the interaction here and sends it to MOI Wallet on your phone — nothing moves until you tap Send there. The balance is checked first. Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation before anything reaches your phone. Returns the interaction hash once broadcast.",
+    "description": "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first. Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation, before any preview. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -696,6 +696,12 @@
         "memo": {
           "type": "string",
           "maxLength": 140
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -708,7 +714,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
@@ -783,7 +789,7 @@
   {
     "name": "moi_create_account",
     "title": "Create a MOI account",
-    "description": "Register a brand-new MOI account on chain and fund it with KMOI from your paired wallet. A transfer to an address that has never existed is refused by the node, so this is how a fresh account gets its first KMOI. Takes the new account's address and compressed public key; the tool refuses a key that does not produce that address. Sent to MOI Wallet for approval.",
+    "description": "Register a brand-new MOI account on chain and fund it with KMOI from the user's paired wallet; nothing happens until they tap Send on their phone. Needed because a transfer to an address that has never existed is refused by the node. Takes the new account's address and its public key, which MOI Wallet or the SDK shows for a freshly generated account; the tool refuses a key that does not produce that address. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -813,6 +819,12 @@
             }
           ],
           "description": "KMOI to fund the new account with, in whole KMOI (for example 500 or 2.5). It pays the new account's own storage and fuel. The chain refuses less than 1 KMOI."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -823,7 +835,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
@@ -898,7 +910,7 @@
   {
     "name": "moi_create_asset",
     "title": "Create a MOI asset",
-    "description": "Propose creating a new MOI native asset (a token). `supply` sets the MAXIMUM supply — it does not mint anything, so circulating supply starts at 0 and you will hold none until you call moi_mint. `decimals` is the number of decimal places (2 gives cents). Only the MAS0 standard can be created for now; MAS1, MAS2 and MASX are not supported yet, so leave `standard` out. Storage funding is handled automatically. Sent to MOI Wallet for approval on your phone.",
+    "description": "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much. Only the MAS0 standard can be created for now: leave `standard` out, because MAS1, MAS2 and MASX are not supported yet. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -959,6 +971,12 @@
         "isFungible": {
           "type": "boolean",
           "default": true
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -970,7 +988,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
@@ -1045,7 +1063,7 @@
   {
     "name": "moi_mint",
     "title": "Mint tokens of a MOI asset",
-    "description": "Mint tokens of an asset you manage, to yourself or another account. Creating an asset sets a maximum supply but mints nothing — until you mint, circulating supply is 0, you hold none, and the asset does not appear in a wallet. Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation before anything reaches your phone. Sent to MOI Wallet for approval.",
+    "description": "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone. Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation, before any preview. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1070,6 +1088,12 @@
           "type": "string",
           "pattern": "^0x[0-9a-fA-F]+$",
           "description": "Recipient. Defaults to the connected wallet."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -1081,7 +1105,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
@@ -1156,7 +1180,7 @@
   {
     "name": "moi_call_logic",
     "title": "Call a MOI logic routine",
-    "description": "Call a routine on a deployed MOI logic. kind:'view' reads the result immediately and needs no wallet. kind:'invoke' changes state and is sent to MOI Wallet for approval. Call moi_get_logic first to learn the routine names and argument order.",
+    "description": "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1208,6 +1232,12 @@
             "additionalProperties": false
           },
           "description": "Other accounts and assets the routine moves value for, besides you. A DEX buy, for example, lists the pool owner (mutate), the token asset (none) and the payment asset (none). The logic's own docs or its Info-style read routine say what to list. Leave it out for routines that only touch your own state."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -1219,7 +1249,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
@@ -1230,7 +1260,7 @@
   {
     "name": "moi_register_agent",
     "title": "Register an agent in the MOI agent registry",
-    "description": "Register an AI agent in the on-chain MOI agent registry, owned by your paired wallet. Takes the agent's own MOI account, the URL it is served at, and the URL of its card. Sent to MOI Wallet for approval.",
+    "description": "Register an AI agent in the on-chain MOI agent registry, owned by the user's paired wallet. Takes the agent's own MOI account, the URL it is served at, and the URL of its card. For an agent built on the MOI Agent Launchpad use moi_launchpad_register_agent instead; this is for agents you host yourself. Returns the registry's agent_<n> id once the registry lists it. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1248,6 +1278,12 @@
           "type": "string",
           "pattern": "^0x[0-9a-fA-F]+$",
           "description": "The agent's own MOI account. It must already exist on chain."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -1260,82 +1296,18 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
     "execution": {
       "taskSupport": "forbidden"
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "type": "string",
-          "enum": [
-            "sent",
-            "rejected",
-            "error",
-            "preview"
-          ]
-        },
-        "hash": {
-          "type": "string"
-        },
-        "explorerUrl": {
-          "type": "string"
-        },
-        "summary": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string",
-          "enum": [
-            "user_rejected",
-            "timeout",
-            "network_mismatch",
-            "wallet_disconnected"
-          ]
-        },
-        "message": {
-          "type": "string"
-        },
-        "code": {
-          "type": "string"
-        },
-        "confirm": {
-          "type": "string"
-        },
-        "details": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "fuel": {
-          "type": "string"
-        },
-        "network": {
-          "type": "string"
-        },
-        "expiresAt": {
-          "type": "string"
-        },
-        "note": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "status"
-      ],
-      "additionalProperties": false,
-      "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
   },
   {
     "name": "moi_set_agent_status",
     "title": "Set an agent's status in the MOI agent registry",
-    "description": "Mark an agent you own ACTIVE or DEPRECATED in the on-chain MOI agent registry. Sent to MOI Wallet for approval.",
+    "description": "Mark an agent in the on-chain MOI agent registry ACTIVE or DEPRECATED. Only the agent's owner, the paired wallet, can. Deprecating is how an agent is retired; the entry stays in the registry. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1348,6 +1320,12 @@
           "minLength": 1,
           "maxLength": 32,
           "description": "ACTIVE or DEPRECATED. Only the agent's owner can change it."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -1359,7 +1337,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },
@@ -1434,7 +1412,7 @@
   {
     "name": "moi_transfer_agent",
     "title": "Transfer an agent to a new owner",
-    "description": "Hand an agent you own in the on-chain MOI agent registry to another account. Sent to MOI Wallet for approval.",
+    "description": "Hand an agent in the on-chain MOI agent registry to another account. Only the current owner, the paired wallet, can, and afterwards it no longer controls the agent. Check the new owner's address with the user before calling. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1446,6 +1424,12 @@
           "type": "string",
           "pattern": "^0x[0-9a-fA-F]+$",
           "description": "The account that will own the agent from now on. Only the current owner can do this."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
         }
       },
       "required": [
@@ -1457,7 +1441,7 @@
     },
     "annotations": {
       "readOnlyHint": false,
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": true
     },

@@ -117,7 +117,7 @@ Top level:
 
 - `src/tools/reads.ts` (134): the five read tools: `moi_get_account`, `moi_get_asset`, `moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent` (lines 51 to 119).
 - `src/tools/wallet.ts` (214): stdio pairing tools: `moi_connect_wallet`, `moi_wallet_status`, `moi_disconnect_wallet`.
-- `src/tools/writes.ts` (219): stdio write tools with the guard sequence: session exists, session on our network, balance covers a transfer.
+- `src/tools/local-writes.ts`: what the stdio server supplies to the write path: a constant local user, a store over `session.json`, a hub over the WalletConnect client, and a journal in `MOI_MCP_HOME`. The stdio write tools are the hosted ones.
 - `src/tools/write-core.ts` (444): shared build, simulate, fuel-measure, and broadcast helpers used by both write paths. Handles no signing and no session routing.
 - `src/tools/hosted-writes.ts` (371): the hosted write tools and `runWrite`, the one write path.
 - `src/tools/preview.ts` (116): the confirm-token registry for hosted writes.
@@ -215,5 +215,5 @@ Roughly two and a half hours of reading time.
 9. src/pairing/index.ts, 10 min. The URI-handling rules.
 10. src/journal.ts, 5 min.
 11. src/moi/reads.ts and src/moi/registry.ts, 10 min.
-12. src/index.ts, src/http.ts, src/tools/reads.ts, src/tools/wallet.ts, src/tools/writes.ts, 10 min. The stdio and read-only paths reuse everything above.
+12. src/index.ts, src/http.ts, src/tools/reads.ts, src/tools/wallet.ts, src/tools/local-writes.ts, 10 min. The stdio and read-only paths reuse everything above.
 13. test/helpers/ and the hosted-writes test trio, 15 min, reading hosted-writes.test.ts with the weak-test note above in hand.

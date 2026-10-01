@@ -9,7 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
@@ -18,9 +18,10 @@ import { resetConfigCache } from "../../src/config.js";
 import { resetProviderCache } from "../../src/moi/provider.js";
 import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/moi/registry.js";
 import { registerResources } from "../../src/resources/index.js";
+import { localWriteDeps, registerLocalWriteTools } from "../../src/tools/local-writes.js";
+import { PreviewRegistry } from "../../src/tools/preview.js";
 import { registerReadTools } from "../../src/tools/reads.js";
 import { registerWalletTools, resetWalletClient, setWalletClient } from "../../src/tools/wallet.js";
-import { registerWriteTools } from "../../src/tools/writes.js";
 import { withModernSchemaDialect } from "../../src/json-schema-dialect.js";
 import type { SignClientLike, WcConfig } from "../../src/wc/client.js";
 import { saveSession, type Session } from "../../src/wc/session.js";
@@ -35,6 +36,11 @@ export interface Harness {
   home: string;
   /** Result of the LAST tool call, as the client saw it. */
   call(name: string, args?: Record<string, unknown>): Promise<ToolResult>;
+  /**
+   * A write as a model performs it: the call without `confirm`, then, if that answered with a preview, the same call
+   * with its token. Whatever the first call returned instead (a refusal, an error, a view) comes straight back.
+   */
+  send(name: string, args?: Record<string, unknown>): Promise<ToolResult>;
   close(): Promise<void>;
 }
 
@@ -111,14 +117,27 @@ export function tempHome(): string {
   return mkdtempSync(join(tmpdir(), "moi-tools-"));
 }
 
-/** Build the server exactly as src/index.ts does (minus `ping`). */
+/**
+ * Build the server exactly as src/index.ts does (minus `ping`), except that it gets a confirm-token registry of its
+ * own, so no token can outlive its test or be spent by another.
+ */
 export function buildServer(): McpServer {
   const server = new McpServer({ name: "moi-mcp-test", version: "0.0.0" });
   registerReadTools(server);
   registerWalletTools(server);
-  registerWriteTools(server);
+  registerLocalWriteTools(server, { ...localWriteDeps(), previews: new PreviewRegistry() });
   registerResources(server);
   return server;
+}
+
+/** The journal the write path keeps in MOI_MCP_HOME, one parsed entry per line, oldest first. [] when there is none. */
+export function journalLines(home: string): Array<Record<string, unknown>> {
+  const file = join(home, "journal.jsonl");
+  if (!existsSync(file)) return [];
+  return readFileSync(file, "utf8")
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 export async function startHarness(
@@ -139,18 +158,26 @@ export async function startHarness(
   // client-side too — the layer the write-tool regression slipped past.
   await client.listTools();
 
+  const call: Harness["call"] = async (name, args = {}) => {
+    const raw = (await client.callTool({ name, arguments: args })) as unknown as ToolResult;
+    const content = raw.content ?? [];
+    return {
+      ...raw,
+      content,
+      text: content.map((c) => c.text ?? "").join("\n"),
+    };
+  };
+
   return {
     client,
     server,
     home,
-    async call(name, args = {}) {
-      const raw = (await client.callTool({ name, arguments: args })) as unknown as ToolResult;
-      const content = raw.content ?? [];
-      return {
-        ...raw,
-        content,
-        text: content.map((c) => c.text ?? "").join("\n"),
-      };
+    call,
+    async send(name, args = {}) {
+      const first = await call(name, args);
+      const preview = first.structuredContent as { status?: string; confirm?: string } | undefined;
+      if (preview?.status !== "preview") return first;
+      return call(name, { ...args, confirm: preview.confirm });
     },
     async close() {
       await client.close();

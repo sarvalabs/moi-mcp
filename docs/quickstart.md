@@ -84,9 +84,10 @@ No KMOI yet? Claim free devnet tokens from the
 > send 1 KMOI to 0x…
 
 The agent resolves the asset, checks your balance, builds the interaction,
-simulates it against the node, and pushes it to your phone. **Nothing is signed
-until you tap Approve.** The phone returns the signature; the server broadcasts
-it and hands you the hash. Reject it and you get back
+simulates it against the node, and shows you a preview in the chat: one sentence
+and the exact values your phone will show. Say yes, and it asks your phone.
+**Nothing is signed until you tap Approve.** The phone returns the signature;
+the server broadcasts it and hands you the hash. Reject it and you get back
 `{"status":"rejected","reason":"user_rejected"}`. Ignore it for five minutes and
 you get `"timeout"`.
 

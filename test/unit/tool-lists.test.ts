@@ -24,15 +24,18 @@
  *   gateway  buildReadOnlyServer (src/http.ts).
  *   stdio    buildServer from test/helpers/harness.ts, which mirrors src/index.ts
  *            except for ping: index.ts starts the server when imported, so a test
- *            cannot build it.
+ *            cannot build it. Its eight write tools are the hosted ones
+ *            (registerLocalWriteTools), so they are listed exactly as the hosted
+ *            server lists them; a test below says so.
  *
  * The hosted block also checks the gate. A write that is registered but not in
  * GATED can be called without signing in, and one without a REQUIRED_SCOPE entry
  * can be called with a token that may only read.
  */
-import { rmSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -57,6 +60,11 @@ type ListAnswer = { result?: { tools?: RawTool[] }; error?: { message?: string }
 
 /** The text a snapshot file holds: two-space JSON and a final newline. */
 const pinned = (tools: RawTool[]): string => `${JSON.stringify(tools, null, 2)}\n`;
+
+const WRITE_TOOLS = [
+  "moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic",
+  "moi_register_agent", "moi_set_agent_status", "moi_transfer_agent",
+] as const;
 
 /** Ask a server for its tools over an in-memory pipe, through the dialect rewrite a real transport applies. */
 async function listTools(server: McpServer): Promise<RawTool[]> {
@@ -174,6 +182,17 @@ describe("the hosted server's tool list", () => {
     await expect(pinned(tools)).toMatchFileSnapshot("./__snapshots__/tools-hosted.json");
   });
 
+  it("lists the eight write tools exactly as the stdio server does", async () => {
+    const stdio = await listTools(buildServer());
+    for (const name of WRITE_TOOLS) {
+      const onStdio = stdio.find((tool) => tool.name === name);
+      expect(onStdio, `${name} is not on the stdio server`).toBeDefined();
+      expect(onStdio, `${name} differs between the stdio and hosted servers`).toEqual(
+        tools.find((tool) => tool.name === name),
+      );
+    }
+  });
+
   it("is gated: every tool that is not read-only needs a token with the write scope", async () => {
     const writers = tools.filter((tool) => tool.annotations?.readOnlyHint !== true).map((tool) => tool.name);
     expect(writers.length).toBeGreaterThan(0);
@@ -197,6 +216,23 @@ describe("the hosted server's tool list", () => {
     const registered = new Set(tools.map((tool) => tool.name));
     for (const name of GATED) {
       expect(registered.has(name), `${name} is in GATED but the hosted server does not register it`).toBe(true);
+    }
+  });
+});
+
+describe("the write tools are registered in one place", () => {
+  it("each is registered by hosted-writes.ts or registry-writes.ts and by no other file under src/", () => {
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const files = (readdirSync(`${root}src`, { recursive: true }) as string[])
+      .filter((name) => name.endsWith(".ts"))
+      .map((name) => `src/${name.split("\\").join("/")}`);
+    const registeredIn = (tool: string): string[] =>
+      files.filter((file) => new RegExp(`registerTool\\(\\s*"${tool}"`).test(readFileSync(`${root}${file}`, "utf8")));
+    for (const name of ["moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic"]) {
+      expect(registeredIn(name), name).toEqual(["src/tools/hosted-writes.ts"]);
+    }
+    for (const name of ["moi_register_agent", "moi_set_agent_status", "moi_transfer_agent"]) {
+      expect(registeredIn(name), name).toEqual(["src/tools/registry-writes.ts"]);
     }
   });
 });

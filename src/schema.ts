@@ -261,7 +261,7 @@ export const WriteResult = z.discriminatedUnion("status", [
     message: z.string(),
   }),
   /**
-   * Hosted writes only. Nothing has reached the phone: this is what it will
+   * Every write, hosted or stdio. Nothing has reached the phone: this is what it will
    * be asked to sign, for the user to read in the chat first. Calling again
    * with the same arguments and `confirm` sends it.
    */

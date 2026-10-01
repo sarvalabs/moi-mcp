@@ -17,9 +17,9 @@ import { getConfig, log, projectIdIssue } from "./config.js";
 import { messageOf } from "./errors.js";
 import { withModernSchemaDialect } from "./json-schema-dialect.js";
 import { registerResources } from "./resources/index.js";
+import { registerLocalWriteTools } from "./tools/local-writes.js";
 import { registerReadTools } from "./tools/reads.js";
 import { registerWalletTools } from "./tools/wallet.js";
-import { registerWriteTools } from "./tools/writes.js";
 
 // Resolves to the package root from both src/ (tsx) and dist/ (built).
 const require = createRequire(import.meta.url);
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   registerPing(server);
   registerReadTools(server);
   registerWalletTools(server);
-  registerWriteTools(server);
+  registerLocalWriteTools(server);
   registerResources(server);
 
   await server.connect(withModernSchemaDialect(new StdioServerTransport()));
