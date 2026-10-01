@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
+import { LaunchpadClient, type FetchLike } from "../../src/launchpad/client.js";
 import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/moi/registry.js";
 import { ErrorCode } from "../../src/schema.js";
 import type { runWrite } from "../../src/tools/hosted-writes.js";
@@ -492,6 +493,83 @@ describe("moi_launchpad_setup_script", () => {
     expect(res.isError).toBe(true);
     expect(JSON.stringify(res.content)).toMatch(/no longer read the key/);
     expect(d.createDownloadLink).not.toHaveBeenCalled();
+  });
+});
+
+describe("what the Launchpad answers is read with a limit", () => {
+  /** A Launchpad that answers one path from a hand-built Response and everything else from the fake. */
+  const answering = (suffix: string, make: () => Response) => {
+    const fetchImpl: FetchLike = (input, init) => (input.endsWith(suffix) ? Promise.resolve(make()) : fetch(input, init));
+    return new LaunchpadClient(fake.url, fetchImpl);
+  };
+  const text = (res: Awaited<ReturnType<typeof callTool>>) => (res.content as Array<{ text: string }>)[0]!.text;
+  const SCRIPT = `/api/agents/${RECORD_ID}/setup-script`;
+  const scriptBody = (bytes: number) => "#!/usr/bin/env bash\nAGENT_KEY=very-secret\n".padEnd(bytes, "#");
+
+  describe("the setup script", () => {
+    it("is refused over 256 KB, whether it declares its length or not, without signing the person out or leaking it", async () => {
+      for (const headers of [{}, { "content-length": "300000" }] as Array<Record<string, string>>) {
+        const sessions = fakeSessions(new Map([[USER, signedInRecord(fake.url)]]));
+        const d = launchpadDeps(fake, wallet(), sessions, { client: answering(SCRIPT, () => new Response(scriptBody(300_000), { headers })) });
+        const res = await callTool(await connectLaunchpad(d), "moi_launchpad_setup_script", { agentId: RECORD_ID });
+        expect(res.isError).toBe(true);
+        expect(text(res)).toMatch(/\[LAUNCHPAD_ERROR\]/);
+        expect(text(res)).toContain("The Launchpad's setup script is too large: it is over 256 KB");
+        expect(text(res)).not.toContain("very-secret");
+        expect(d.createDownloadLink).not.toHaveBeenCalled();
+        // An oversize answer is not a rejected session.
+        expect(sessions.records.size).toBe(1);
+      }
+    });
+
+    it("reads one that is large but within the cap", async () => {
+      const sessions = fakeSessions(new Map([[USER, signedInRecord(fake.url)]]));
+      const d = launchpadDeps(fake, wallet(), sessions, { client: answering(SCRIPT, () => new Response(scriptBody(200_000))) });
+      const res = await callTool(await connectLaunchpad(d), "moi_launchpad_setup_script", { agentId: RECORD_ID });
+      expect(res.isError).toBeFalsy();
+      expect(d.createDownloadLink).toHaveBeenCalledWith(USER, RECORD_ID);
+      expect(structured<{ script: { previewTruncated: boolean } }>(res).script.previewTruncated).toBe(true);
+    });
+
+    it("stops at the declared length without reading the body", async () => {
+      let pulls = 0;
+      const body = () =>
+        new ReadableStream<Uint8Array>(
+          {
+            pull() {
+              pulls++;
+              throw new Error("the body should not be read");
+            },
+          },
+          // Nothing is pulled before the first read.
+          { highWaterMark: 0 },
+        );
+      const client = answering(SCRIPT, () => new Response(body(), { headers: { "content-length": "300000" } }));
+      const err = await client.setupScript(COOKIE, RECORD_ID).then(() => undefined, (e: unknown) => e);
+      expect(err).toMatchObject({ code: ErrorCode.LAUNCHPAD_ERROR });
+      expect(pulls).toBe(0);
+    });
+  });
+
+  describe("a JSON answer", () => {
+    const templates = (make: () => Response) => connectLaunchpad(launchpadDeps(fake, wallet(), fakeSessions(), { client: answering("/api/templates", make) }), null);
+
+    it("says it is too large over 1 MB, not that it is not JSON", async () => {
+      const huge = `{"templates":[],"pad":"${"x".repeat(2 * 1024 * 1024)}"}`;
+      const res = await callTool(await templates(() => new Response(huge)), "moi_launchpad_templates");
+      expect(res.isError).toBe(true);
+      expect(text(res)).toContain("/api/templates is too large: it is over 1 MB");
+      expect(text(res)).not.toMatch(/something other than JSON/);
+    });
+
+    it("keeps a short refusal's message, and falls back to the status when the refusal is over 64 KB", async () => {
+      const short = await callTool(await templates(() => new Response('{"error":"name_taken"}', { status: 500 })), "moi_launchpad_templates");
+      expect(text(short)).toMatch(/refused: name_taken$/);
+      const long = await callTool(await templates(() => new Response(JSON.stringify({ error: "x".repeat(100_000) }), { status: 500 })), "moi_launchpad_templates");
+      expect(long.isError).toBe(true);
+      expect(text(long)).toMatch(/refused: HTTP 500$/);
+      expect(text(long).length).toBeLessThan(500);
+    });
   });
 });
 

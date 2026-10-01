@@ -102,6 +102,67 @@ describe("resolveAgent", () => {
   });
 });
 
+describe("the agent card", () => {
+  const card = (body: string) => vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(body, { headers: { "content-type": "application/json" } }));
+  const depthOf = (v: unknown): number => {
+    let depth = 0;
+    for (let cur = v; cur !== null && typeof cur === "object"; cur = Array.isArray(cur) ? cur[0] : Object.values(cur)[0]) depth++;
+    return depth;
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("still gives a normal card's name and skills", async () => {
+    primeDriver();
+    card(JSON.stringify({ name: "Rain Check", skills: [{ id: "forecast" }] }));
+    const out = await resolveAgent(signer, "agent_153", { logicId: LOGIC });
+    expect(out.name).toBe("Rain Check");
+    expect(out.capabilities).toEqual(["forecast"]);
+    expect(out.metadata?.["card"]).toEqual({ name: "Rain Check", skills: [{ id: "forecast" }] });
+  });
+
+  it("ignores a card over 64 KB, and still finds the agent", async () => {
+    primeDriver();
+    card(JSON.stringify({ name: "Big", pad: "x".repeat(300_000) }));
+    const out = await resolveAgent(signer, "agent_153", { logicId: LOGIC });
+    expect(out.found).toBe(true);
+    expect(out.name).toBeUndefined();
+    expect(out.metadata).not.toHaveProperty("card");
+  });
+
+  it("returns a card nested seven thousand deep cut to twenty levels, not a stack overflow", async () => {
+    primeDriver();
+    card('{"name":"Deep","deep":' + '{"a":'.repeat(7000) + "1" + "}".repeat(7000) + "}");
+    const out = await resolveAgent(signer, "agent_153", { logicId: LOGIC });
+    expect(out.found).toBe(true);
+    expect(out.name).toBe("Deep");
+    const shown = out.metadata?.["card"];
+    expect(depthOf(shown)).toBeLessThanOrEqual(20);
+    expect(JSON.stringify(shown)).toContain("[omitted: nested more than 20 levels deep]");
+  });
+
+  it("gives up on a card that never finishes once the five seconds are up", async () => {
+    primeDriver();
+    vi.useFakeTimers();
+    // The headers arrive at once and the body never ends; it fails only when the request is aborted, as a real one does.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(new Error("This operation was aborted")));
+        },
+      });
+      return new Response(body);
+    });
+    const pending = resolveAgent(signer, "agent_153", { logicId: LOGIC });
+    await vi.advanceTimersByTimeAsync(5001);
+    const out = await pending;
+    expect(out.found).toBe(true);
+    expect(out.metadata).not.toHaveProperty("card");
+  });
+});
+
 describe("listAgents", () => {
   it("pages through every agent with the registry's total and a next offset", async () => {
     primeDriver();

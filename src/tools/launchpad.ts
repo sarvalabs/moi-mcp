@@ -17,6 +17,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomBytes } from "node:crypto";
 
 import type { AuthInfo } from "../auth/types.js";
+import { boundedResult } from "../bounds.js";
 import { getConfig } from "../config.js";
 import { messageOf, toMcpError } from "../errors.js";
 import type { AgentRecord, LaunchpadClient, RegisterIntent } from "../launchpad/client.js";
@@ -98,7 +99,7 @@ type StatusValue = S.LaunchpadStatusOutputType;
 async function run<T extends Record<string, unknown>>(fn: () => Promise<{ value: T; text?: string }>) {
   try {
     const { value, text } = await fn();
-    return { content: [{ type: "text" as const, text: text ?? JSON.stringify(value, null, 2) }], structuredContent: value };
+    return boundedResult(value, text);
   } catch (err) {
     throw toMcpError(err);
   }

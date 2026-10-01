@@ -48,7 +48,7 @@ A dapp that wants the connector to call it publishes an OpenAPI 3 document at on
 /api/openapi.json
 ```
 
-The connector reads it, lists the operations to the model (`moi_dapp_api`), and calls only operations listed there (`moi_dapp_call`), with the session cookie, path and query parameters filled from the document, and a JSON body where the operation declares one. A `GET` runs at once; every other method is a two-step call, described below. A path parameter of `.` or `..` is refused, since the URL would resolve to a path the dapp did not publish. Redirects are never followed. Responses are handed to the model as JSON, cut at 64 KB.
+The connector reads it, lists the operations to the model (`moi_dapp_api`), and calls only operations listed there (`moi_dapp_call`), with the session cookie, path and query parameters filled from the document, and a JSON body where the operation declares one. A `GET` runs at once; every other method is a two-step call, described below. A path parameter of `.` or `..` is refused, since the URL would resolve to a path the dapp did not publish. Redirects are never followed. An answer is read up to 64 KB (bytes, not characters) and nested at most 19 levels deep; anything cut is flagged `truncated`, with a note saying what to ask for instead, and a body that was cut by size comes back as its first 64 KB of text, not parsed. The operation list (the OpenAPI document) may be up to 2 MB and sign-in and other JSON answers up to 1 MB; a larger one is refused with an error that names the limit.
 
 Give each operation an `operationId` and a one-line `summary`; that is what the model reads, and the preview shows the summary beside the request, labelled as the dapp's own description and not checked by the connector.
 

@@ -13,6 +13,7 @@
 import { getLogicDriver } from "js-moi-sdk";
 import { z } from "zod";
 
+import { limitDepth, readWhole } from "../bounds.js";
 import { MoiError, asRpcError } from "../moi-error.js";
 import { ErrorCode, type ResolveAgentOutput } from "../schema.js";
 import type { ReadOnlySigner } from "./provider.js";
@@ -219,18 +220,28 @@ function toOutput(raw: RawProfile, agentId: string, card?: Record<string, unknow
 
 const NOT_FOUND: z.infer<typeof ResolveAgentOutput> = { found: false, capabilities: [] };
 
-/** Fetch an agent card if it is reachable over plain HTTP(S). */
+/** A card is one agent owner's text, and a name lookup can read up to MAX_SCAN of them, so the cap is small. */
+const MAX_CARD_BYTES = 64 * 1024;
+
+/** Fetch an agent card if it is reachable over plain HTTP(S). A card that is too large, too slow or not JSON is ignored. */
 async function fetchCard(cardUri: string | undefined, timeoutMs = 5_000): Promise<Record<string, unknown> | undefined> {
   if (!cardUri || !/^https?:\/\//i.test(cardUri)) return undefined;
+  // The timer runs until the body is read, not just until the headers arrive, so a card that never finishes cannot hang a lookup.
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
     const res = await fetch(cardUri, { signal: ac.signal });
-    clearTimeout(timer);
-    if (!res.ok) return undefined;
-    return (await res.json()) as Record<string, unknown>;
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      return undefined;
+    }
+    const card: unknown = JSON.parse(await readWhole(res, MAX_CARD_BYTES, cardUri));
+    // Cut in depth here: jsonSafe below recurses without a limit and would overflow the stack on a deeply nested card.
+    return limitDepth(card).value as Record<string, unknown>;
   } catch {
     return undefined;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

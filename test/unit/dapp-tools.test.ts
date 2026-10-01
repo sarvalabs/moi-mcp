@@ -3,7 +3,7 @@
  * is just a dapp that follows the conventions and publishes an OpenAPI
  * document.
  */
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import { createServer as createNetServer, type AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +22,7 @@ import {
   type DappCallResult,
   type DappOperation,
 } from "../../src/dapp/client.js";
+import { MAX_TEXT_CHARS } from "../../src/bounds.js";
 import { MoiError } from "../../src/moi-error.js";
 import { ErrorCode } from "../../src/schema.js";
 import { registerDappTools, type DappDeps } from "../../src/tools/dapp.js";
@@ -1160,5 +1161,296 @@ describe("dapp host resolution through the tools", () => {
     const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } });
     expect(res.isError).toBeFalsy();
     expect(resolve).not.toHaveBeenCalled();
+  });
+});
+
+describe("what comes back from a dapp is bounded", () => {
+  /** A dapp whose routes answer with whatever the test hands them. */
+  async function serve(routes: Record<string, (res: ServerResponse) => void>) {
+    const server = createServer((req, res) => {
+      const route = routes[new URL(req.url ?? "/", "http://x").pathname];
+      if (route) return route(res);
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end("{}");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    return {
+      url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      close: () =>
+        new Promise<void>((r) => {
+          server.closeAllConnections();
+          server.close(() => r());
+        }),
+    };
+  }
+
+  const doc = (...ids: string[]) => ({
+    openapi: "3.1.0",
+    info: { title: "T", version: "1" },
+    paths: Object.fromEntries(ids.map((id) => [`/${id}`, { get: { operationId: id } }])),
+  });
+  const answer = (body: string | Buffer, type = "application/json") => (res: ServerResponse) => {
+    res.writeHead(200, { "content-type": type });
+    res.end(body);
+  };
+  const OPERATIONS = ["small", "deep", "deepArr", "flat", "euro", "emoji", "controls", "endless"];
+  type CallOut = { status: number; ok: boolean; body: unknown; truncated: boolean; note?: string };
+  const depthOf = (v: unknown): number => {
+    let depth = 0;
+    for (let cur = v; cur !== null && typeof cur === "object"; cur = Array.isArray(cur) ? cur[0] : Object.values(cur)[0]) depth++;
+    return depth;
+  };
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  describe("moi_dapp_call", () => {
+    let endlessClosed: Promise<void>;
+    let dapp: Awaited<ReturnType<typeof serve>>;
+    let client: Client;
+    beforeAll(async () => {
+      let markClosed: () => void = () => undefined;
+      endlessClosed = new Promise<void>((r) => (markClosed = r));
+      dapp = await serve({
+        "/openapi.json": answer(JSON.stringify(doc(...OPERATIONS))),
+        "/small": answer('{"hello":"world"}'),
+        // 42 KB and 60 KB: under the byte cap, so they are parsed, and far deeper than anything is shown.
+        "/deep": answer('{"a":'.repeat(7000) + "1" + "}".repeat(7000)),
+        "/deepArr": answer("[".repeat(30_000) + "]".repeat(30_000)),
+        "/flat": answer(JSON.stringify(Array.from({ length: 50_000 }, (_, i) => i))),
+        "/euro": answer("€".repeat(40_000), "text/plain"),
+        "/emoji": answer("\u{1F600}".repeat(20_000), "text/plain"),
+        "/controls": answer("\u0001".repeat(64 * 1024), "text/plain"),
+        "/endless": (res) => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          const chunk = Buffer.alloc(1024 * 1024, 97);
+          let closed = false;
+          res.on("close", () => {
+            closed = true;
+            markClosed();
+          });
+          const pump = () => {
+            while (!closed) {
+              if (!res.write(chunk)) return void res.once("drain", pump);
+            }
+          };
+          pump();
+        },
+      });
+      ({ client } = await connect({ sessions: fakeSessions(new Map([[USER, signedInRecord(dapp.url)]])) }));
+    });
+    afterAll(() => dapp.close());
+
+    const call = (operationId: string) => client.callTool({ name: "moi_dapp_call", arguments: { url: dapp.url, operationId } });
+
+    it("leaves a normal answer exactly as it was", async () => {
+      const res = await call("small");
+      expect(res.isError).toBeFalsy();
+      const out = structured<CallOut>(res);
+      expect(out).toMatchObject({ status: 200, ok: true, body: { hello: "world" }, truncated: false });
+      expect(out.note).toBeUndefined();
+      expect(textOf(res)).toBe(JSON.stringify(structured(res), null, 2));
+    });
+
+    it("returns a body nested seven thousand deep small, cut and flagged", async () => {
+      // Pretty-printed, this body was about 98 million characters.
+      const res = await call("deep");
+      expect(res.isError).toBeFalsy();
+      const out = structured<CallOut>(res);
+      expect(out.truncated).toBe(true);
+      expect(out.note).toMatch(/nested deeper than 19 levels/);
+      expect(depthOf(structured(res))).toBeLessThanOrEqual(20);
+      expect(textOf(res).length).toBeLessThan(5000);
+    });
+
+    it("returns a body nested thirty thousand deep, which JSON.stringify cannot even print", async () => {
+      const res = await call("deepArr");
+      expect(res.isError).toBeFalsy();
+      expect(structured<CallOut>(res).truncated).toBe(true);
+      expect(textOf(res).length).toBeLessThan(5000);
+    });
+
+    it("cuts a 200 KB flat body at 64 KB of text and says what to do", async () => {
+      const res = await call("flat");
+      expect(res.isError).toBeFalsy();
+      const out = structured<CallOut>(res);
+      expect(out.truncated).toBe(true);
+      expect(typeof out.body).toBe("string");
+      expect((out.body as string).length).toBe(64 * 1024);
+      expect(out.note).toMatch(/cut at 64 KB/);
+      expect(out.note).toMatch(/smaller page/);
+      expect(textOf(res).length).toBeLessThanOrEqual(MAX_TEXT_CHARS);
+    });
+
+    it("counts the 64 KB in bytes and does not corrupt a character it cuts through", async () => {
+      // 40,000 euro signs are 40,000 UTF-16 units, so the old character count let all of them through.
+      const euro = structured<CallOut>(await call("euro"));
+      expect(euro.truncated).toBe(true);
+      expect((euro.body as string).length).toBe(21_845);
+      expect(euro.body).not.toContain("�");
+
+      const emoji = structured<CallOut>(await call("emoji"));
+      expect(emoji.truncated).toBe(true);
+      expect((emoji.body as string).length).toBe(32_768);
+      expect(emoji.body as string).not.toMatch(LONE_SURROGATE);
+    });
+
+    it("shows a full 64 KB text body whole, even when escaping makes it six times longer", async () => {
+      const res = await call("controls");
+      const out = structured<CallOut>(res);
+      expect(out.truncated).toBe(false);
+      expect(out.body).toBe("\u0001".repeat(64 * 1024));
+      expect(textOf(res)).not.toContain("[Output cut");
+    });
+
+    it("stops reading a body that never ends, and the dapp sees the connection close", async () => {
+      const res = await call("endless");
+      expect(res.isError).toBeFalsy();
+      expect(structured<CallOut>(res).truncated).toBe(true);
+      // The old code waited for the end of the stream until the 20 s abort.
+      await Promise.race([
+        endlessClosed,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("the dapp's connection was not closed")), 3000)),
+      ]);
+    });
+  });
+
+  describe("moi_dapp_api", () => {
+    const big = Buffer.alloc(3 * 1024 * 1024, 32);
+    const chunked = (res: ServerResponse) => {
+      // No Content-Length: the size is only known by counting.
+      res.writeHead(200, { "content-type": "application/json" });
+      for (let i = 0; i < 3; i++) res.write(big.subarray(0, 1024 * 1024));
+      res.end();
+    };
+
+    it("says a document is too large, whether it declares its length or not, and not that there is none", async () => {
+      for (const route of [answer(big), chunked]) {
+        const dapp = await serve({ "/openapi.json": route });
+        try {
+          const { client } = await connect({ sessions: fakeSessions(new Map([[USER, signedInRecord(dapp.url)]])) });
+          const res = await client.callTool({ name: "moi_dapp_api", arguments: { url: dapp.url } });
+          expect(res.isError).toBe(true);
+          expect(textOf(res)).toMatch(/\[LAUNCHPAD_ERROR\]/);
+          expect(textOf(res)).toContain(`The OpenAPI document at ${dapp.url}/openapi.json is too large: it is over 2 MB`);
+          expect(textOf(res)).toMatch(/Publish a smaller document/);
+          expect(textOf(res)).not.toMatch(/publishes no OpenAPI/);
+          // moi_dapp_call reads the same document, so it says the same.
+          const called = await client.callTool({ name: "moi_dapp_call", arguments: { url: dapp.url, operationId: "x" } });
+          expect(textOf(called)).toMatch(/too large/);
+        } finally {
+          await dapp.close();
+        }
+      }
+    });
+
+    it("still takes a valid document from a later path when an earlier one is too large", async () => {
+      const dapp = await serve({ "/.well-known/openapi.json": answer(big), "/openapi.json": answer(JSON.stringify(doc("small"))) });
+      try {
+        const { client } = await connect({ sessions: fakeSessions(new Map()) });
+        const api = structured<{ published: boolean; operations: Array<{ operationId: string }> }>(
+          await client.callTool({ name: "moi_dapp_api", arguments: { url: dapp.url } }),
+        );
+        expect(api.published).toBe(true);
+        expect(api.operations.map((o) => o.operationId)).toEqual(["small"]);
+      } finally {
+        await dapp.close();
+      }
+    });
+
+    it("keeps saying a dapp publishes nothing when what it answers is not JSON", async () => {
+      const dapp = await serve({ "/openapi.json": answer("<html>not a document</html>", "text/html") });
+      try {
+        const { client } = await connect({ sessions: fakeSessions(new Map()) });
+        const api = structured<{ published: boolean }>(await client.callTool({ name: "moi_dapp_api", arguments: { url: dapp.url } }));
+        expect(api.published).toBe(false);
+      } finally {
+        await dapp.close();
+      }
+    });
+  });
+});
+
+describe("DappClient reads answers with a limit", () => {
+  const fetchOf = (make: () => Response) => async () => make();
+  const failure = async (p: Promise<unknown>) => (await p.then(() => undefined, (e: unknown) => e)) as MoiError;
+  const NONCE = "/api/auth/nonce";
+
+  it("says a sign-in answer is too large, not that it is not JSON", async () => {
+    const huge = `{"message":"${"x".repeat(1024 * 1024 + 10)}"}`;
+    const client = new DappClient("https://app.example", fetchOf(() => new Response(huge)));
+    const err = await failure(client.nonce("0xabc"));
+    expect(err).toBeInstanceOf(MoiError);
+    expect(err.code).toBe(ErrorCode.LAUNCHPAD_ERROR);
+    expect(err.message).toBe(`https://app.example${NONCE} is too large: it is over 1 MB, the most this connector reads.`);
+    expect(err.message).not.toMatch(/something other than JSON/);
+  });
+
+  it("still says so when a small answer is not JSON", async () => {
+    const client = new DappClient("https://app.example", fetchOf(() => new Response("<html>")));
+    expect((await failure(client.nonce("0xabc"))).message).toBe(`https://app.example${NONCE} answered with something other than JSON.`);
+  });
+
+  it("names the origin when the answer cannot be read to the end", async () => {
+    const broken = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(c) {
+            c.error(new Error("terminated"));
+          },
+        }),
+      );
+    const err = await failure(new DappClient("https://app.example", fetchOf(broken)).nonce("0xabc"));
+    expect(err.code).toBe(ErrorCode.LAUNCHPAD_ERROR);
+    expect(err.message).toBe("Could not read the answer from https://app.example/api/auth/nonce: terminated");
+  });
+
+  describe("a refusal", () => {
+    const refuse = (body: string) => new DappClient("https://app.example", fetchOf(() => new Response(body, { status: 500 })));
+
+    it("reports a short one with its message, as before", async () => {
+      const err = await failure(refuse('{"error":"name_taken"}').nonce("0xabc"));
+      expect(err.message).toBe(`https://app.example${NONCE} refused: name_taken`);
+      expect(err.data).toEqual({ status: 500, body: { error: "name_taken" } });
+    });
+
+    it("still parses a long validation error, and clips its message to about 300 characters", async () => {
+      const err = await failure(refuse(JSON.stringify({ error: "x".repeat(50_000) })).nonce("0xabc"));
+      expect(err.message.length).toBeLessThan(400);
+      expect(err.message).toMatch(/ refused: x{300}$/);
+      expect((err.data["body"] as { error: string }).error).toHaveLength(50_000);
+    });
+
+    it("falls back to the status when the body is over 64 KB, and keeps none of it", async () => {
+      const err = await failure(refuse(JSON.stringify({ error: "x".repeat(100_000) })).nonce("0xabc"));
+      expect(err.message).toBe(`https://app.example${NONCE} refused: HTTP 500`);
+      expect(err.data).toEqual({ status: 500 });
+    });
+  });
+});
+
+describe("summarizeOpenApi clips what the dapp wrote", () => {
+  const withOperation = (path: string, operation: Record<string, unknown>, info: Record<string, unknown> = { title: "T", version: "1" }) =>
+    summarizeOpenApi({ openapi: "3.1.0", info, paths: { [path]: { get: operation } } })!;
+
+  it("clips an operation id, a summary, the title and the version", () => {
+    const api = withOperation("/a", { operationId: "o".repeat(1000), summary: "s".repeat(5000) }, { title: "t".repeat(1000), version: "v".repeat(1000) });
+    expect(api.operations[0]!.operationId).toHaveLength(200);
+    expect(api.operations[0]!.summary).toHaveLength(300);
+    expect(api.title).toHaveLength(200);
+    expect(api.version).toHaveLength(200);
+    // The id made up from a path is clipped too.
+    expect(withOperation(`/${"p".repeat(500)}`, {}).operations[0]!.operationId).toHaveLength(200);
+  });
+
+  it("skips a path that is over 512 characters, rather than rewriting it", () => {
+    expect(withOperation(`/${"p".repeat(512)}`, {}).operations).toEqual([]);
+    expect(withOperation(`/${"p".repeat(511)}`, {}).operations).toHaveLength(1);
+  });
+
+  it("skips an operation with more than 25 parameters, and drops a parameter with an absurd name", () => {
+    const params = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `p${i}`, in: "query" }));
+    expect(withOperation("/a", { parameters: params(26) }).operations).toEqual([]);
+    expect(withOperation("/a", { parameters: params(25) }).operations[0]!.parameters).toHaveLength(25);
+    const named = withOperation("/a", { parameters: [{ name: "n".repeat(201), in: "query" }, { name: "ok", in: "query" }] });
+    expect(named.operations[0]!.parameters.map((p) => p.name)).toEqual(["ok"]);
   });
 });

@@ -1,8 +1,12 @@
 import { z } from "zod";
 
+import { readWhole } from "../bounds.js";
 import { DappClient, sessionCookieFrom } from "../dapp/client.js";
 import { MoiError } from "../moi-error.js";
 import { ErrorCode } from "../schema.js";
+
+/** The real script is small, since it fetches the runtime rather than embedding it. A cut script must never be served, so over this is an error. */
+const MAX_SCRIPT_BYTES = 256 * 1024;
 
 export type { FetchLike } from "../dapp/client.js";
 
@@ -151,7 +155,7 @@ export class LaunchpadClient extends DappClient {
     if (!res.ok) await this.fail(res, "/api/agents/:id/setup-script", true);
     const disposition = res.headers.get("content-disposition") ?? "";
     const named = /filename="([^"]+)"/.exec(disposition)?.[1];
-    return { filename: named ?? `setup-${id}.sh`, body: await res.text() };
+    return { filename: named ?? `setup-${id}.sh`, body: await readWhole(res, MAX_SCRIPT_BYTES, "The Launchpad's setup script") };
   }
 
   // -- plumbing -----------------------------------------------------------

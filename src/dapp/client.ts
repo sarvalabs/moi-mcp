@@ -12,15 +12,18 @@
 
 import { z } from "zod";
 
+import { clip, MAX_BODY_BYTES, readCapped, readWhole } from "../bounds.js";
 import { MoiError } from "../moi-error.js";
 import { ErrorCode } from "../schema.js";
 
 const TIMEOUT_MS = 20_000;
 export const SESSION_COOKIE = "moi_session";
 const DEFAULT_SESSION_SECONDS = 7 * 24 * 60 * 60;
-/** The largest response body handed back to a model. */
-const MAX_BODY_BYTES = 64 * 1024;
 const MAX_OPERATIONS = 200;
+/** Sign-in and every other JSON answer: useless when cut, so over this is an error. */
+const MAX_JSON_BYTES = 1024 * 1024;
+/** The published OpenAPI document: useless when cut, so over this is an error. */
+const MAX_OPENAPI_BYTES = 2 * 1024 * 1024;
 
 export const SIWM_ROUTES = {
   nonce: "/api/auth/nonce",
@@ -66,7 +69,7 @@ export interface DappApi {
 export interface DappCallResult {
   status: number;
   ok: boolean;
-  /** Parsed JSON when the dapp answered JSON, else the text, cut at 64 KB. */
+  /** Parsed JSON when the dapp answered JSON, else the text, cut at 64 KB (bytes, not characters). */
   body: unknown;
   truncated: boolean;
 }
@@ -77,7 +80,7 @@ function errorOf(body: unknown, status: number): string {
     const parts = [o["error"], o["message"], o["reason"], o["detail"]].filter(
       (v): v is string => typeof v === "string" && v.length > 0,
     );
-    if (parts.length > 0) return parts.join(": ");
+    if (parts.length > 0) return clip(parts.join(": "), 300);
   }
   return `HTTP ${status}`;
 }
@@ -236,13 +239,16 @@ export class DappClient {
   }
 
   async logout(cookie: string): Promise<void> {
-    await this.request("POST", SIWM_ROUTES.logout, { cookie });
+    const res = await this.request("POST", SIWM_ROUTES.logout, { cookie });
+    // The answer is not wanted; do not leave the dapp holding the connection open until the timeout.
+    await res.body?.cancel().catch(() => undefined);
   }
 
   // -- Published operations ------------------------------------------------
 
   /** The dapp's OpenAPI document, reduced to what a caller needs. Undefined when it publishes none. */
   async api(): Promise<DappApi | undefined> {
+    let unreadable: MoiError | undefined;
     for (const path of OPENAPI_PATHS) {
       let res: Response;
       try {
@@ -252,16 +258,26 @@ export class DappClient {
         if (err instanceof MoiError && err.code === ErrorCode.INVALID_ARGS) throw err;
         continue;
       }
-      if (!res.ok) continue;
+      if (!res.ok) {
+        await res.body?.cancel().catch(() => undefined);
+        continue;
+      }
       let doc: unknown;
       try {
-        doc = await res.json();
-      } catch {
+        doc = JSON.parse(
+          await readWhole(res, MAX_OPENAPI_BYTES, `The OpenAPI document at ${this.baseUrl}${path}`, "Publish a smaller document."),
+        );
+      } catch (err) {
+        // A MoiError here is the size limit or a failed read; a document that is not JSON is a SyntaxError and only
+        // means the next path, as before.
+        if (err instanceof MoiError) unreadable ??= err;
         continue;
       }
       const api = summarizeOpenApi(doc);
       if (api) return api;
     }
+    // No path gave a document, and one was too large to read: say that, not that the dapp publishes none.
+    if (unreadable) throw unreadable;
     return undefined;
   }
 
@@ -279,9 +295,7 @@ export class DappClient {
       cookie,
       ...(req.body !== undefined ? { body: req.body } : {}),
     });
-    const text = await res.text();
-    const truncated = text.length > MAX_BODY_BYTES;
-    const cut = truncated ? text.slice(0, MAX_BODY_BYTES) : text;
+    const { text: cut, truncated } = await readCapped(res, MAX_BODY_BYTES, this.baseUrl);
     let body: unknown = cut;
     if ((res.headers.get("content-type") ?? "").includes("json") && !truncated) {
       try {
@@ -340,8 +354,10 @@ export class DappClient {
     if (!res.ok) await this.fail(res, path, withSession);
     let body: unknown;
     try {
-      body = await res.json();
-    } catch {
+      body = JSON.parse(await readWhole(res, MAX_JSON_BYTES, `${this.baseUrl}${path}`));
+    } catch (err) {
+      // The size limit and a failed read are MoiErrors and must not be reported as "not JSON".
+      if (err instanceof MoiError) throw err;
       throw new MoiError(ErrorCode.LAUNCHPAD_ERROR, `${this.baseUrl}${path} answered with something other than JSON.`);
     }
     const parsed = schema.safeParse(body);
@@ -361,7 +377,10 @@ export class DappClient {
   protected async fail(res: Response, path: string, withSession: boolean): Promise<never> {
     let body: unknown;
     try {
-      body = await res.json();
+      // The same 64 KB as a call's answer, so a long validation error still parses. A refusal over it is unreadable
+      // here, which also bounds the copy of the body that goes into the error's data below.
+      const { text, truncated } = await readCapped(res, MAX_BODY_BYTES, `${this.baseUrl}${path}`);
+      body = truncated ? undefined : JSON.parse(text);
     } catch {
       body = undefined;
     }
@@ -379,6 +398,12 @@ export class DappClient {
 }
 
 const METHODS = new Set(["get", "post", "put", "patch", "delete"]);
+// The document is the dapp's own text and is read in full up to 2 MB, so what reaches a model is clipped here, where the
+// structured copy of moi_dapp_api is built. A path is skipped rather than clipped, so a callable path is never rewritten.
+const MAX_PATH_CHARS = 512;
+const MAX_NAME_CHARS = 200;
+const MAX_SUMMARY_CHARS = 300;
+const MAX_PARAMS = 25;
 
 /** An OpenAPI 3 document reduced to its operations. Undefined when it is not one. */
 export function summarizeOpenApi(doc: unknown): DappApi | undefined {
@@ -387,7 +412,7 @@ export function summarizeOpenApi(doc: unknown): DappApi | undefined {
   if (typeof d.openapi !== "string" || !d.paths || typeof d.paths !== "object") return undefined;
   const operations: DappOperation[] = [];
   for (const [path, item] of Object.entries(d.paths)) {
-    if (!item || typeof item !== "object" || !path.startsWith("/")) continue;
+    if (!item || typeof item !== "object" || !path.startsWith("/") || path.length > MAX_PATH_CHARS) continue;
     const shared = Array.isArray((item as { parameters?: unknown }).parameters)
       ? ((item as { parameters: unknown[] }).parameters as unknown[])
       : [];
@@ -396,17 +421,20 @@ export function summarizeOpenApi(doc: unknown): DappApi | undefined {
       const op = raw as { operationId?: unknown; summary?: unknown; parameters?: unknown; requestBody?: unknown };
       const params = [...shared, ...(Array.isArray(op.parameters) ? op.parameters : [])]
         .map((p) => p as { name?: unknown; in?: unknown; required?: unknown })
-        .filter((p) => typeof p.name === "string" && (p.in === "path" || p.in === "query"))
+        .filter((p) => typeof p.name === "string" && p.name.length <= MAX_NAME_CHARS && (p.in === "path" || p.in === "query"))
         .map((p) => ({ name: p.name as string, in: p.in as "path" | "query", required: p.required === true || p.in === "path" }));
-      const operationId =
+      if (params.length > MAX_PARAMS) continue;
+      const operationId = clip(
         typeof op.operationId === "string" && op.operationId.length > 0
           ? op.operationId
-          : `${method}${path.replace(/[{}]/g, "").replace(/[^A-Za-z0-9]+/g, "_")}`;
+          : `${method}${path.replace(/[{}]/g, "").replace(/[^A-Za-z0-9]+/g, "_")}`,
+        MAX_NAME_CHARS,
+      );
       operations.push({
         operationId,
         method: method.toUpperCase() as DappOperation["method"],
         path,
-        ...(typeof op.summary === "string" ? { summary: op.summary } : {}),
+        ...(typeof op.summary === "string" ? { summary: clip(op.summary, MAX_SUMMARY_CHARS) } : {}),
         parameters: params,
         hasBody: op.requestBody !== undefined,
       });
@@ -415,8 +443,8 @@ export function summarizeOpenApi(doc: unknown): DappApi | undefined {
     if (operations.length >= MAX_OPERATIONS) break;
   }
   return {
-    ...(typeof d.info?.title === "string" ? { title: d.info.title } : {}),
-    ...(typeof d.info?.version === "string" ? { version: d.info.version } : {}),
+    ...(typeof d.info?.title === "string" ? { title: clip(d.info.title, MAX_NAME_CHARS) } : {}),
+    ...(typeof d.info?.version === "string" ? { version: clip(d.info.version, MAX_NAME_CHARS) } : {}),
     operations,
   };
 }

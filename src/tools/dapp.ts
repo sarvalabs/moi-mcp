@@ -13,6 +13,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import type { AuthInfo } from "../auth/types.js";
+import { boundedResult, limitDepth, MAX_BODY_BYTES, MAX_DEPTH } from "../bounds.js";
 import { getConfig, log } from "../config.js";
 import { DappClient, requestFor, type DappApi, type DappOperation } from "../dapp/client.js";
 import { dappOrigin, publicFetch, type Resolver } from "../dapp/origin.js";
@@ -84,7 +85,7 @@ type DappCallValue = {
 async function run<T extends Record<string, unknown>>(fn: () => Promise<{ value: T; text?: string }>) {
   try {
     const { value, text } = await fn();
-    return { content: [{ type: "text" as const, text: text ?? JSON.stringify(value, null, 2) }], structuredContent: value };
+    return boundedResult(value, text);
   } catch (err) {
     throw toMcpError(err);
   }
@@ -254,7 +255,9 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
         "second, with the same arguments plus confirm, sends it. The token works once, for ten minutes, for this person, " +
         "this wallet and these arguments. If the second call fails or times out the token is spent and the write may or " +
         "may not have happened: check the dapp's state before previewing again. The preview shows the dapp's own " +
-        "description of the operation; that is the dapp's claim, not something this server checked.",
+        "description of the operation; that is the dapp's claim, not something this server checked. An answer is read up to " +
+        "64 KB (bytes): past that truncated is true and body is only its start, as text. Data nested deeper than 19 levels is " +
+        "left out, also with truncated true. When that happens, ask the operation for less: a smaller page, a filter, fewer fields.",
       inputSchema: {
         url: UrlArg,
         operationId: z.string().min(1).describe("An operationId from moi_dapp_api."),
@@ -376,7 +379,25 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
         try {
           const result = await clientFor(dapp).call(rec.cookie, op, args);
           if (isWrite) log("info", `dapp write: user ${userId} ${op.method} ${operationId} on ${dapp} -> ${result.status}`);
-          return { value: { dapp, operationId, ...result } };
+          // The body sits one level down in the result, so cutting it at one level less keeps the whole value within MAX_DEPTH.
+          const shown = limitDepth(result.body, MAX_DEPTH - 1);
+          const notes = [
+            ...(result.truncated
+              ? [`The answer was cut at ${MAX_BODY_BYTES / 1024} KB and the rest was not read. Ask the operation for less (a smaller page, a filter, fewer fields) and call again.`]
+              : []),
+            ...(shown.truncated ? [`Data nested deeper than ${MAX_DEPTH - 1} levels was left out.`] : []),
+          ];
+          return {
+            value: {
+              dapp,
+              operationId,
+              status: result.status,
+              ok: result.ok,
+              body: shown.value,
+              truncated: result.truncated || shown.truncated,
+              ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
+            },
+          };
         } catch (err) {
           if (isWrite) {
             log("info", `dapp write: user ${userId} ${op.method} ${operationId} on ${dapp} -> failed${err instanceof MoiError ? ` (${err.code})` : ""}`);
