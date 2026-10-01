@@ -247,7 +247,9 @@ export class DappClient {
       let res: Response;
       try {
         res = await this.request("GET", path, {});
-      } catch {
+      } catch (err) {
+        // A refused address is the answer, not a missing document; the next path would be refused too.
+        if (err instanceof MoiError && err.code === ErrorCode.INVALID_ARGS) throw err;
         continue;
       }
       if (!res.ok) continue;
@@ -317,6 +319,11 @@ export class DappClient {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
+      // The address guard (src/dapp/origin.ts) refuses with a MoiError. undici reports a failure in its connect step as
+      // TypeError("fetch failed") with the real error as the cause, so look there too: the guard's own words are what the
+      // person needs, not "fetch failed".
+      const refused = err instanceof MoiError ? err : err instanceof Error && err.cause instanceof MoiError ? err.cause : undefined;
+      if (refused) throw refused;
       throw new MoiError(
         ErrorCode.LAUNCHPAD_ERROR,
         `Could not reach ${this.baseUrl}: ${err instanceof Error ? err.message : String(err)}`,

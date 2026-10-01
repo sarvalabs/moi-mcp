@@ -15,7 +15,7 @@ import { z } from "zod";
 import type { AuthInfo } from "../auth/types.js";
 import { getConfig, log } from "../config.js";
 import { DappClient, requestFor, type DappApi, type DappOperation } from "../dapp/client.js";
-import { dappOrigin } from "../dapp/origin.js";
+import { dappOrigin, publicFetch, type Resolver } from "../dapp/origin.js";
 import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
 import { toMcpError } from "../errors.js";
 import { MoiError } from "../moi-error.js";
@@ -32,6 +32,8 @@ export interface DappDeps {
   clientFor?: (baseUrl: string) => DappClient;
   /** Tests only: let an http origin through the origin check. */
   allowInsecure?: boolean;
+  /** Tests only: stands in for DNS, so a test never resolves a real name. */
+  resolve?: Resolver;
 }
 
 const READ = { readOnlyHint: true, destructiveHint: false, openWorldHint: true } as const;
@@ -89,7 +91,11 @@ async function run<T extends Record<string, unknown>>(fn: () => Promise<{ value:
 }
 
 export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthInfo | null): void {
-  const clientFor = deps.clientFor ?? ((baseUrl: string) => new DappClient(baseUrl));
+  // Built once per registerDappTools call, and for the system resolver once per process (publicFetch caches it): the hosted
+  // server registers these tools afresh on every request, and an Agent holds a connection pool. allowInsecure is the test
+  // switch and keeps the plain fetch, as it keeps the lexical rules off.
+  const guarded = deps.allowInsecure ? undefined : publicFetch(deps.resolve);
+  const clientFor = deps.clientFor ?? ((baseUrl: string) => new DappClient(baseUrl, guarded));
   const origin = (url: string) => dappOrigin(url, { allowInsecure: deps.allowInsecure });
   const apis = new Map<string, { api: DappApi | undefined; at: number }>();
 

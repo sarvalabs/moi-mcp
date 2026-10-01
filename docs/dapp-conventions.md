@@ -58,7 +58,7 @@ The token proves the call was previewed with exactly these arguments. It is not 
 
 ## 3. What the connector never does
 
-- It never sends a dapp's cookie anywhere but that dapp's origin, and only over https to a public host.
+- It never sends a dapp's cookie anywhere but that dapp's origin, and only over https to a public host. A name is resolved on every new connection, the connection is made to the address that was checked, and a name with any loopback, private, link-local, unique-local or unspecified answer is refused.
 - It never calls a path the dapp did not publish.
 - It never runs a write on the first call, and never runs one twice on one token, even when the dapp then fails.
 - It never returns a secret the dapp hands out (a private key, an API key) as a tool result. The Launchpad's setup script, which embeds an agent key, is served to a browser through a one-time link instead.

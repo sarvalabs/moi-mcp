@@ -4,7 +4,7 @@
  * document.
  */
 import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer as createNetServer, type AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -12,7 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
-import { dappOrigin } from "../../src/dapp/origin.js";
+import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver } from "../../src/dapp/origin.js";
 import {
   checkSignInMessage,
   DappClient,
@@ -92,6 +92,55 @@ describe("dappOrigin", () => {
       expect(() => dappOrigin(bad), bad).toThrow();
     }
     expect(dappOrigin("http://127.0.0.1:8080/x", { allowInsecure: true })).toBe("http://127.0.0.1:8080");
+  });
+
+  // URL keeps a trailing dot, so "localhost." is still localhost but used to slip past every spelling rule.
+  it("sees through a trailing dot, and never returns one", () => {
+    for (const bad of [
+      "https://localhost./",
+      "https://foo.localhost./",
+      "https://intranet./",
+      "https://box.local./",
+      "https://metadata.google.internal./",
+      "https://127.0.0.1./",
+      "https://LOCALHOST../",
+      "https://./",
+    ]) {
+      expect(() => dappOrigin(bad), bad).toThrow(MoiError);
+    }
+    // An empty host is refused even where the test switch lets http and local names through.
+    expect(() => dappOrigin("https://./", { allowInsecure: true })).toThrow(MoiError);
+    expect(() => dappOrigin("http://./", { allowInsecure: true })).toThrow(MoiError);
+    expect(dappOrigin("https://launchpad.moi.technology./x")).toBe("https://launchpad.moi.technology");
+    expect(dappOrigin("https://App.Example.:8443/")).toBe("https://app.example:8443");
+    expect(dappOrigin("http://localhost.:8080/", { allowInsecure: true })).toBe("http://localhost:8080");
+  });
+});
+
+describe("isPublicAddress", () => {
+  const notPublic = [
+    "0.0.0.0", "0.1.2.3", "127.0.0.1", "127.255.255.254", "10.0.0.1", "10.255.255.255", "172.16.0.1", "172.31.255.255",
+    "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.127.255.255", "224.0.0.1", "240.0.0.1", "255.255.255.255",
+    "::", "::1", "::a00:1", "fe80::1", "febf::1", "fec0::1", "fc00::1", "fd12:3456::1", "fdff::1", "ff02::1", "2002:a00:1::",
+    // IPv4-mapped, in both spellings Node accepts.
+    "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:10.0.0.1", "::ffff:a01:203", "::ffff:169.254.169.254", "::ffff:192.168.0.1",
+    // Not an address at all: fails closed.
+    "", "not-an-ip", "999.1.1.1", "localhost", "10.0.0.1.example",
+  ];
+  const publicOnes = [
+    "8.8.8.8", "1.1.1.1", "93.184.216.34",
+    // One step outside each range, so an off-by-one prefix is caught.
+    "9.255.255.255", "11.0.0.0", "100.63.255.255", "100.128.0.0", "126.255.255.255", "128.0.0.1", "169.253.255.255", "169.255.0.1",
+    "172.15.255.255", "172.32.0.1", "192.167.255.255", "192.169.0.1", "223.255.255.255",
+    "2606:4700:4700::1111", "2001:4860:4860::8888", "fbff::1", "::ffff:8.8.8.8", "::ffff:808:808",
+    // DNS64 on an IPv6-only network answers every public dapp this way, so it must not be refused.
+    "64:ff9b::808:808", "64:ff9b::5db8:d822",
+  ];
+  it.each(notPublic)("refuses %j", (ip) => {
+    expect(isPublicAddress(ip)).toBe(false);
+  });
+  it.each(publicOnes)("allows %s", (ip) => {
+    expect(isPublicAddress(ip)).toBe(true);
   });
 });
 
@@ -850,5 +899,266 @@ describe("moi_dapp_sessions and moi_dapp_sign_out", () => {
     await client.callTool({ name: "moi_dapp_sign_out", arguments: { url: fake.url } });
     expect(await sessions.get(USER, fake.url)).toBeUndefined();
     expect(fake.requests.map((r) => r.path)).toEqual(["/api/auth/logout"]);
+  });
+});
+
+// -- Where the dapp's name leads ---------------------------------------------
+//
+// Every resolver here is a stand-in: no test resolves a real name, and none connects to a public address. The only
+// listener is on 127.0.0.1, which is exactly what the guard must never reach.
+
+/** A resolver that answers call i with answers[i], the last answer from then on. */
+function scripted(...answers: string[][]) {
+  let i = 0;
+  return vi.fn<Resolver>(async () => {
+    const answer = answers[Math.min(i++, answers.length - 1)]!;
+    return answer.map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
+  });
+}
+
+const unresolvable = () =>
+  vi.fn<Resolver>(async (host) => {
+    throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), { code: "ENOTFOUND" });
+  });
+
+/** A TCP listener that counts connections: a refused address must never get one. */
+async function countingServer() {
+  let connections = 0;
+  const server = createNetServer((socket) => {
+    connections++;
+    socket.destroy();
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  return {
+    port: (server.address() as AddressInfo).port,
+    connections: () => connections,
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
+}
+
+const textOf = (res: ToolResult) => (res.content as Array<{ text: string }>)[0]!.text;
+const REFUSED = /does not resolve to a public address/;
+
+describe("guardedLookup", () => {
+  type Answer = { err: unknown; address: unknown; family: unknown };
+  const look = (resolve: Resolver, opts: { all?: boolean }, host = "app.example") =>
+    new Promise<Answer>((done) => guardedLookup(resolve)(host, opts, (err, address, family) => done({ err, address, family })));
+
+  it("hands back the checked addresses, in the shape the caller asked for", async () => {
+    const resolve = scripted(["93.184.216.34", "2606:2800:220:1::1"]);
+    const all = await look(resolve, { all: true });
+    expect(all.err).toBeNull();
+    expect(all.address).toEqual([
+      { address: "93.184.216.34", family: 4 },
+      { address: "2606:2800:220:1::1", family: 6 },
+    ]);
+    const one = await look(resolve, {});
+    expect(one).toEqual({ err: null, address: "93.184.216.34", family: 4 });
+    expect(resolve).toHaveBeenCalledWith("app.example");
+  });
+
+  it("refuses when any one answer is private, and says nothing of the address", async () => {
+    for (const answer of [["93.184.216.34", "10.0.0.5"], ["::ffff:10.0.0.5"], ["127.0.0.1"], ["fe80::1"], ["0.0.0.0"], ["fd00::1"], []]) {
+      for (const opts of [{ all: true }, {}]) {
+        const { err, address } = await look(scripted(answer), opts);
+        expect(err, JSON.stringify(answer)).toBeInstanceOf(MoiError);
+        expect((err as MoiError).code).toBe(ErrorCode.INVALID_ARGS);
+        expect((err as MoiError).message).toMatch(REFUSED);
+        expect((err as MoiError).message).not.toMatch(/10\.0\.0\.5|127\.0\.0\.1|fe80|fd00/);
+        expect(address).toBe("");
+      }
+    }
+  });
+
+  it("refuses a name that does not resolve in the same words as a private one", async () => {
+    const { err } = await look(unresolvable(), { all: true }, "gone.example");
+    expect(err).toBeInstanceOf(MoiError);
+    expect((err as MoiError).message).toBe('"gone.example" does not resolve to a public address.');
+    const priv = await look(scripted(["10.0.0.5"]), { all: true }, "gone.example");
+    expect((priv.err as MoiError).message).toBe((err as MoiError).message);
+  });
+
+  it("asks again for every lookup, so an answer that flips between connections is caught", async () => {
+    const resolve = scripted(["93.184.216.34"], ["127.0.0.1"]);
+    expect((await look(resolve, { all: true })).err).toBeNull();
+    expect((await look(resolve, { all: true })).err).toBeInstanceOf(MoiError);
+    expect(resolve).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("publicFetch", () => {
+  const failureOf = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => e);
+
+  it("opens no socket to a name that resolves to a private address, and fails with the guard's own error", async () => {
+    const srv = await countingServer();
+    try {
+      for (const scheme of ["https", "http"]) {
+        const resolve = scripted(["127.0.0.1"]);
+        const err = await failureOf(publicFetch(resolve)(`${scheme}://rebind.example:${srv.port}/x`));
+        // undici reports a failed connect step as TypeError("fetch failed") with the real error as the cause. The
+        // unwrap in DappClient.request depends on exactly this, so it is pinned here.
+        expect((err as Error).cause, scheme).toBeInstanceOf(MoiError);
+        expect(((err as Error).cause as MoiError).code).toBe(ErrorCode.INVALID_ARGS);
+        expect(((err as Error).cause as MoiError).message).toMatch(REFUSED);
+        expect(resolve).toHaveBeenCalledWith("rebind.example");
+      }
+      expect(srv.connections()).toBe(0);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("refuses a private address written as a literal, which net would connect to without any lookup", async () => {
+    const srv = await countingServer();
+    try {
+      const resolve = scripted(["93.184.216.34"]);
+      for (const host of ["127.0.0.1", "[::1]", "[::ffff:127.0.0.1]", "10.1.2.3"]) {
+        const err = await failureOf(publicFetch(resolve)(`http://${host}:${srv.port}/x`));
+        expect(err, host).toBeInstanceOf(MoiError);
+        expect((err as MoiError).message).toMatch(REFUSED);
+      }
+      expect(resolve).not.toHaveBeenCalled();
+      expect(srv.connections()).toBe(0);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("builds one guard per resolver, not one per call", () => {
+    const a = scripted(["93.184.216.34"]);
+    const b = scripted(["93.184.216.34"]);
+    expect(publicFetch(a)).toBe(publicFetch(a));
+    expect(publicFetch(a)).not.toBe(publicFetch(b));
+    expect(publicFetch()).toBe(publicFetch());
+  });
+});
+
+describe("DappClient and the address guard", () => {
+  const guardRefusal = () => new MoiError(ErrorCode.INVALID_ARGS, '"app.example" does not resolve to a public address.');
+  /** undici's shape for a failure in its connect step. */
+  const undiciFailure = (cause: unknown) => Object.assign(new TypeError("fetch failed"), { cause });
+
+  it("gives the guard's refusal, not 'fetch failed', whether it arrives wrapped or bare", async () => {
+    for (const thrown of [undiciFailure(guardRefusal()), guardRefusal()]) {
+      const client = new DappClient("https://app.example", async () => {
+        throw thrown;
+      });
+      const err = await client.nonce("0xabc").then(() => undefined, (e: unknown) => e);
+      expect(err).toBeInstanceOf(MoiError);
+      expect((err as MoiError).code).toBe(ErrorCode.INVALID_ARGS);
+      expect((err as MoiError).message).toMatch(REFUSED);
+    }
+  });
+
+  it("still calls any other failure 'Could not reach'", async () => {
+    for (const thrown of [undiciFailure(new Error("connect ECONNREFUSED")), undiciFailure(undefined), new Error("boom")]) {
+      const client = new DappClient("https://app.example", async () => {
+        throw thrown;
+      });
+      const err = await client.nonce("0xabc").then(() => undefined, (e: unknown) => e);
+      expect((err as MoiError).code).toBe(ErrorCode.LAUNCHPAD_ERROR);
+      expect((err as MoiError).message).toMatch(/^Could not reach https:\/\/app\.example: /);
+    }
+  });
+
+  it("does not turn a refusal into 'publishes no OpenAPI document', and does not try the next path", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw undiciFailure(guardRefusal());
+    });
+    const err = await new DappClient("https://app.example", fetchImpl).api().then(() => undefined, (e: unknown) => e);
+    expect(err).toBeInstanceOf(MoiError);
+    expect((err as MoiError).code).toBe(ErrorCode.INVALID_ARGS);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reads an unreachable or document-less dapp as publishing nothing", async () => {
+    const down = vi.fn(async () => {
+      throw undiciFailure(new Error("connect ECONNREFUSED"));
+    });
+    expect(await new DappClient("https://app.example", down).api()).toBeUndefined();
+    expect(down).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("dapp host resolution through the tools", () => {
+  const HOST = "https://intranet-alias.example";
+
+  it("refuses a public-looking name that resolves to a private address, before anything reaches the phone or a dapp", async () => {
+    const resolve = scripted(["10.0.0.5"]);
+    const writes = wallet();
+    const sessions = fakeSessions(new Map([[USER, signedInRecord(HOST)]]));
+    const { client } = await connect({ allowInsecure: false, resolve, writes, sessions });
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ["moi_dapp_sign_in", { url: HOST }],
+      ["moi_dapp_api", { url: HOST }],
+      ["moi_dapp_call", { url: HOST, operationId: "me" }],
+    ];
+    for (const [name, args] of calls) {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError, name).toBe(true);
+      expect(textOf(res), name).toMatch(/\[INVALID_ARGS\]/);
+      expect(textOf(res), name).toMatch(REFUSED);
+      expect(textOf(res), name).not.toMatch(/10\.0\.0\.5/);
+    }
+    expect(resolve).toHaveBeenCalledWith("intranet-alias.example");
+    expect(fake.requests).toHaveLength(0);
+    expect((writes.hub as FakeHub).signMessageFor).not.toHaveBeenCalled();
+    // Refused before any sign-in could finish, so nothing new was stored.
+    expect(sessions.set).not.toHaveBeenCalled();
+  });
+
+  it("reports the refusal from moi_dapp_api, rather than that the dapp has no document, and does not cache it", async () => {
+    const resolve = scripted(["192.168.1.10"]);
+    const { client } = await connect({ allowInsecure: false, resolve });
+    for (let round = 1; round <= 2; round++) {
+      const res = await client.callTool({ name: "moi_dapp_api", arguments: { url: HOST } });
+      expect(res.isError).toBe(true);
+      expect(textOf(res)).toMatch(REFUSED);
+      expect(textOf(res)).not.toMatch(/no OpenAPI document/);
+      // A refusal is not remembered: the second call looks the name up again.
+      expect(resolve).toHaveBeenCalledTimes(round);
+    }
+  });
+
+  it("refuses a trailing-dot spelling of a local name before it is ever resolved", async () => {
+    const resolve = scripted(["93.184.216.34"]);
+    const { client } = await connect({ allowInsecure: false, resolve });
+    for (const url of ["https://localhost./", "https://intranet./", "https://box.local./"]) {
+      const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url } });
+      expect(res.isError, url).toBe(true);
+      expect(textOf(res), url).toMatch(/not a public dapp host/);
+    }
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  // The record is the guarantee: a dapp whose domain has since lapsed, or been pointed inward, must still be forgotten.
+  it("forgets a session for a name that no longer resolves, or now resolves to a private address", async () => {
+    for (const resolve of [unresolvable(), scripted(["127.0.0.1"]), scripted(["0.0.0.0"])]) {
+      const sessions = fakeSessions(new Map([[USER, signedInRecord("https://lapsed.example")]]));
+      const { client } = await connect({ allowInsecure: false, resolve, sessions });
+      const res = await client.callTool({ name: "moi_dapp_sign_out", arguments: { url: "https://lapsed.example/anything" } });
+      expect(res.isError).toBeFalsy();
+      expect(textOf(res)).toBe("Signed out of https://lapsed.example.");
+      expect(await sessions.get(USER, "https://lapsed.example")).toBeUndefined();
+      // The logout was attempted, went through the guard and was refused there.
+      expect(resolve).toHaveBeenCalledWith("lapsed.example");
+    }
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  it("signs out of a trailing-dot spelling as the same dapp", async () => {
+    const sessions = fakeSessions(new Map([[USER, signedInRecord("https://lapsed.example")]]));
+    const { client } = await connect({ allowInsecure: false, resolve: unresolvable(), sessions });
+    const res = await client.callTool({ name: "moi_dapp_sign_out", arguments: { url: "https://Lapsed.Example./" } });
+    expect(textOf(res)).toBe("Signed out of https://lapsed.example.");
+    expect(await sessions.get(USER, "https://lapsed.example")).toBeUndefined();
+  });
+
+  it("leaves the test switch on the plain fetch, so the fake dapp on 127.0.0.1 still answers", async () => {
+    const resolve = scripted(["10.0.0.5"]);
+    const { client } = await connect({ allowInsecure: true, resolve });
+    const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } });
+    expect(res.isError).toBeFalsy();
+    expect(resolve).not.toHaveBeenCalled();
   });
 });
