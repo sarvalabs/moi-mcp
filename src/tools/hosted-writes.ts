@@ -30,6 +30,7 @@ import { interactionUrl, NETWORKS } from "../moi/provider.js";
 import type { AuthInfo } from "../auth/types.js";
 import { isExpired } from "../wc/lifetime.js";
 import {
+  AssetInvokeInput,
   CallLogicInput,
   CreateAccountInput,
   CreateAssetInput,
@@ -57,6 +58,8 @@ import {
   viewLogicCall,
   type PreparedWrite,
 } from "./write-core.js";
+import { prepareAssetInvoke, resolveAssetCall, viewAssetRoutine } from "./asset-invoke.js";
+import type { ResolvedAssetCall } from "../capabilities/assets/invoke.js";
 
 /**
  * What the write path uses, and no more. The hosted server satisfies it with its real store, hub and journal
@@ -98,6 +101,7 @@ export type WriteKind =
   | "create_asset"
   | "mint"
   | "call_logic"
+  | "asset_invoke"
   | "register_agent"
   | "set_agent_status"
   | "transfer_agent";
@@ -437,6 +441,45 @@ export function registerHostedWrites(
         }
       }
       return runWrite(deps, auth, "call_logic", call, confirm, (s) => prepareLogicInvoke(s.address, call));
+    },
+  );
+
+  server.registerTool(
+    "moi_asset_invoke",
+    {
+      title: "Call a MOI asset routine",
+      description:
+        "Call a routine of a MOI asset by name, as listed by moi_asset_routines. `args` is an object keyed by the routine's input labels; integers " +
+        "(amounts, token ids, timestamps) are whole numbers in the asset's base units, and the preview also shows an amount in whole tokens. " +
+        "A routine that only reads runs at once and returns its decoded outputs, with no preview or confirm; on the hosted server this tool still " +
+        "needs the user signed in for such a read, so for a plain balance use moi_get_account, which does not. " +
+        "A routine that changes state is simulated first and nothing happens until the user taps Send on their phone. " +
+        "This server describes the routines of MAS0, MAS1, MAS2 and the native asset KMOI in the preview; for any other routine pass `participants` " +
+        "(an empty list if it touches only the asset and the user's own account), and the preview then says plainly that this server cannot say what the " +
+        "routine does. KMOI cannot be minted or burned." +
+        APPROVAL_PROTOCOL,
+      inputSchema: { ...AssetInvokeInput.shape, confirm: ConfirmArg },
+      annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
+    },
+    async ({ confirm, ...call }) => {
+      // Whether this is a read or a write is the manifest's word, so the manifest is read first. A read needs no
+      // wallet, preview or journal entry (like moi_call_logic kind=view); a write goes the one write path. So the node
+      // is asked for the asset and its manifest before the wallet check: an unpaired write still ends as
+      // rejected / wallet_disconnected before anything is simulated, built, previewed or signed.
+      let target: ResolvedAssetCall;
+      try {
+        target = await resolveAssetCall(call);
+      } catch (err) {
+        return ok(asWriteResult(err));
+      }
+      if (target.callable.access === "read") {
+        try {
+          return await viewAssetRoutine(target, call);
+        } catch (err) {
+          return ok(asWriteResult(err));
+        }
+      }
+      return runWrite(deps, auth, "asset_invoke", call, confirm, (s) => prepareAssetInvoke(s.address, target, call));
     },
   );
 }

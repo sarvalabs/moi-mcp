@@ -391,6 +391,79 @@ export const CallLogicViewOutput = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Asset routines (manifest-driven; src/capabilities/assets)
+// ---------------------------------------------------------------------------
+
+export const AssetRoutinesInput = z.object({
+  assetId: AssetId.describe("The asset to inspect, by asset id."),
+});
+
+/**
+ * inputs and outputs are two separate z.object instances on purpose: a shared instance makes the JSON Schema
+ * generator emit a $ref, which the dialect rewrite then has to inline (GetLogicOutput does the same).
+ */
+export const AssetRoutinesOutput = z.object({
+  assetId: AssetId,
+  symbol: z.string(),
+  standard: z.string(),
+  /** How far amounts of this asset are scaled; integer inputs and outputs of the routines are in base units. */
+  decimals: z.number(),
+  routines: z.array(
+    z.object({
+      name: z.string(),
+      access: z
+        .enum(["read", "write"])
+        .describe("read runs at once with nothing to approve; write changes state and is previewed, then approved on the phone."),
+      inputs: z.array(z.object({ label: z.string(), type: z.string() })),
+      outputs: z.array(z.object({ label: z.string(), type: z.string() })),
+      described: z
+        .boolean()
+        .describe(
+          "True when this server can describe the routine in a preview and knows which accounts it locks. A read routine is always true. A write routine that is false needs `participants` from the caller.",
+        ),
+    }),
+  ),
+  /** Routines this server can use, before the list was cut. */
+  total: z.number().int(),
+  /** Invokable routines left out: a name, label or type that is not plain identifier-shaped text, more than 16 inputs or outputs, or a manifest that gives two routines one table slot. */
+  unlisted: z.number().int(),
+  /** True when the list was cut at 100 routines. */
+  truncated: z.boolean(),
+});
+
+export const AssetInvokeInput = z.object({
+  assetId: AssetId.describe("The asset to call a routine on."),
+  routine: z.string().min(1).max(64).describe("The routine's name exactly as moi_asset_routines lists it, for example Transfer."),
+  args: z
+    .record(z.string(), z.unknown())
+    .default({})
+    .describe(
+      "The routine's inputs keyed by the labels moi_asset_routines lists, for example {\"beneficiary\": \"0x\u2026\", \"amount\": \"5\"}. " +
+        "Integers (amounts, token ids, timestamps) are whole numbers in base units, as a number or a decimal string, never a fraction. " +
+        "Identifiers are 0x plus 64 hex characters. Leave out an input the routine does not list.",
+    ),
+  participants: z
+    .array(LogicParticipant)
+    .max(16)
+    .optional()
+    .describe(
+      "Other accounts and assets a routine that changes state locks, besides the asset and you. Required, as an empty list if there are none, " +
+        "for a routine this server has no description for; not allowed for a routine that only reads.",
+    ),
+});
+
+/** What a routine that only reads answers. Integers are decimal strings in base units. */
+export const AssetViewOutput = z.object({
+  assetId: AssetId,
+  routine: z.string(),
+  outputs: z.record(z.string(), z.unknown()),
+  /** The asset's decimals, to turn an amount in base units into whole tokens. */
+  decimals: z.number(),
+  /** True when a list, a map or a text in the outputs was cut. */
+  truncated: z.boolean(),
+});
+
+// ---------------------------------------------------------------------------
 // 4. WalletConnect v2 payloads (moi.* namespace)
 //    Mirrors docs.wallet.moi.technology/features/dapp-connections
 // ---------------------------------------------------------------------------
@@ -628,6 +701,7 @@ export const ErrorCode = {
   INVALID_ARGS: "INVALID_ARGS",
   RPC_ERROR: "RPC_ERROR",
   AGENT_NOT_FOUND: "AGENT_NOT_FOUND",
+  /** A logic or an asset has no routine by that name. */
   LOGIC_ROUTINE_NOT_FOUND: "LOGIC_ROUTINE_NOT_FOUND",
   RELAY_UNAVAILABLE: "RELAY_UNAVAILABLE",
   /** No Launchpad session for this user, or the Launchpad no longer accepts it. */
@@ -649,12 +723,14 @@ export const TOOLS = {
   moi_get_asset:         { input: GetAssetInput,         write: false },
   moi_get_interaction:   { input: GetInteractionInput,   write: false },
   moi_get_logic:         { input: GetLogicInput,         write: false },
+  moi_asset_routines:    { input: AssetRoutinesInput,    write: false },
   moi_resolve_agent:     { input: ResolveAgentInput,     write: false },
   moi_list_agents:       { input: ListAgentsInput,       write: false },
   moi_transfer:          { input: TransferInput,         write: true  },
   moi_create_account:    { input: CreateAccountInput,    write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
+  moi_asset_invoke:      { input: AssetInvokeInput,      write: true  },
   moi_register_agent:    { input: RegisterAgentInput,    write: true  },
   moi_set_agent_status:  { input: SetAgentStatusInput,   write: true  },
   moi_transfer_agent:    { input: TransferAgentInput,    write: true  },

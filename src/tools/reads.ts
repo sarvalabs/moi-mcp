@@ -1,5 +1,5 @@
 /**
- * The five read tools. These never touch a wallet — they answer straight from
+ * The read tools. These never touch a wallet — they answer straight from
  * the node, so they work before pairing and on any network.
  */
 
@@ -8,9 +8,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getConfig } from "../config.js";
 import { toMcpError } from "../errors.js";
 import { getProvider, getReadOnlySigner, interactionUrl } from "../moi/provider.js";
+import { getAssetRoutines } from "../capabilities/assets/routines.js";
 import { getAccount, getAsset, getInteraction, getLogic } from "../moi/reads.js";
 import { listAgents, resolveAgent } from "../moi/registry.js";
 import {
+  AssetRoutinesInput,
+  AssetRoutinesOutput,
   GetAccountInput,
   GetAccountOutput,
   GetAssetInput,
@@ -78,6 +81,22 @@ export function registerReadTools(server: McpServer): void {
       annotations: READ_ONLY,
     },
     async ({ assetId }) => run(async () => getAsset(getProvider(providerOptions()), assetId)),
+  );
+
+  server.registerTool(
+    "moi_asset_routines",
+    {
+      title: "List a MOI asset's routines",
+      description:
+        "List what a MOI asset can do, read from its own manifest on the node: for every routine its name, whether it only " +
+        "reads or changes state, the labels and types of its inputs and outputs, and whether this server can describe it in " +
+        "a preview. A node that returns no manifest for the asset gets a refusal. Call it before moi_asset_invoke, whose " +
+        "`args` are keyed by the input labels listed here. Integer inputs are whole numbers in base units. Needs no wallet and no sign-in.",
+      inputSchema: AssetRoutinesInput.shape,
+      outputSchema: AssetRoutinesOutput.shape,
+      annotations: READ_ONLY,
+    },
+    async ({ assetId }) => run(async () => getAssetRoutines(getProvider(providerOptions()), assetId)),
   );
 
   server.registerTool(

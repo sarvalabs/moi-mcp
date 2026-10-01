@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertSendable,
+  buildAssetInvoke,
   buildCreateAsset,
   buildMint,
   chooseStorageFund,
@@ -309,6 +310,9 @@ describe("every builder POLO-encodes", () => {
       symbol: "MCPTEST", supply: 1000n, decimals: 0, dimension: 0, standard: "MAS0", isStateful: false, isFungible: true,
     })],
     ["logicInvoke", () => buildLogicInvoke(SENDER, { logicId: REGISTRY, callsite: "GetAgentCount" })],
+    ["assetInvoke", () => buildAssetInvoke(SENDER, {
+      assetId: asset.toHex(), callsite: "Burn", calldata: "0d2f06", participants: [{ id: asset.toHex(), lock: "mutate" }],
+    })],
   ];
 
   for (const [name, make] of builders) {

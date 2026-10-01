@@ -24,7 +24,7 @@
  *   gateway  buildReadOnlyServer (src/http.ts).
  *   stdio    buildServer from test/helpers/harness.ts, which mirrors src/index.ts
  *            except for ping: index.ts starts the server when imported, so a test
- *            cannot build it. Its eight write tools are the hosted ones
+ *            cannot build it. Its nine write tools are the hosted ones
  *            (registerLocalWriteTools), so they are listed exactly as the hosted
  *            server lists them; a test below says so.
  *
@@ -62,7 +62,7 @@ type ListAnswer = { result?: { tools?: RawTool[] }; error?: { message?: string }
 const pinned = (tools: RawTool[]): string => `${JSON.stringify(tools, null, 2)}\n`;
 
 const WRITE_TOOLS = [
-  "moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic",
+  "moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic", "moi_asset_invoke",
   "moi_register_agent", "moi_set_agent_status", "moi_transfer_agent",
 ] as const;
 
@@ -182,7 +182,7 @@ describe("the hosted server's tool list", () => {
     await expect(pinned(tools)).toMatchFileSnapshot("./__snapshots__/tools-hosted.json");
   });
 
-  it("lists the eight write tools exactly as the stdio server does", async () => {
+  it("lists the nine write tools exactly as the stdio server does", async () => {
     const stdio = await listTools(buildServer());
     for (const name of WRITE_TOOLS) {
       const onStdio = stdio.find((tool) => tool.name === name);
@@ -228,9 +228,11 @@ describe("the write tools are registered in one place", () => {
       .map((name) => `src/${name.split("\\").join("/")}`);
     const registeredIn = (tool: string): string[] =>
       files.filter((file) => new RegExp(`registerTool\\(\\s*"${tool}"`).test(readFileSync(`${root}${file}`, "utf8")));
-    for (const name of ["moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic"]) {
+    for (const name of ["moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic", "moi_asset_invoke"]) {
       expect(registeredIn(name), name).toEqual(["src/tools/hosted-writes.ts"]);
     }
+    // The read half of the asset tools is registered with the other reads, and is on the gateway.
+    expect(registeredIn("moi_asset_routines")).toEqual(["src/tools/reads.ts"]);
     for (const name of ["moi_register_agent", "moi_set_agent_status", "moi_transfer_agent"]) {
       expect(registeredIn(name), name).toEqual(["src/tools/registry-writes.ts"]);
     }

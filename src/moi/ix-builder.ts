@@ -463,6 +463,46 @@ export function buildLogicInvoke(
 }
 
 /**
+ * One asset routine call: a single ASSET_INVOKE operation, the shape the SDK's own AssetDriver and asset classes
+ * produce. `calldata` is what ManifestCoder.encodeArguments returned for the routine's inputs; it is left out for a
+ * routine that takes none, as the SDK does (it refuses an empty one), and a 0x prefix is stripped so the payload is
+ * byte-identical to what buildTransfer and buildMint emit. The same id named twice keeps its first spelling and the
+ * strongest lock. The order given is not the order signed: js-moi-providers rebuilds the list asset-first when the
+ * interaction is estimated, called or encoded (processParticipants). Nothing is added for the sender or the asset
+ * here; that normalisation does it.
+ */
+export function buildAssetInvoke(
+  sender: SenderInfo,
+  params: {
+    assetId: string;
+    callsite: string;
+    calldata?: string;
+    participants?: Array<{ id: string; lock: "mutate" | "read" | "none" }>;
+  },
+  options: BuildOptions = {},
+): UnsignedInteraction {
+  const declared = new Map<string, { id: string; lock_type: number }>();
+  for (const p of params.participants ?? []) {
+    const key = p.id.toLowerCase();
+    const lock = LOCK_BY_NAME[p.lock];
+    const seen = declared.get(key);
+    if (!seen) declared.set(key, { id: p.id, lock_type: lock });
+    else if (lock < seen.lock_type) seen.lock_type = lock; // MUTATE 0 < READ 1 < NO_LOCK 2: the strongest wins
+  }
+  const calldata = (params.calldata ?? "").replace(/^0x/, "");
+  return {
+    ...base(sender, options),
+    ix_operations: [
+      {
+        type: OpType.ASSET_INVOKE,
+        payload: { asset_id: params.assetId, callsite: params.callsite, ...(calldata ? { calldata } : {}) },
+      },
+    ],
+    ...(declared.size > 0 ? { participants: [...declared.values()] } : {}),
+  };
+}
+
+/**
  * Dry-run an interaction against the node before a human is asked to approve it.
  *
  * `provider.call` executes the interaction in simulation and returns a receipt.

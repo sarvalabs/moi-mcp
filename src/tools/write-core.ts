@@ -58,7 +58,7 @@ type Write = z.infer<typeof WriteResult>;
  * approval screen, so an unmeasured default reads as though the interaction
  * is enormous.
  */
-async function withMeasuredFuel(ix: UnsignedInteraction): Promise<UnsignedInteraction> {
+export async function withMeasuredFuel(ix: UnsignedInteraction): Promise<UnsignedInteraction> {
   const provider = getProvider(providerOptions()) as unknown as {
     estimateFuel: (i: unknown) => Promise<number | bigint>;
   };
@@ -74,7 +74,7 @@ async function withMeasuredFuel(ix: UnsignedInteraction): Promise<UnsignedIntera
  * burns fuel and fails — the worst outcome, because it looks like their
  * approval caused the failure.
  */
-async function assertWillSucceed(ix: UnsignedInteraction, hint?: string): Promise<void> {
+export async function assertWillSucceed(ix: UnsignedInteraction, hint?: string): Promise<void> {
   const provider = getProvider(providerOptions()) as unknown as { call: (i: unknown) => Promise<unknown> };
   const result = await simulate(provider, ix);
   if (result.ok) return;
@@ -99,7 +99,7 @@ export async function kmoiBalance(account: string): Promise<bigint> {
   return toBigInt(held?.amount ?? 0);
 }
 
-function providerOptions() {
+export function providerOptions() {
   const cfg = getConfig();
   return { network: cfg.MOI_NETWORK, rpcUrl: cfg.MOI_RPC_URL };
 }

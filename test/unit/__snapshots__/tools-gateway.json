@@ -194,6 +194,141 @@
     }
   },
   {
+    "name": "moi_asset_routines",
+    "title": "List a MOI asset's routines",
+    "description": "List what a MOI asset can do, read from its own manifest on the node: for every routine its name, whether it only reads or changes state, the labels and types of its inputs and outputs, and whether this server can describe it in a preview. A node that returns no manifest for the asset gets a refusal. Call it before moi_asset_invoke, whose `args` are keyed by the input labels listed here. Integer inputs are whole numbers in base units. Needs no wallet and no sign-in.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset to inspect, by asset id."
+        }
+      },
+      "required": [
+        "assetId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "standard": {
+          "type": "string"
+        },
+        "decimals": {
+          "type": "number"
+        },
+        "routines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ],
+                "description": "read runs at once with nothing to approve; write changes state and is previewed, then approved on the phone."
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "described": {
+                "type": "boolean",
+                "description": "True when this server can describe the routine in a preview and knows which accounts it locks. A read routine is always true. A write routine that is false needs `participants` from the caller."
+              }
+            },
+            "required": [
+              "name",
+              "access",
+              "inputs",
+              "outputs",
+              "described"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unlisted": {
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "assetId",
+        "symbol",
+        "standard",
+        "decimals",
+        "routines",
+        "total",
+        "unlisted",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
     "name": "moi_get_interaction",
     "title": "Get MOI interaction",
     "description": "Look up a MOI interaction (MOI's term for a transaction) by hash. Returns its status (pending/success/failed), sender, operations and fuel used. Use this after moi_transfer to confirm the interaction landed.",

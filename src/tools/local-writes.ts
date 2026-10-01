@@ -3,7 +3,7 @@
  *
  * Every write, on every transport, goes through runWrite in hosted-writes.ts: preview, confirm token, journal. That
  * path was written for a server with many users, so it asks its caller for four things the stdio server does not have
- * in that form. Each gets a small local answer here, and registerLocalWriteTools registers the eight write tools with
+ * in that form. Each gets a small local answer here, and registerLocalWriteTools registers the nine write tools with
  * them.
  *   - Who: there is one person, so one constant user.
  *   - The pairing: the session.json that WalletConnectClient already keeps. Its format is not touched, so a pairing
@@ -119,7 +119,7 @@ export function localWriteDeps(): WriteDeps {
 }
 
 /**
- * The eight write tools on the stdio server: the hosted tools, run with the local user and the adapters above.
+ * The nine write tools on the stdio server: the hosted tools, run with the local user and the adapters above.
  *
  * registryWaitMs is 0 because a write that waits for the phone already uses most of the MCP client's 60 second
  * budget, and polling the registry afterwards for up to 30 more could lose the hash of a transaction that landed.

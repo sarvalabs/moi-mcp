@@ -116,3 +116,6 @@ node itself. The server relays a signature; it never produces one.
 - `moi_call_logic` with `kind:"view"` reads any deployed logic with no wallet at
   all.
 - `moi_get_logic` lists a logic's routines so the agent knows what to call.
+- `moi_asset_routines` lists what an asset can do, read from its manifest, and
+  `moi_asset_invoke` calls one of those routines: a read answers at once, a
+  write is previewed in the chat and approved on your phone like a transfer.

@@ -17,8 +17,9 @@ written to disk. Scale it horizontally like any other stateless service.
 It cannot write to the chain. The write code is not disabled by a flag, it is
 not compiled into this binary, which is why it needs no secrets.
 
-Five read tools: `moi_get_account`, `moi_get_asset`, `moi_get_interaction`,
-`moi_get_logic`, `moi_resolve_agent`, plus `ping`.
+Seven read tools: `moi_get_account`, `moi_get_asset`, `moi_asset_routines`,
+`moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent`, `moi_list_agents`,
+plus `ping`.
 
 ## Configuration
 

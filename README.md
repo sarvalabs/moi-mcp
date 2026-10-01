@@ -64,7 +64,7 @@ Environment variables, validated by `src/config.ts` against the schema at `src/s
 
 The server also loads a `.env` from its working directory; see `.env.example`. Three more variables are read where they are used: `MOI_AGENT_REGISTRY_LOGIC_ID` (registry override), `MOI_READ_CALLER` (caller identity for read only logic simulation), and `MOI_WC_PARAM_STYLE` (set to `ix_args` to switch the WalletConnect parameter encoding; the default is positional, `src/wc/client.ts:41`).
 
-A read only HTTP gateway also exists (`src/http.ts`). It registers `ping` and the five read tools, holds no wallet code, and needs no `WC_PROJECT_ID`:
+A read only HTTP gateway also exists (`src/http.ts`). It registers `ping` and the seven read tools, holds no wallet code, and needs no `WC_PROJECT_ID`:
 
 ```bash
 PORT=8787 npx -y -p @moi-protocol/mcp-server moi-mcp-http
@@ -84,13 +84,14 @@ If pairing fails with "The WalletConnect relay refused the pairing", the `WC_PRO
 
 ## Tools
 
-The hosted server and the local stdio server list the same read tools and the same eight write tools. Reads are defined in `src/tools/reads.ts`, the wallet surface in `src/server.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/tools/hosted-writes.ts` and `src/tools/registry-writes.ts`, which both servers register; the stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
+The hosted server and the local stdio server list the same read tools and the same nine write tools. Reads are defined in `src/tools/reads.ts`, the wallet surface in `src/server.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/tools/hosted-writes.ts` and `src/tools/registry-writes.ts`, which both servers register; the stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
 
 | Tool | Phone approval | What it does |
 |---|---|---|
 | `ping` | no | Health check: server version, network, config status |
 | `moi_get_account` | no | The account's nonce (the count of interactions the account has sent), whether it is registered on chain, and its balance in every asset |
 | `moi_get_asset` | no | Asset symbol, standard, supply, decimals, dimension (0 Economic, 1 Possession), owner |
+| `moi_asset_routines` | no | What an asset can do, read from its own manifest on the node: each routine's name, whether it reads or changes state, its inputs and outputs, and whether this server can describe it in a preview |
 | `moi_get_interaction` | no | Interaction status, sender, operations, and fuel used, by hash |
 | `moi_get_logic` | no | A deployed logic's callable routines with input and output types |
 | `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address |
@@ -102,6 +103,7 @@ The hosted server and the local stdio server list the same read tools and the sa
 | `moi_create_asset` | yes | Propose a new asset (MAS0 only for now); funds its storage and previews the amount |
 | `moi_mint` | yes | Propose minting more of an asset the paired wallet manages |
 | `moi_call_logic` | view: no, invoke: yes | Call a logic routine; `view` reads, `invoke` changes state |
+| `moi_asset_invoke` | read routine: no, write routine: yes | Call a routine of an asset by name. A routine that only reads answers at once (on the hosted server it still needs sign-in; `moi_get_account` does not); one that changes state is simulated, previewed in the chat, then sent to the phone with a confirm token |
 | `moi_create_account` | yes | Register and fund a brand-new account from the paired wallet |
 | `moi_launchpad_templates` | no | The MOI Agent Launchpad's templates and the config each needs (hosted server) |
 | `moi_launchpad_sign_in` | message tap | Sign in to the Launchpad as the paired wallet; the session lasts up to a day |
@@ -122,6 +124,8 @@ What a dapp offers for the generic `moi_dapp_*` tools to work is in [docs/dapp-c
 Two MCP resources are also exposed: `moi://networks` and `moi://docs/quickstart` (`src/resources/`).
 
 On `moi_create_asset`: a new MOI asset must hold KMOI to pay for its own storage, so the tool bundles the creation with a KMOI transfer to the asset's own account. The `storageFund` argument is optional; omitted, the server sizes it from your balance. See `docs/upstream-issues.md` on where that deposit sits.
+
+On `moi_asset_routines` and `moi_asset_invoke`: they work from the asset's own manifest, which the node returns; a node that returns none gets a refusal and there is no fallback. Integer inputs are whole numbers in base units (the preview shows whole tokens too), and a zero amount is refused. This server has a description (a preview sentence, input checks, and the accounts a routine locks) for the routines of MAS0, MAS1, MAS2 and the native asset, one file per standard in `src/capabilities/assets/standards/`; a routine without one still runs if you pass `participants`, and its preview says there is no description. `moi_transfer` and `moi_mint` stay as shortcuts and a test checks that they write the same bytes as the generic path for MAS0. Limits: MAS0 and the native asset were checked against real devnet manifests; MAS1, MAS2 and custom (MASX) assets were not seen on any node, and the MAS1 and MAS2 descriptions are written from the SDK; a routine that only reads was tested against a mock node only; the unit of `expires_at` and what Lockup and Release do on chain are not confirmed, so the preview shows the raw value and claims nothing more; integer inputs are limited to 64 bits by the wire encoding; the shortcuts allow a zero amount and the generic path does not; the native asset cannot be minted or burned.
 
 ## Security model
 

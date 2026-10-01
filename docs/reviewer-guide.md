@@ -115,12 +115,13 @@ Top level:
 
 `src/tools/` (MCP tool layer):
 
-- `src/tools/reads.ts` (134): the five read tools: `moi_get_account`, `moi_get_asset`, `moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent` (lines 51 to 119).
+- `src/tools/reads.ts` (134): the read tools: `moi_get_account`, `moi_get_asset`, `moi_asset_routines`, `moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent`, `moi_list_agents`.
 - `src/tools/wallet.ts` (214): stdio pairing tools: `moi_connect_wallet`, `moi_wallet_status`, `moi_disconnect_wallet`.
 - `src/tools/local-writes.ts`: what the stdio server supplies to the write path: a constant local user, a store over `session.json`, a hub over the WalletConnect client, and a journal in `MOI_MCP_HOME`. The stdio write tools are the hosted ones.
 - `src/tools/write-core.ts` (444): shared build, simulate, fuel-measure, and broadcast helpers used by both write paths. Handles no signing and no session routing.
 - `src/tools/hosted-writes.ts` (371): the hosted write tools and `runWrite`, the one write path.
 - `src/tools/preview.ts` (116): the confirm-token registry for hosted writes.
+- `src/tools/asset-invoke.ts`: the half of `moi_asset_invoke` that needs the node and the write path: reads the manifest, plans and simulates a write, runs a read-only routine. The domain logic is in `src/capabilities/assets/` (manifest reading, argument coding, one file per asset standard) and imports nothing from `src/tools/`.
 
 Other directories:
 

@@ -8,9 +8,10 @@
  * property usually breaks. This reads source files all the way down, without
  * building anything.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { importGraph } from "../helpers/import-graph.js";
@@ -26,6 +27,7 @@ function isWalletOrWriteCode(name: string): boolean {
     name === "src/tools/registry-writes.ts" ||
     name === "src/tools/registry-core.ts" ||
     name === "src/tools/write-core.ts" ||
+    name === "src/tools/asset-invoke.ts" ||
     name === "src/tools/preview.ts" ||
     name === "src/journal.ts" ||
     name === "@walletconnect" ||
@@ -58,9 +60,22 @@ describe("the read gateway's module graph", () => {
         "src/tools/local-writes.ts",
         "src/tools/hosted-writes.ts",
         "src/tools/registry-writes.ts",
+        "src/tools/asset-invoke.ts",
         "src/tools/wallet.ts",
         "src/wc/client.ts",
         "src/journal.ts",
+        "src/capabilities/assets/routines.ts",
+        "src/capabilities/assets/codec.ts",
+        "src/capabilities/assets/standards/index.ts",
+      ]),
+    );
+    // The gateway serves the read half of the asset tools, so it does reach those files; the isolation check above is
+    // looking at real names.
+    expect(importGraph("src/http.ts").files).toEqual(
+      expect.arrayContaining([
+        "src/capabilities/assets/routines.ts",
+        "src/capabilities/assets/codec.ts",
+        "src/capabilities/assets/standards/index.ts",
       ]),
     );
     // The hosted and read-only entry points start themselves when loaded. Bundled into the stdio entry point they
@@ -69,6 +84,32 @@ describe("the read gateway's module graph", () => {
     expect(stdio.files).not.toContain("src/http.ts");
     expect(stdio.packages).toContain("@walletconnect/sign-client");
     expect(importGraph("src/server.ts").files).toContain("src/tools/hosted-writes.ts");
+    expect(importGraph("src/server.ts").files).toContain("src/tools/asset-invoke.ts");
+    // moi_asset_invoke is write code: the read gateway must not reach the file that runs it.
+    expect(importGraph("src/http.ts").files).not.toContain("src/tools/asset-invoke.ts");
+  });
+});
+
+describe("the capabilities folder", () => {
+  it("imports nothing from src/tools, src/wc or the journal, in any file and through any chain", () => {
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const files = (readdirSync(`${root}src/capabilities`, { recursive: true }) as string[])
+      .filter((name) => name.endsWith(".ts"))
+      .map((name) => `src/capabilities/${name.split("\\").join("/")}`);
+    // A walk over nothing proves nothing.
+    expect(files).toEqual(
+      expect.arrayContaining(["src/capabilities/assets/invoke.ts", "src/capabilities/assets/routines.ts", "src/capabilities/assets/standards/index.ts"]),
+    );
+    for (const file of files) {
+      const graph = importGraph(file);
+      const reached = graph.files.filter((f) => f.startsWith("src/tools/") || f.startsWith("src/wc/") || f === "src/journal.ts");
+      expect(reached.map((name) => graph.chain(name).join(" -> ")), `${file} must stay free of write code`).toEqual([]);
+    }
+    const invoke = importGraph("src/capabilities/assets/invoke.ts");
+    expect(invoke.files).toEqual(
+      expect.arrayContaining(["src/capabilities/assets/routines.ts", "src/capabilities/assets/codec.ts", "src/capabilities/assets/standards/index.ts"]),
+    );
+    expect(invoke.packages.filter((name) => name.startsWith("@walletconnect"))).toEqual([]);
   });
 });
 

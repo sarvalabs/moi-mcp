@@ -26,6 +26,7 @@ Reads need no wallet. Ask your agent:
 
 - "what's in MOI account 0x…" → \`moi_get_account\`
 - "what asset is 0x…" → \`moi_get_asset\`
+- "what can asset 0x… do" → \`moi_asset_routines\`
 - "did interaction 0x… land" → \`moi_get_interaction\`
 - "what routines does logic 0x… expose" → \`moi_get_logic\`
 - "find the agent called pricefeed-01" → \`moi_resolve_agent\`
@@ -34,9 +35,14 @@ Reads need no wallet. Ask your agent:
 ## 3. Pair, then write
 
 \`moi_connect_wallet\` returns a QR code. Scan it with MOI Wallet on your phone.
-Then \`moi_transfer\`, \`moi_create_asset\` and \`moi_call_logic\` build an
-interaction here and send it to your phone for approval. Nothing moves until
-you tap Send.
+Then \`moi_transfer\`, \`moi_create_asset\`, \`moi_mint\`, \`moi_call_logic\` and
+\`moi_asset_invoke\` build an interaction here and send it to your phone for
+approval. Nothing moves until you tap Send.
+
+\`moi_asset_invoke\` calls a routine of an asset by name, from its manifest (a
+burn, an approval, a MAS1 token transfer). A routine that only reads answers at
+once; one that changes state takes the same two calls, a preview and then the
+confirm.
 
 ## 4. Agents on the MOI Agent Launchpad (hosted server only)
 

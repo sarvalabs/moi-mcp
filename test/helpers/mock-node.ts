@@ -14,6 +14,17 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import {
+  MAS0_MANIFEST,
+  MAS1_MANIFEST,
+  MAS2_MANIFEST,
+  MASN_MANIFEST,
+  MASX_MANIFEST,
+  PIXEL,
+  PIXEL_INFO,
+  manifestHex,
+} from "./asset-fixtures.js";
+
 export interface RpcCall {
   method: string;
   /** params[0] as sent by the SDK. */
@@ -56,6 +67,16 @@ export const MAS2_ASSET = assetWithStandard(2);
 export const MASX_ASSET = assetWithStandard(0xffff);
 /** A standard code the SDK has no name for: assetStandardName reports it as UNKNOWN(9). */
 export const UNKNOWN_STANDARD_ASSET = assetWithStandard(9);
+
+/** What moi.LogicManifest answers for the asset ids tests use; any other id still gets the PingLogic manifest, as before. */
+const ASSET_MANIFESTS = new Map<string, unknown>([
+  [PIXEL, MAS0_MANIFEST],
+  [MAS0_ASSET, MAS0_MANIFEST],
+  [KMOI, MASN_MANIFEST],
+  [MAS1_ASSET, MAS1_MANIFEST],
+  [MAS2_ASSET, MAS2_MANIFEST],
+  [MASX_ASSET, MASX_MANIFEST],
+]);
 export const IX_HASH = "0x3c568254d339090d1e0ec256f9ac46fe288aab7d7739275e2267ddff3fdbc009";
 export const LOGIC = "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb00000000";
 /** A second participant (fingerprint 0x07…), valid but distinct from ACCOUNT. */
@@ -180,6 +201,8 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
     "moi.AssetInfoByAssetID": (p) => {
       requireId(p["asset_id"]);
       requireOptions(p);
+      // The real PIXEL record from devnet; every other id keeps the KMOI-shaped answer existing tests rely on.
+      if (p["asset_id"] === PIXEL) return PIXEL_INFO;
       return {
         symbol: "KMOI",
         dimension: "0x0",
@@ -207,7 +230,7 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
       requireId(p["logic_id"]);
       requireOptions(p);
       // encoding "JSON": the node returns the marshalled JSON as hex bytes.
-      return `0x${Buffer.from(JSON.stringify(MANIFEST), "utf8").toString("hex")}`;
+      return manifestHex(ASSET_MANIFESTS.get(String(p["logic_id"])) ?? MANIFEST);
     },
     // Validate what is being simulated. Ignoring these params lets the server
     // dry-run an interaction unrelated to the one the phone is asked to sign —

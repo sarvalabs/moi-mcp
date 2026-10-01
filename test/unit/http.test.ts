@@ -45,6 +45,8 @@ describe("read-only HTTP server", () => {
     for (const name of Object.keys(server._registeredTools ?? {})) registered.push(name);
 
     expect(registered).toContain("moi_get_account");
+    expect(registered).toContain("moi_asset_routines");
+    expect(registered).not.toContain("moi_asset_invoke");
     expect(registered).not.toContain("moi_transfer");
     expect(registered).not.toContain("moi_create_asset");
     expect(registered).not.toContain("moi_connect_wallet");

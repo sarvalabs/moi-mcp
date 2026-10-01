@@ -194,6 +194,141 @@
     }
   },
   {
+    "name": "moi_asset_routines",
+    "title": "List a MOI asset's routines",
+    "description": "List what a MOI asset can do, read from its own manifest on the node: for every routine its name, whether it only reads or changes state, the labels and types of its inputs and outputs, and whether this server can describe it in a preview. A node that returns no manifest for the asset gets a refusal. Call it before moi_asset_invoke, whose `args` are keyed by the input labels listed here. Integer inputs are whole numbers in base units. Needs no wallet and no sign-in.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset to inspect, by asset id."
+        }
+      },
+      "required": [
+        "assetId"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$"
+        },
+        "symbol": {
+          "type": "string"
+        },
+        "standard": {
+          "type": "string"
+        },
+        "decimals": {
+          "type": "number"
+        },
+        "routines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ],
+                "description": "read runs at once with nothing to approve; write changes state and is previewed, then approved on the phone."
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "outputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "label",
+                    "type"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "described": {
+                "type": "boolean",
+                "description": "True when this server can describe the routine in a preview and knows which accounts it locks. A read routine is always true. A write routine that is false needs `participants` from the caller."
+              }
+            },
+            "required": [
+              "name",
+              "access",
+              "inputs",
+              "outputs",
+              "described"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "total": {
+          "type": "integer"
+        },
+        "unlisted": {
+          "type": "integer"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "assetId",
+        "symbol",
+        "standard",
+        "decimals",
+        "routines",
+        "total",
+        "unlisted",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
     "name": "moi_get_interaction",
     "title": "Get MOI interaction",
     "description": "Look up a MOI interaction (MOI's term for a transaction) by hash. Returns its status (pending/success/failed), sender, operations and fuel used. Use this after moi_transfer to confirm the interaction landed.",
@@ -1263,6 +1398,83 @@
       },
       "required": [
         "logicId",
+        "routine"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  },
+  {
+    "name": "moi_asset_invoke",
+    "title": "Call a MOI asset routine",
+    "description": "Call a routine of a MOI asset by name, as listed by moi_asset_routines. `args` is an object keyed by the routine's input labels; integers (amounts, token ids, timestamps) are whole numbers in the asset's base units, and the preview also shows an amount in whole tokens. A routine that only reads runs at once and returns its decoded outputs, with no preview or confirm; on the hosted server this tool still needs the user signed in for such a read, so for a plain balance use moi_get_account, which does not. A routine that changes state is simulated first and nothing happens until the user taps Send on their phone. This server describes the routines of MAS0, MAS1, MAS2 and the native asset KMOI in the preview; for any other routine pass `participants` (an empty list if it touches only the asset and the user's own account), and the preview then says plainly that this server cannot say what the routine does. KMOI cannot be minted or burned. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "assetId": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset to call a routine on."
+        },
+        "routine": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The routine's name exactly as moi_asset_routines lists it, for example Transfer."
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {},
+          "default": {},
+          "description": "The routine's inputs keyed by the labels moi_asset_routines lists, for example {\"beneficiary\": \"0x…\", \"amount\": \"5\"}. Integers (amounts, token ids, timestamps) are whole numbers in base units, as a number or a decimal string, never a fraction. Identifiers are 0x plus 64 hex characters. Leave out an input the routine does not list."
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$",
+                "description": "Account, asset or logic identifier."
+              },
+              "lock": {
+                "type": "string",
+                "enum": [
+                  "mutate",
+                  "read",
+                  "none"
+                ],
+                "default": "mutate",
+                "description": "mutate: its balances or state change. read: only read. none: listed so the asset engine can see it, which is what an asset id needs."
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 16,
+          "description": "Other accounts and assets a routine that changes state locks, besides the asset and you. Required, as an empty list if there are none, for a routine this server has no description for; not allowed for a routine that only reads."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "required": [
+        "assetId",
         "routine"
       ],
       "additionalProperties": false,

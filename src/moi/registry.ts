@@ -123,7 +123,7 @@ export function isCallerRejected(err: unknown): boolean {
   return CALLER_REJECTED.test(err instanceof Error ? err.message : String(err));
 }
 
-function callerRejected(env: NodeJS.ProcessEnv = process.env): MoiError {
+export function callerRejected(env: NodeJS.ProcessEnv = process.env): MoiError {
   const set = env["MOI_READ_CALLER"];
   return new MoiError(
     ErrorCode.RPC_ERROR,

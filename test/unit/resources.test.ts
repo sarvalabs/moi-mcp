@@ -66,6 +66,7 @@ describe("resources", () => {
     for (const tool of [
       "moi_get_account",
       "moi_get_asset",
+      "moi_asset_routines",
       "moi_get_interaction",
       "moi_get_logic",
       "moi_resolve_agent",
@@ -73,7 +74,9 @@ describe("resources", () => {
       "moi_connect_wallet",
       "moi_transfer",
       "moi_create_asset",
+      "moi_mint",
       "moi_call_logic",
+      "moi_asset_invoke",
     ]) {
       expect(item.text).toContain(tool);
     }
