@@ -126,7 +126,7 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
       title: "Sign in to a MOI dapp",
       description:
         "Sign in to a MOI dapp as the paired wallet, with Sign-In With MOI: the dapp hands out a short message, MOI Wallet " +
-        "on the phone shows it and the person approves, and the session is kept on this server for as long as the dapp allows. " +
+        "on the phone shows it and the person approves, and the session is kept on this server, encrypted, for up to a day (less if the dapp ends it sooner). " +
         "Works for any dapp that follows the MOI dapp conventions. Needs a paired wallet. Nothing is sent on chain.",
       inputSchema: { url: UrlArg },
       outputSchema: { dapp: z.string(), signedIn: z.literal(true), wallet: z.string(), expiresAt: z.string() },

@@ -3,8 +3,11 @@
  * is just a dapp that follows the conventions and publishes an OpenAPI
  * document.
  */
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { createServer as createNetServer, type AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,13 +19,16 @@ import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver 
 import {
   checkSignInMessage,
   DappClient,
+  MAX_SESSION_SECONDS,
   requestFor,
+  sessionCookieFrom,
   SIGN_IN_WINDOW_MS,
   summarizeOpenApi,
   type DappCallResult,
   type DappOperation,
 } from "../../src/dapp/client.js";
 import { MAX_TEXT_CHARS } from "../../src/bounds.js";
+import { FileDappSessionStore } from "../../src/dapp/store.js";
 import { MoiError } from "../../src/moi-error.js";
 import { ErrorCode } from "../../src/schema.js";
 import { registerDappTools, type DappDeps } from "../../src/tools/dapp.js";
@@ -30,6 +36,7 @@ import { PREVIEW_TTL_MS, PreviewRegistry } from "../../src/tools/preview.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {
   authFor,
+  dappKey,
   deps as writeDeps,
   fakeHub,
   fakeJournal,
@@ -306,6 +313,39 @@ describe("checkSignInMessage", () => {
   });
 });
 
+describe("sessionCookieFrom", () => {
+  const answer = (setCookie: string) => new Response(null, { headers: { "set-cookie": setCookie } });
+  const secondsFromNow = (expiresAt: number) => expiresAt - Math.floor(Date.now() / 1000);
+
+  it("keeps a lifetime shorter than a day as the dapp states it", () => {
+    const s = sessionCookieFrom(answer("moi_session=abc; Path=/; HttpOnly; Max-Age=3600"));
+    expect(s?.cookie).toBe("abc");
+    expect(secondsFromNow(s!.expiresAt)).toBeGreaterThan(3590);
+    expect(secondsFromNow(s!.expiresAt)).toBeLessThanOrEqual(3600);
+  });
+
+  it("gives a cookie with no Max-Age a day", () => {
+    const s = sessionCookieFrom(answer("moi_session=abc; Path=/; HttpOnly"));
+    expect(secondsFromNow(s!.expiresAt)).toBeGreaterThan(MAX_SESSION_SECONDS - 10);
+    expect(secondsFromNow(s!.expiresAt)).toBeLessThanOrEqual(MAX_SESSION_SECONDS);
+  });
+
+  it("cuts a longer lifetime to a day, however long the dapp says", () => {
+    for (const age of ["86401", "604800", "31536000", "9".repeat(20), "9".repeat(400)]) {
+      const s = sessionCookieFrom(answer(`moi_session=abc; max-age=${age}`));
+      expect(Number.isFinite(s!.expiresAt), age).toBe(true);
+      expect(secondsFromNow(s!.expiresAt), age).toBeLessThanOrEqual(MAX_SESSION_SECONDS);
+      expect(secondsFromNow(s!.expiresAt), age).toBeGreaterThan(MAX_SESSION_SECONDS - 10);
+    }
+  });
+
+  it("keeps an immediate expiry immediate, and ignores other cookies", () => {
+    const now = Math.floor(Date.now() / 1000);
+    expect(sessionCookieFrom(answer("moi_session=abc; Max-Age=0"))!.expiresAt).toBeLessThanOrEqual(now + 1);
+    expect(sessionCookieFrom(answer("other=abc; Max-Age=60"))).toBeUndefined();
+  });
+});
+
 describe("moi_dapp_sign_in", () => {
   it("signs the dapp's message on the phone and keeps the session for that origin", async () => {
     const { client, sessions } = await connect();
@@ -316,6 +356,41 @@ describe("moi_dapp_sign_in", () => {
     expect(rec?.cookie).toBe(COOKIE);
     const verify = fake.requests.find((r) => r.path === "/api/auth/verify")!;
     expect(verify.body).toMatchObject({ address: ACCOUNT, signature: "0xfeed" });
+  });
+
+  // The fake dapp offers a week (Max-Age=604800); this server keeps a day at most,
+  // and tells the person the same time it stores.
+  it("keeps the session for a day at most, and reports the time it stores", async () => {
+    const { client, sessions } = await connect();
+    const before = Math.floor(Date.now() / 1000);
+    const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } });
+    const after = Math.floor(Date.now() / 1000);
+    expect(res.isError).toBeFalsy();
+    const rec = (await sessions.get(USER, fake.url))!;
+    expect(rec.expiresAt).toBeGreaterThanOrEqual(before + MAX_SESSION_SECONDS);
+    expect(rec.expiresAt).toBeLessThanOrEqual(after + MAX_SESSION_SECONDS);
+    expect(structured<{ expiresAt: string }>(res).expiresAt).toBe(new Date(rec.expiresAt * 1000).toISOString());
+  });
+
+  it("seals the session in a real store: the cookie is not on disk, and it still signs the next call", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moi-dapp-tools-"));
+    try {
+      const store = new FileDappSessionStore(dir, dappKey());
+      const { client } = await connect({ sessions: store });
+      expect((await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } })).isError).toBeFalsy();
+      for (const name of readdirSync(join(dir, "dapps"))) {
+        const text = readFileSync(join(dir, "dapps", name), "utf8");
+        expect(text).not.toContain(COOKIE);
+        expect(text).not.toContain(USER);
+      }
+      const me = structured<{ status: number }>(
+        await client.callTool({ name: "moi_dapp_call", arguments: { url: fake.url, operationId: "me" } }),
+      );
+      expect(me.status).toBe(200);
+      expect(fake.requests.find((r) => r.path === "/api/me")?.cookie).toBe(`moi_session=${COOKIE}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("refuses a non-https or local origin before any request", async () => {
@@ -407,6 +482,25 @@ describe("moi_dapp_api and moi_dapp_call", () => {
     const res = await signedOut.callTool({ name: "moi_dapp_call", arguments: { url: fake.url, operationId: "me" } });
     expect(res.isError).toBe(true);
     expect(JSON.stringify(res.content)).toMatch(/moi_dapp_sign_in/);
+  });
+
+  // Pins the failure mode of a key that changed: a record that cannot be opened
+  // is a person who is not signed in, never a call made with a guessed cookie.
+  it("treats a stored session it cannot decrypt as not signed in", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "moi-dapp-tools-"));
+    try {
+      await new FileDappSessionStore(dir, dappKey()).set(signedInRecord(fake.url));
+      const rotated = new FileDappSessionStore(dir, dappKey("r".repeat(44)));
+      const { client } = await connect({ sessions: rotated });
+      const res = await client.callTool({ name: "moi_dapp_call", arguments: { url: fake.url, operationId: "me" } });
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toMatch(/moi_dapp_sign_in/);
+      expect(fake.requests.filter((r) => r.cookie !== undefined)).toEqual([]);
+      // Nothing was destroyed by asking; the old key still opens it.
+      expect((await new FileDappSessionStore(dir, dappKey()).get(USER, fake.url))?.cookie).toBe(COOKIE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("forgets a session the dapp no longer accepts", async () => {

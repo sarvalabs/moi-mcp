@@ -18,7 +18,12 @@ import { ErrorCode } from "../schema.js";
 
 const TIMEOUT_MS = 20_000;
 export const SESSION_COOKIE = "moi_session";
-const DEFAULT_SESSION_SECONDS = 7 * 24 * 60 * 60;
+/**
+ * The longest this server keeps a dapp session, whatever Max-Age the dapp sets,
+ * and what a cookie with no Max-Age gets. Capped here, where the cookie is
+ * read, so the stored record and the time the tool tells the person agree.
+ */
+export const MAX_SESSION_SECONDS = 24 * 60 * 60;
 const MAX_OPERATIONS = 200;
 /** Sign-in and every other JSON answer: useless when cut, so over this is an error. */
 const MAX_JSON_BYTES = 1024 * 1024;
@@ -99,12 +104,14 @@ export function sessionCookieFrom(res: Response): DappSession | undefined {
     if (eq < 0 || pair.slice(0, eq) !== SESSION_COOKIE) continue;
     const value = pair.slice(eq + 1);
     if (!value) continue;
-    let seconds = DEFAULT_SESSION_SECONDS;
+    let seconds = MAX_SESSION_SECONDS;
     for (const attr of attrs) {
       const m = /^max-age=(\d+)$/i.exec(attr);
       if (m) seconds = Number(m[1]);
     }
-    return { cookie: value, expiresAt: Math.floor(Date.now() / 1000) + seconds };
+    // A long run of digits reads as Infinity, which would serialise to null
+    // and leave a stored record nobody can read; the cap bounds it too.
+    return { cookie: value, expiresAt: Math.floor(Date.now() / 1000) + Math.min(seconds, MAX_SESSION_SECONDS) };
   }
   return undefined;
 }

@@ -41,7 +41,7 @@ you tap Send.
 ## 4. Agents on the MOI Agent Launchpad (hosted server only)
 
 \`moi_launchpad_templates\` lists what you can build. \`moi_launchpad_sign_in\`
-signs one message with the paired wallet; the session lasts a week. Then
+signs one message with the paired wallet; the session lasts up to a day. Then
 \`moi_launchpad_create_agent\`, \`moi_launchpad_register_agent\` (one tap on
 the phone, the step that makes the agent live), \`moi_launchpad_telegram_link\`
 for the bot link, and \`moi_launchpad_setup_script\` for a one-time download

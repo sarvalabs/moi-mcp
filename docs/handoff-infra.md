@@ -45,11 +45,12 @@ The shared Config schema is defined in src/schema.ts lines 465 to 483 and loaded
 | `PORT` | optional | `8787` | Port the read gateway listens on (src/http.ts, resolvePort, line 189). Default 8787. | A non-numeric value makes the process exit with "Invalid PORT". Blank falls back to 8787. |
 | `HOSTED_PORT` | optional | `8788` | Port the write gateway listens on. Default 8788. When unset, the server falls back to `PORT` because hosting platforms inject that name (src/config.ts, loadHostedConfig). | Wrong value means nginx proxies to a port nobody listens on; you see 502. |
 | `PUBLIC_URL` | required in production | `https://mcp.moi.technology` | The public origin of the write gateway. It is the OAuth issuer, meaning the identity the sign-in endpoints claim in the discovery document. It also decides whether the moi_uid cookie is marked Secure (src/auth/index.ts line 60: Secure only when the value starts with https://). | A mismatch with the real hostname makes sign-in fail in a way that looks like a client bug. Default is http://localhost:8788, which is wrong for any real deployment. |
-| `MOI_DATA_DIR` | recommended | `/var/lib/moi-mcp` | Directory for the write gateway's state: OAuth clients and tokens, the cookie secret, wallet sessions, the write journal. Created 0700 (src/config.ts, loadHostedConfig). Default `~/.moi-mcp-hosted`. | Losing the directory signs everyone out and un-pairs every wallet. See the data directory section. |
+| `MOI_DATA_DIR` | recommended | `/var/lib/moi-mcp` | Directory for the write gateway's state: OAuth clients and tokens, the cookie secret, wallet sessions, sealed dapp sessions, the write journal. Created 0700 (src/config.ts, loadHostedConfig). Default `~/.moi-mcp-hosted`. | Losing the directory signs everyone out and un-pairs every wallet. See the data directory section. |
 | `MOI_NETWORK` | optional | `voyage` | Which MOI network to talk to: voyage, mainnet, or custom (src/schema.ts line 466). Default voyage. | An invalid value fails config load; /health returns 503 with `ok:false`. `custom` without MOI_RPC_URL throws at load (src/config.ts). |
 | `MOI_RPC_URL` | required when MOI_NETWORK=custom | `https://node.example/jsonrpc` | JSON-RPC endpoint of the MOI node, the HTTP API the server sends read queries and signed transactions to. | Missing while network is custom throws at config load. A wrong URL makes every read tool return an RPC error. |
 | `MOI_EXPLORER_URL` | optional | `https://voyage.moi.technology` | Base URL used to build the explorer link included in write results (src/schema.ts line 470). Default https://voyage.moi.technology. | A wrong value produces dead links in tool output. Nothing else breaks. |
 | `WC_PROJECT_ID` | required on the write gateway | `2f5a8c1de94b47f0a3c6e8b90d1a7c42` | The Reown project id, 32 hex characters, that authenticates this server to the WalletConnect relay (src/config.ts, projectIdIssue). | Missing or placeholder: the write gateway exits at boot with a message pointing to cloud.reown.com. The read gateway supplies itself a dummy and does not need it (src/http.ts line 204). |
+| `MOI_SESSION_KEY` | required on the write gateway | generate with `openssl rand -base64 32` (44 characters) | The secret the stored dapp sessions are encrypted under, AES-256-GCM, with a subkey derived per purpose (src/config.ts, HostedConfigSchema; src/auth/crypto.ts, deriveKey). It protects the files in `MOI_DATA_DIR` and the values in Redis, so keep it in `.env`, off the data directory and out of its backups, and never in ecosystem.config.cjs (committed, and pm2 saves its env block in its dump file). It must be random, not a passphrase. | Missing, blank or shorter than 43 characters: the write gateway exits at boot with `fatal: Invalid hosted MOI MCP configuration — MOI_SESSION_KEY: ...`. The read gateway and the stdio server do not read it. Changing it later does not delete anything but signs everyone out of every dapp (see the data directory section). |
 | `REDIS_URL` | optional | `redis://:password@127.0.0.1:6379` | When set, wallet pairings and WalletConnect internal state move from files to Redis (src/server.ts main, src/wc/redis-store.ts). | An unreachable Redis makes the write gateway refuse to start and log a connection error at boot (connectRedis in src/wc/redis-store.ts is deliberately eager). Unset means file storage under MOI_DATA_DIR. |
 | `LOG_LEVEL` | optional | `info` | Log verbosity: silent, error, info, or debug (src/schema.ts line 482). All logs go to stderr. Default error. | An invalid value fails config load. ecosystem.config.cjs sets info for both apps. |
 | `HOSTED_TIMEOUT_MS` | optional | `240000` | Wall-clock budget in milliseconds for one hosted tool call, which includes waiting for a phone tap. Default 240000. claude.ai allows 300 seconds per call; stay under it (src/config.ts, HostedConfigSchema). | A value above 300000 makes claude.ai abandon calls the server is still serving. |
@@ -57,11 +58,11 @@ The shared Config schema is defined in src/schema.ts lines 465 to 483 and loaded
 | `REQUEST_TIMEOUT_MS` | optional | `55000` | Phone-wait budget for the stdio server, default 55000 (src/schema.ts). The write gateway uses HOSTED_TIMEOUT_MS instead (src/server.ts passes hosted.HOSTED_TIMEOUT_MS to the hub). | No effect on the hosted deployment. |
 | `MOI_AGENT_REGISTRY_LOGIC_ID` | optional | `0x200000002f3e9469...` | Overrides the agent registry logic id used by moi_resolve_agent (src/moi/registry.ts line 24). Default is the registry redeployed after the September 2026 chain reset, pinned in src/moi/registry.ts; the id shipped inside js-moi-agent-registry@0.3.0-rc1 is the pre-reset one and no longer exists. | A wrong id makes moi_resolve_agent return not found for every agent. |
 | `MOI_READ_CALLER` | required on devnet | `0x00000000a27d9a3e...` | Participant id used as the caller for read-only logic simulation (src/moi/provider.ts line 215). The current devnet rejects the placeholder identity, so every registry read (moi_resolve_agent, moi_list_agents, the registry lookup after moi_launchpad_register_agent) needs this set to any account that exists on the network. | Unset on devnet: registry reads fail with an error naming this variable. An unparseable value is ignored and the placeholder is used. |
-| `MOI_LAUNCHPAD_URL` | optional | `https://launchpad.moi.technology` | The MOI Agent Launchpad the moi_launchpad_* tools sign in to and act on (src/config.ts, HostedConfigSchema). Sessions are stored per user under MOI_DATA_DIR/launchpad, or in Redis with the wallet sessions. It must be the Launchpad's own public origin, the same value as its NEXT_PUBLIC_APP_URL: sign-in is refused when the Launchpad's sign-in message names a different origin. | A wrong value makes every launchpad tool fail to reach the Launchpad, or, when it reaches the Launchpad under an address other than the one the Launchpad writes in its messages, makes moi_launchpad_sign_in refuse with `Not signing`; nothing else is affected. |
+| `MOI_LAUNCHPAD_URL` | optional | `https://launchpad.moi.technology` | The MOI Agent Launchpad the moi_launchpad_* tools sign in to and act on (src/config.ts, HostedConfigSchema). Sessions are stored per user, sealed, under MOI_DATA_DIR/dapps, or in Redis next to the wallet sessions. It must be the Launchpad's own public origin, the same value as its NEXT_PUBLIC_APP_URL: sign-in is refused when the Launchpad's sign-in message names a different origin. | A wrong value makes every launchpad tool fail to reach the Launchpad, or, when it reaches the Launchpad under an address other than the one the Launchpad writes in its messages, makes moi_launchpad_sign_in refuse with `Not signing`; nothing else is affected. |
 | `MOI_WC_PARAM_STYLE` | optional | `positional` | Payload shape for the wallet's sendInteractions call (src/wc/client.ts line 40). The live write path uses signInteraction and ignores this. | No effect today; leave unset. |
 | `NODE_ENV` | optional | `production` | Standard Node convention. ecosystem.config.cjs sets it to production for both apps. The server's own config does not branch on it. | None. |
 
-Put `WC_PROJECT_ID` in a `.env` file next to ecosystem.config.cjs. The server loads `.env` from its working directory (src/config.ts loads dotenv). ecosystem.config.cjs is committed to git; `.env` is not, and secrets must never go in the committed file (comment at the top of ecosystem.config.cjs).
+Put `WC_PROJECT_ID` and `MOI_SESSION_KEY` in a `.env` file next to ecosystem.config.cjs. The server loads `.env` from its working directory (src/config.ts loads dotenv). ecosystem.config.cjs is committed to git; `.env` is not, and secrets must never go in the committed file (comment at the top of ecosystem.config.cjs).
 
 ## Install
 
@@ -102,7 +103,7 @@ If either file is missing, the build failed; read the tsup output above.
 5. Create the config file and data directory.
 
 ```bash
-printf 'WC_PROJECT_ID=your_32_character_id_here\n' > /opt/moi-mcp/.env && chmod 600 /opt/moi-mcp/.env
+printf 'WC_PROJECT_ID=your_32_character_id_here\nMOI_SESSION_KEY=%s\n' "$(openssl rand -base64 32)" > /opt/moi-mcp/.env && chmod 600 /opt/moi-mcp/.env
 ```
 
 ```bash
@@ -251,6 +252,7 @@ Everything the write gateway persists lives under `MOI_DATA_DIR` (the ecosystem 
 | `auth/tokens/<sha256>.json` | Access and refresh token records, filed by token hash. | src/auth/store.ts, TokenStore |
 | `auth/cookie-secret` | 32 random bytes that sign the moi_uid browser cookie. | src/auth/crypto.ts, loadOrCreateCookieSecret; path set in src/auth/index.ts line 46 |
 | `sessions/<sha256(userId)>.json` | One wallet pairing per user. | src/wc/store.ts, FileWalletSessionStore |
+| `dapps/<sha256>.json` | One dapp session per user and dapp (Launchpad included), sealed with AES-256-GCM under a key derived from `MOI_SESSION_KEY`, kept for a day at most. The file name is a hash of the user and the dapp, and that hash is also bound into the ciphertext, so a file copied to another name does not open. | src/dapp/store.ts, FileDappSessionStore |
 | `journal.jsonl` | Append-only write journal recording proposed, signed, broadcast, confirmed, failed, and orphaned states for every transaction (src/journal.ts line 16). | src/journal.ts line 41 |
 | `wc-relay-scratch/` | The shared WalletConnect client's own internal session file. It is never per-user data (comment in src/config.ts, loadHostedConfig). | src/config.ts |
 
@@ -264,6 +266,8 @@ Losing `auth/tokens/` invalidates every issued token. claude.ai gets 401 and sho
 
 Losing `sessions/` un-pairs every wallet. Users scan a new QR code with the phone app.
 
+Losing `dapps/`, or changing or losing `MOI_SESSION_KEY`, signs everyone out of every dapp, one phone tap each to sign in again. A changed key does not delete anything: the old records stay on disk (or in Redis until they expire) and read as signed out, and the boot log line (level info, which ecosystem.config.cjs sets) `dapp sessions: ... do not open with the current MOI_SESSION_KEY` counts them. Nothing sweeps them, and there is no previous-key setting. Do not read that count as damage if you rotated the key on purpose; if you did not, check the value in `.env`.
+
 Losing `journal.jsonl` loses the audit history of past writes. No funds are at risk; the chain itself is the record.
 
 ## Restarts and upgrades
@@ -275,6 +279,16 @@ At boot the server reconciles the journal (src/server.ts, reconcileJournalOnBoot
 An entry that had reached `broadcast` with a hash is marked confirmed, with the line "had broadcast before exit; recording it confirmed". The node accepted it before the crash.
 
 An entry left in `proposed` or `signed` is marked orphaned, with an error line saying it "cannot be safely re-broadcast; marking orphaned". The server never persists the signed payload, so replaying it is impossible by design. This line after a crash mid-approval is expected and needs no action; the user retries the action in chat.
+
+The release that adds `MOI_SESSION_KEY` needs it in `.env` before the restart, or moi-mcp-write exits at boot and pm2 restarts it in a loop. Add it first, with this command, which leaves an existing non-blank key alone and does not print the value:
+
+```bash
+grep -q '^MOI_SESSION_KEY=.' /opt/moi-mcp/.env || printf '\nMOI_SESSION_KEY=%s\n' "$(openssl rand -base64 32)" >> /opt/moi-mcp/.env
+```
+
+Order: the key in `.env`, then `git pull`, `npm ci`, `npm run build`, then `pm2 restart moi-mcp-write`. The laptop stack and any other deployment follow the same order: set `MOI_SESSION_KEY` in its environment before its next restart.
+
+On that first start the server removes every unencrypted dapp session left from before and logs one line with the counts (`dapp sessions: removed N unencrypted record(s); ...`). Those people sign in to their dapps again; nobody is migrated. The old cookies stay valid at the dapp until the dapp's own expiry, because the purge does not log them out there. Copies of the data directory taken before the upgrade, and Redis snapshots or append-only history from before it, still hold the old plain cookies until they age out. Rolling the code back writes plain records again; the next upgrade purges them.
 
 To upgrade:
 
@@ -347,6 +361,7 @@ Deploy only after review approval and merge to main. The deploy job is the upgra
 | Symptom | Cause | Fix |
 |---|---|---|
 | nginx returns 502 | The Node process is down or listening on a different port. | Run `pm2 status`. If moi-mcp-write is errored, read `~/.pm2/logs/moi-mcp-write-error.log`; a fatal line about WC_PROJECT_ID means the .env file is missing or wrong. Confirm `proxy_pass` matches HOSTED_PORT. |
+| moi-mcp-write is errored or restarting in a loop after an upgrade, and the log says `MOI_SESSION_KEY` | The key is missing from `.env`, is blank, or is shorter than 43 characters (src/config.ts, HostedConfigSchema). | Run the `grep -q ... \|\| printf ...` command from the upgrades section, or set a value from `openssl rand -base64 32`, then `pm2 restart moi-mcp-write`. Do not put it in ecosystem.config.cjs. |
 | Tool calls fail during long phone waits | `proxy_read_timeout` is below the 300 second client budget, so nginx cuts the held connection during the phone wait. | Set `proxy_read_timeout 300s;` and `proxy_send_timeout 300s;` on the proxied location (docs/deploy-vm.md line 116), then reload nginx. |
 | Sign-in loops: consent completes, then the connector asks again | `PUBLIC_URL` does not match the domain users reach, so the OAuth issuer is wrong; or the site is plain http, so the moi_uid cookie is marked Secure (src/auth/index.ts line 60) and the browser never sends it back. | Set `PUBLIC_URL` to the exact https origin, serve only over TLS, and restart moi-mcp-write. Verify with the discovery curl above. |
 | Scanning the QR code does nothing on the phone | `WC_PROJECT_ID` is missing, a placeholder, or misshapen, so the relay rejects the pairing (src/config.ts, projectIdIssue). | Put the real 32 hex character id in /opt/moi-mcp/.env and restart moi-mcp-write. The boot log names the problem when the id is unusable. |

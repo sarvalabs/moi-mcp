@@ -171,7 +171,7 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
       description:
         "Sign in to the MOI Agent Launchpad as the paired wallet. The Launchpad hands out a short sign-in message, " +
         "MOI Wallet on the phone shows it and the person approves it there, and the resulting session is kept on this " +
-        "server for a week. Needs a paired wallet (moi_connect_wallet). Nothing is sent on chain and no fee is paid.",
+        "server, encrypted, for up to a day. Needs a paired wallet (moi_connect_wallet). Nothing is sent on chain and no fee is paid.",
       inputSchema: S.LaunchpadSignInInput.shape,
       outputSchema: S.LaunchpadSignInOutput.shape,
       annotations: ACT,

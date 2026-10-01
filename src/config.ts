@@ -141,7 +141,7 @@ export function resetConfigCache(): void {
 
 // ---------------------------------------------------------------------------
 // Hosted transport config (src/server.ts) — additive to the Config above, not
-// part of it. stdio and the read-only HTTP entry point never read these four
+// part of it. stdio and the read-only HTTP entry point never read these
 // keys, and the shared Config's schema and defaults are unchanged by them.
 // ---------------------------------------------------------------------------
 
@@ -157,6 +157,22 @@ const HostedConfigSchema = z.object({
   HOSTED_TIMEOUT_MS: z.coerce.number().positive().default(240_000),
   /** The MOI Agent Launchpad the moi_launchpad_* tools act on. */
   MOI_LAUNCHPAD_URL: z.string().url().default("https://launchpad.moi.technology"),
+  /**
+   * The secret stored dapp sessions are encrypted under (one HKDF subkey per
+   * purpose, deriveKey in src/auth/crypto.ts). Required on the hosted server
+   * only. HostedConfig now carries a secret: never log or serialise it whole
+   * (server.ts logs individual fields only), and keep the messages below free
+   * of the value. Random, not a passphrase: HKDF adds no work for a guesser.
+   */
+  MOI_SESSION_KEY: z
+    .string({
+      required_error: "is required; generate one with `openssl rand -base64 32` and put it in .env before restarting",
+    })
+    .trim()
+    .regex(
+      /^[A-Za-z0-9+/_=-]{43,}$/,
+      "must be at least 43 characters of base64 or hex, such as the 44 `openssl rand -base64 32` gives",
+    ),
 });
 
 export type HostedConfig = z.infer<typeof HostedConfigSchema> & {
@@ -197,8 +213,9 @@ export function loadHostedConfig(env: NodeJS.ProcessEnv = process.env): HostedCo
 
   const dataDir = expandHome(parsed.data.MOI_DATA_DIR);
   // 0700: this directory holds per-user WalletConnect session records
-  // (wc/store.ts's sessions/, keyed by sha256(userId)), the OAuth client/token
-  // stores, and the write journal. It also holds wc-relay-scratch/ — the
+  // (wc/store.ts's sessions/, keyed by sha256(userId)), the sealed dapp
+  // sessions (dapps/), the OAuth client/token stores, and the write journal.
+  // It also holds wc-relay-scratch/ — the
   // shared, single-user WalletConnectClient's OWN internal session file
   // (src/server.ts's makeResolveUri), which is NOT per-user and must never be
   // read as if it were; per-user lookups always go through the sessions/

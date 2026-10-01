@@ -104,7 +104,7 @@ The hosted server and the local stdio server each list 13 tools. Reads are defin
 | `moi_call_logic` | view: no, invoke: yes | Call a logic routine; `view` reads, `invoke` changes state |
 | `moi_create_account` | yes | Register and fund a brand-new account from the paired wallet |
 | `moi_launchpad_templates` | no | The MOI Agent Launchpad's templates and the config each needs (hosted server) |
-| `moi_launchpad_sign_in` | message tap | Sign in to the Launchpad as the paired wallet; the session lasts a week |
+| `moi_launchpad_sign_in` | message tap | Sign in to the Launchpad as the paired wallet; the session lasts up to a day |
 | `moi_launchpad_status` | no | Launchpad session, Telegram link state, and the wallet's agents there |
 | `moi_launchpad_create_agent` | no | Create an agent from a template; previewed in the chat first, then created with a confirm token; it runs once registered |
 | `moi_launchpad_register_agent` | yes | Register the agent in the on chain registry and tell the Launchpad |

@@ -115,6 +115,27 @@ describe("the consent page tells the user where a grant goes and what it allows"
     expect(html).toMatch(/wallet is your identity/i);
   });
 
+  it("says the server keeps dapp sessions, encrypted, for up to a day, when the app can sign in to a dapp", () => {
+    expect(html).toMatch(/this server keeps your session with that dapp, encrypted, for up to a day/);
+    // It says what the storage does and nothing stronger: encryption at rest
+    // does not stop a compromised running server.
+    const sentence = /<p[^>]*>(If you ask Claude to sign you in to a MOI dapp[^<]*)<\/p>/.exec(html)?.[1] ?? "";
+    expect(sentence).not.toBe("");
+    expect(sentence).not.toMatch(/\b(safe|secure|never|nobody|no one|cannot|unreadable)\b/i);
+  });
+
+  it("leaves the dapp sentence off a read-only grant, which never holds a dapp session", () => {
+    const readOnly = renderConsentPage({
+      clientName: "Some App",
+      scopes: ["moi:read"],
+      redirectOrigin: "https://claude.ai",
+      formAction: "/authorize/decision",
+      hidden: {},
+    });
+    expect(readOnly).not.toMatch(/dapp/i);
+    expect(readOnly).not.toMatch(/encrypted/i);
+  });
+
   it("escapes a hostile client name", () => {
     const evil = renderConsentPage({
       clientName: "<script>alert(1)</script>",

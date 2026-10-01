@@ -106,7 +106,11 @@ describe("moi_launchpad_sign_in", () => {
     const stored = [...sessions.records.values()].find((r) => r.userId === USER)!;
     expect(stored.cookie).toBe(COOKIE);
     expect(stored.baseUrl).toBe(fake.url);
-    expect(stored.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 604_000);
+    // The fake Launchpad offers a week (Max-Age=604800); a day is the most this server keeps.
+    expect(stored.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 86_000);
+    expect(stored.expiresAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 86_400);
+    // What the tool tells the person is the time that was stored.
+    expect(structured<{ expiresAt: string }>(res).expiresAt).toBe(new Date(stored.expiresAt * 1000).toISOString());
   });
 
   it("needs a paired wallet first", async () => {

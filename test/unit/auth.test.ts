@@ -7,7 +7,7 @@ import { join } from "node:path";
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { sha256Base64Url } from "../../src/auth/crypto.js";
+import { deriveKey, seal, sha256Base64Url, unseal } from "../../src/auth/crypto.js";
 import { mountAuth } from "../../src/auth/index.js";
 
 /** Mount on a real listening server so requests exercise HTTP end to end. */
@@ -650,5 +650,115 @@ describe("consent page when this browser already has a paired wallet", () => {
     const page = await consent(p, first.cookie);
     expect(page.html).not.toContain("already paired");
     expect(page.html).toContain('value="approve"');
+  });
+});
+
+describe("seal and unseal", () => {
+  const key = deriveKey("s".repeat(44), "test");
+  const aad = "slot-a";
+
+  /** The sealed envelope with one field's decoded bytes changed at `at`. */
+  function tampered(sealed: string, field: "iv" | "ct" | "tag", at = 0): string {
+    const o = JSON.parse(sealed) as Record<string, string>;
+    const bytes = Buffer.from(o[field]!, "base64url");
+    bytes[at] = bytes[at]! ^ 0x01;
+    return JSON.stringify({ ...o, [field]: bytes.toString("base64url") });
+  }
+  /** The sealed envelope with one field replaced. */
+  function withField(sealed: string, field: string, value: unknown): string {
+    return JSON.stringify({ ...(JSON.parse(sealed) as object), [field]: value });
+  }
+
+  it("round-trips text, including an empty string and non-ASCII", () => {
+    for (const text of ["", "plain", '{"cookie":"eyJ.a.b"}', "naive \u00e9\u4e2d\ud83d\ude00"]) {
+      expect(unseal(seal(text, key, aad), key, aad)).toBe(text);
+    }
+  });
+
+  it("writes the documented envelope and nothing of the plaintext", () => {
+    const sealed = seal("top-secret-cookie", key, aad);
+    const o = JSON.parse(sealed) as Record<string, string>;
+    expect(Object.keys(o).sort()).toEqual(["alg", "ct", "iv", "tag", "v"]);
+    expect(o["v"]).toBe(2);
+    expect(o["alg"]).toBe("A256GCM");
+    expect(Buffer.from(o["iv"]!, "base64url")).toHaveLength(12);
+    expect(Buffer.from(o["tag"]!, "base64url")).toHaveLength(16);
+    expect(sealed).not.toContain("top-secret-cookie");
+    expect(sealed).not.toContain(aad);
+  });
+
+  it("uses a fresh nonce on every call", () => {
+    const a = seal("same", key, aad);
+    const b = seal("same", key, aad);
+    expect(a).not.toBe(b);
+    expect((JSON.parse(a) as { iv: string }).iv).not.toBe((JSON.parse(b) as { iv: string }).iv);
+  });
+
+  it("does not open under another key or another slot", () => {
+    const sealed = seal("secret", key, aad);
+    expect(unseal(sealed, deriveKey("t".repeat(44), "test"), aad)).toBeUndefined();
+    expect(unseal(sealed, deriveKey("s".repeat(44), "other-purpose"), aad)).toBeUndefined();
+    expect(unseal(sealed, key, "slot-b")).toBeUndefined();
+    expect(unseal(sealed, key, "")).toBeUndefined();
+  });
+
+  it("does not open once any byte of the nonce, text or tag is changed", () => {
+    const sealed = seal("secret", key, aad);
+    expect(unseal(sealed, key, aad)).toBe("secret");
+    expect(unseal(tampered(sealed, "iv"), key, aad)).toBeUndefined();
+    expect(unseal(tampered(sealed, "ct"), key, aad)).toBeUndefined();
+    expect(unseal(tampered(sealed, "ct", 5), key, aad)).toBeUndefined();
+    expect(unseal(tampered(sealed, "tag"), key, aad)).toBeUndefined();
+    expect(unseal(tampered(sealed, "tag", 15), key, aad)).toBeUndefined();
+  });
+
+  it("answers undefined, never an exception, for anything that is not a good envelope", () => {
+    const good = seal("secret", key, aad);
+    const cases: string[] = [
+      "",
+      "not json",
+      "null",
+      "123",
+      '"a string"',
+      "true",
+      "[]",
+      "{}",
+      "[1,2,3]",
+      withField(good, "v", 1),
+      withField(good, "v", "2"),
+      withField(good, "alg", "A128GCM"),
+      withField(good, "iv", Buffer.alloc(11).toString("base64url")),
+      withField(good, "iv", Buffer.alloc(13).toString("base64url")),
+      withField(good, "tag", Buffer.alloc(15).toString("base64url")),
+      withField(good, "tag", Buffer.alloc(17).toString("base64url")),
+      withField(good, "ct", 5),
+      withField(good, "iv", null),
+      withField(good, "tag", undefined),
+      // A plain record from before sealing.
+      JSON.stringify({ version: 1, userId: "u", cookie: "c" }),
+    ];
+    for (const text of cases) expect(() => unseal(text, key, aad), text).not.toThrow();
+    for (const text of cases) expect(unseal(text, key, aad), text).toBeUndefined();
+    // A key of the wrong size is a caller bug, but it must not throw out of a read either.
+    expect(unseal(good, Buffer.alloc(16), aad)).toBeUndefined();
+  });
+});
+
+describe("deriveKey", () => {
+  it("is 32 bytes and the same for the same secret and purpose", () => {
+    const a = deriveKey("a".repeat(44), "dapp-session");
+    expect(a).toHaveLength(32);
+    expect(deriveKey("a".repeat(44), "dapp-session").equals(a)).toBe(true);
+  });
+
+  it("differs by purpose and by secret", () => {
+    const base = deriveKey("a".repeat(44), "dapp-session");
+    expect(deriveKey("a".repeat(44), "wallet-session").equals(base)).toBe(false);
+    expect(deriveKey("b".repeat(44), "dapp-session").equals(base)).toBe(false);
+  });
+
+  it("is not the secret itself", () => {
+    const secret = "a".repeat(44);
+    expect(deriveKey(secret, "dapp-session").toString("utf8")).not.toContain(secret.slice(0, 8));
   });
 });
