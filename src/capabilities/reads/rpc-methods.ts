@@ -280,7 +280,7 @@ export const RPC_METHODS: readonly RpcRow[] = [
     method: "getTDU",
     group: "account",
     returns: "the account's holdings, one entry per asset id and token id with its amount",
-    note: "moi_get_account sums them per asset.",
+    note: "moi_get_account shows the same rows, one per asset and token id.",
     params: { id: account(), ...at() },
     call: (p, a) => p.getTDU(a.id, optionsOf(a)),
   }),

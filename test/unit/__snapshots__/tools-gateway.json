@@ -1122,7 +1122,7 @@
   {
     "name": "moi_rpc_tdu",
     "title": "Node method moi.TDU",
-    "description": "Raw node method moi.TDU: returns the account's holdings, one entry per asset id and token id with its amount. moi_get_account sums them per asset.",
+    "description": "Raw node method moi.TDU: returns the account's holdings, one entry per asset id and token id with its amount. moi_get_account shows the same rows, one per asset and token id.",
     "inputSchema": {
       "type": "object",
       "properties": {
