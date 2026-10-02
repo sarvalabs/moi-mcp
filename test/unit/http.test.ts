@@ -29,7 +29,7 @@ describe("read-only HTTP server", () => {
       "tools/wallet",
       "tools/hosted-writes",
       "tools/local-writes",
-      "tools/registry-writes",
+      "applications/registry/tools",
       "wc/client",
       "wc/session",
     ]) {

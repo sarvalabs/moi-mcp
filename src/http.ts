@@ -33,8 +33,7 @@ const readWindow = new SlidingWindow({ windowMs: 60_000, max: 240 });
 import { messageOf } from "./errors.js";
 import { withModernSchemaDialect } from "./json-schema-dialect.js";
 import { NETWORKS } from "./moi/provider.js";
-import { registerResources } from "./resources/index.js";
-import { registerReadTools } from "./tools/reads.js";
+import { registerGatewayTools } from "./tools/register-gateway.js";
 
 const require = createRequire(import.meta.url);
 const pkg = require("../package.json") as { name: string; version: string };
@@ -42,55 +41,25 @@ const pkg = require("../package.json") as { name: string; version: string };
 export const MCP_PATH = "/mcp";
 const MAX_BODY_BYTES = 1_000_000;
 
-/**
- * A server carrying only the read surface.
- *
- * Deliberately does not import tools/wallet or tools/writes: the write path
- * must be unreachable over HTTP by construction, not by configuration.
- */
-export function buildReadOnlyServer(opts: { publicUrl?: string } = {}): McpServer {
-  const server = new McpServer({
+/** The server shell the two HTTP servers share: name, title, version and icons. The hosted server (src/server.ts) fills the same shell. */
+export function newHttpServer(publicUrl?: string): McpServer {
+  return new McpServer({
     name: `${pkg.name}-http`,
     title: "MOI",
     version: pkg.version,
-    ...brandServerInfo(opts.publicUrl),
+    ...brandServerInfo(publicUrl),
   });
+}
 
-  server.registerTool(
-    "ping",
-    {
-      title: "Ping MOI MCP (read-only)",
-      description:
-        "Health check for the read-only MOI MCP endpoint. Returns the server version and the " +
-        "network it is pointed at. This endpoint has no wallet and cannot write.",
-      inputSchema: {},
-      outputSchema: {
-        server: z.string(),
-        version: z.string(),
-        transport: z.string(),
-        network: z.string(),
-        readOnly: z.boolean(),
-      },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    async () => {
-      const cfg = getConfig();
-      const structuredContent = {
-        server: pkg.name,
-        version: pkg.version,
-        transport: "streamable-http",
-        network: cfg.MOI_NETWORK,
-        readOnly: true,
-      };
-      return {
-        content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
-        structuredContent,
-      };
-    },
-  );
-
-  registerReadTools(server);
-  registerResources(server);
+/**
+ * A server carrying only the read surface.
+ *
+ * Deliberately imports no wallet, write or application code: it registers through src/tools/register-gateway.ts, which
+ * reaches none of it, so the write path is unreachable over HTTP by construction, not by configuration.
+ */
+export function buildReadOnlyServer(opts: { publicUrl?: string } = {}): McpServer {
+  const server = newHttpServer(opts.publicUrl);
+  registerGatewayTools(server);
   return server;
 }
 

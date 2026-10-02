@@ -9,21 +9,21 @@
  * phone, and a call only goes to an operation the dapp itself lists.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import type { AuthInfo } from "../auth/types.js";
-import { boundedResult, limitDepth, MAX_BODY_BYTES, MAX_DEPTH } from "../bounds.js";
-import { getConfig, log } from "../config.js";
-import { DappClient, requestFor, type DappApi, type DappOperation } from "../dapp/client.js";
-import { dappOrigin, publicFetch, type Resolver } from "../dapp/origin.js";
-import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
-import { toMcpError } from "../errors.js";
-import { MoiError } from "../moi-error.js";
-import { NETWORKS } from "../moi/provider.js";
-import { ErrorCode } from "../schema.js";
-import { ConfirmArg, loadSession, previewsOf, type HostedWriteDeps } from "./hosted-writes.js";
-import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "./preview.js";
+import type { AuthInfo } from "../../auth/types.js";
+import { boundedResult, limitDepth, MAX_BODY_BYTES, MAX_DEPTH } from "../../bounds.js";
+import { getConfig, log } from "../../config.js";
+import { DappClient, requestFor, type DappApi, type DappOperation } from "./client.js";
+import { dappOrigin, publicFetch, type Resolver } from "./origin.js";
+import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "./store.js";
+import { toMcpError } from "../../errors.js";
+import { MoiError } from "../../moi-error.js";
+import { NETWORKS } from "../../moi/provider.js";
+import { ErrorCode } from "../../schema.js";
+import { defineTool, type ToolDef } from "../../tools/define.js";
+import { ConfirmArg, loadSession, previewsOf, type HostedWriteDeps } from "../../tools/hosted-writes.js";
+import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "../../tools/preview.js";
 
 export interface DappDeps {
   sessions: DappSessionStore;
@@ -91,7 +91,7 @@ async function run<T extends Record<string, unknown>>(fn: () => Promise<{ value:
   }
 }
 
-export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthInfo | null): void {
+export function dappTools(deps: DappDeps, auth: AuthInfo | null): ToolDef[] {
   // Built once per registerDappTools call, and for the system resolver once per process (publicFetch caches it): the hosted
   // server registers these tools afresh on every request, and an Agent holds a connection pool. allowInsecure is the test
   // switch and keeps the plain fetch, as it keeps the lexical rules off.
@@ -99,6 +99,7 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
   const clientFor = deps.clientFor ?? ((baseUrl: string) => new DappClient(baseUrl, guarded));
   const origin = (url: string) => dappOrigin(url, { allowInsecure: deps.allowInsecure });
   const apis = new Map<string, { api: DappApi | undefined; at: number }>();
+  const tools: ToolDef[] = [];
 
   async function requireSession(userId: string, dapp: string): Promise<StoredDappSession> {
     const rec = await deps.sessions.get(userId, dapp);
@@ -120,7 +121,7 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
     return api;
   }
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_dapp_sign_in",
     {
       title: "Sign in to a MOI dapp",
@@ -156,9 +157,9 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
           text: `Signed in to ${dapp} as ${wallet.address}, until ${iso(session.expiresAt)}.`,
         };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_dapp_sessions",
     {
       title: "Dapps signed in to",
@@ -176,9 +177,9 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
           value: { sessions: live.map((r) => ({ dapp: r.baseUrl, wallet: r.walletAddress, expiresAt: iso(r.expiresAt) })) },
         };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_dapp_sign_out",
     {
       title: "Sign out of a MOI dapp",
@@ -201,9 +202,9 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
         }
         return { value: { dapp, signedIn: false }, text: rec ? `Signed out of ${dapp}.` : `There was no session with ${dapp}.` };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_dapp_api",
     {
       title: "What a MOI dapp can do",
@@ -241,9 +242,9 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
           },
         };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_dapp_call",
     {
       title: "Call an operation a MOI dapp publishes",
@@ -406,5 +407,6 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
           throw err;
         }
       }),
-  );
+  ));
+  return tools;
 }

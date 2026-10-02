@@ -13,7 +13,7 @@ import {
   resetRegistryCache,
   resolveAgent,
   unwrapRoutineResult,
-} from "../../src/moi/registry.js";
+} from "../../src/capabilities/reads/registry.js";
 
 const LOGIC = "0x200000002f3e9469d94de695be18fc5839fb9535f543b381f903f7f800000000";
 const OWNER_HEX = "0x00000000bfa45bc089945cf2befd0bd488e863562628cb47b14f3d1800000000";

@@ -8,8 +8,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import { LaunchpadClient, type FetchLike } from "../../src/launchpad/client.js";
-import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/moi/registry.js";
+import { LaunchpadClient, type FetchLike } from "../../src/applications/launchpad/client.js";
+import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";
 import { ErrorCode } from "../../src/schema.js";
 import type { runWrite } from "../../src/tools/hosted-writes.js";
 import { PreviewRegistry } from "../../src/tools/preview.js";

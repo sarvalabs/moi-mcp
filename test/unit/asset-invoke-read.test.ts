@@ -1,7 +1,7 @@
 /**
  * moi_asset_invoke on a routine that only reads: no wallet, no preview, no journal, and an answer that is refused rather
  * than guessed when the node's reply is not whole. moi.Call is faked here; the read path has run against this mock and
- * not against a node (src/tools/asset-invoke.ts says so).
+ * not against a node (src/capabilities/assets/execute.ts says so).
  */
 
 import { hexToBytes } from "js-moi-sdk";

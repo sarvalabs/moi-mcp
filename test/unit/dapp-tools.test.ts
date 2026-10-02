@@ -15,7 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
-import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver } from "../../src/dapp/origin.js";
+import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver } from "../../src/applications/dapp/origin.js";
 import {
   checkSignInMessage,
   DappClient,
@@ -26,12 +26,13 @@ import {
   summarizeOpenApi,
   type DappCallResult,
   type DappOperation,
-} from "../../src/dapp/client.js";
+} from "../../src/applications/dapp/client.js";
 import { MAX_TEXT_CHARS } from "../../src/bounds.js";
-import { FileDappSessionStore } from "../../src/dapp/store.js";
+import { FileDappSessionStore } from "../../src/applications/dapp/store.js";
 import { MoiError } from "../../src/moi-error.js";
 import { ErrorCode } from "../../src/schema.js";
-import { registerDappTools, type DappDeps } from "../../src/tools/dapp.js";
+import type { DappDeps } from "../../src/applications/dapp/tools.js";
+import { registerDappTools } from "../../src/tools/register.js";
 import { PREVIEW_TTL_MS, PreviewRegistry } from "../../src/tools/preview.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {

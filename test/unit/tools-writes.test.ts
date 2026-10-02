@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_FUEL_PRICE } from "../../src/moi/ix-builder.js";
 import { isMoiError } from "../../src/moi-error.js";
 import { WriteResult } from "../../src/schema.js";
-import { assertStandardSupported } from "../../src/tools/write-core.js";
+import { assertStandardSupported } from "../../src/capabilities/assets/shortcuts.js";
 import {
   ACCOUNT,
   KMOI,

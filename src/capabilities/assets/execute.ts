@@ -2,10 +2,10 @@
  * The half of moi_asset_invoke that needs the node and the write path.
  *
  * The domain logic (reading the manifest, validating and encoding the inputs, describing a routine, naming the accounts
- * it locks) is in src/capabilities/assets and imports nothing from src/tools. This file adds what only the tools layer
- * can have: the provider, the sender's sequence number, fuel measurement and simulation from write-core.ts, and the
- * read-only call. runWrite (src/tools/hosted-writes.ts) does the rest for a write: preview, confirm token, phone,
- * broadcast, journal.
+ * it locks) is in the files beside this one (routines.ts, codec.ts, invoke.ts, standards/) and imports nothing from
+ * src/tools. This file adds what needs the shared write core in src/tools/write-core.ts: the provider, the sender's
+ * sequence number, fuel measurement and simulation, and the read-only call. runWrite (src/tools/hosted-writes.ts) does
+ * the rest for a write: preview, confirm token, phone, broadcast, journal.
  *
  * Whether a call is a read or a write is the manifest's word (mode static or not), so the manifest is read before
  * anything else. A routine that only reads runs here, at once, with no wallet, no preview and no journal entry, like a
@@ -22,23 +22,28 @@
 
 import { DEFAULT_FUEL_LIMIT as SDK_DEFAULT_FUEL_LIMIT, ManifestCoder } from "js-moi-sdk";
 
-import { shapeOutputs } from "../capabilities/assets/codec.js";
+import type { AuthInfo } from "../../auth/types.js";
+import { shapeOutputs } from "./codec.js";
 import {
   planAssetCall,
   resolveFromManifest,
   type AssetCallInput,
   type ResolvedAssetCall,
-} from "../capabilities/assets/invoke.js";
-import { assetRef, loadAssetManifest } from "../capabilities/assets/routines.js";
-import { standardFileFor } from "../capabilities/assets/standards/index.js";
-import { boundedResult } from "../bounds.js";
-import { asRpcError, MoiError } from "../moi-error.js";
-import { assertSendable, buildAssetInvoke, decodeErrorHex, quoteChainText } from "../moi/ix-builder.js";
-import { getProvider, getReadOnlySigner } from "../moi/provider.js";
-import { clampChainText, getAsset } from "../moi/reads.js";
-import { callerRejected, isCallerRejected } from "../moi/registry.js";
-import { ErrorCode } from "../schema.js";
-import { assertWillSucceed, providerOptions, senderFor, withMeasuredFuel, type PreparedWrite } from "./write-core.js";
+} from "./invoke.js";
+import { assetRef, loadAssetManifest } from "./routines.js";
+import { standardFileFor } from "./standards/index.js";
+import { boundedResult } from "../../bounds.js";
+import { asRpcError, MoiError } from "../../moi-error.js";
+import { assertSendable, buildAssetInvoke, decodeErrorHex, quoteChainText } from "../../moi/ix-builder.js";
+import { getProvider, getReadOnlySigner } from "../../moi/provider.js";
+import { clampChainText, getAsset } from "../../moi/reads.js";
+import { callerRejected, isCallerRejected } from "../reads/registry.js";
+import { AssetInvokeInput, ErrorCode } from "../../schema.js";
+import { defineTool, type ToolDef } from "../../tools/define.js";
+import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type WriteDeps } from "../../tools/hosted-writes.js";
+import {
+  asWriteResult, assertWillSucceed, ok, providerOptions, senderFor, withMeasuredFuel, type PreparedWrite,
+} from "../../tools/write-core.js";
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 
@@ -150,4 +155,45 @@ export async function viewAssetRoutine(
 
   const { outputs, truncated } = shapeOutputs(callable.returns, decoded ?? {});
   return boundedResult({ assetId: asset.assetId, routine: name, outputs, decimals: asset.decimals, truncated });
+}
+
+export function assetInvokeTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
+  return defineTool(
+    "moi_asset_invoke",
+    {
+      title: "Call a MOI asset routine",
+      description:
+        "Call a routine of a MOI asset by name, as listed by moi_asset_routines. `args` is an object keyed by the routine's input labels; integers " +
+        "(amounts, token ids, timestamps) are whole numbers in the asset's base units, and the preview also shows an amount in whole tokens. " +
+        "A routine that only reads runs at once and returns its decoded outputs, with no preview or confirm; on the hosted server this tool still " +
+        "needs the user signed in for such a read, so for a plain balance use moi_get_account, which does not. " +
+        "A routine that changes state is simulated first and nothing happens until the user taps Send on their phone. " +
+        "This server describes the routines of MAS0, MAS1, MAS2 and the native asset KMOI in the preview; for any other routine pass `participants` " +
+        "(an empty list if it touches only the asset and the user's own account), and the preview then says plainly that this server cannot say what the " +
+        "routine does. KMOI cannot be minted or burned." +
+        APPROVAL_PROTOCOL,
+      inputSchema: { ...AssetInvokeInput.shape, confirm: ConfirmArg },
+      annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
+    },
+    async ({ confirm, ...call }) => {
+      // Whether this is a read or a write is the manifest's word, so the manifest is read first. A read needs no
+      // wallet, preview or journal entry (like moi_call_logic kind=view); a write goes the one write path. So the node
+      // is asked for the asset and its manifest before the wallet check: an unpaired write still ends as
+      // rejected / wallet_disconnected before anything is simulated, built, previewed or signed.
+      let target: ResolvedAssetCall;
+      try {
+        target = await resolveAssetCall(call);
+      } catch (err) {
+        return ok(asWriteResult(err));
+      }
+      if (target.callable.access === "read") {
+        try {
+          return await viewAssetRoutine(target, call);
+        } catch (err) {
+          return ok(asWriteResult(err));
+        }
+      }
+      return runWrite(deps, auth, "asset_invoke", call, confirm, (s) => prepareAssetInvoke(s.address, target, call));
+    },
+  );
 }

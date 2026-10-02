@@ -355,7 +355,6 @@ describe("the SDK's asset driver is not used", () => {
   it("is named by no import in the tool file or anywhere under src/capabilities/assets", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const files = [
-      "src/tools/asset-invoke.ts",
       ...(readdirSync(`${root}src/capabilities/assets`, { recursive: true }) as string[])
         .filter((name) => name.endsWith(".ts"))
         .map((name) => `src/capabilities/assets/${name.split("\\").join("/")}`),

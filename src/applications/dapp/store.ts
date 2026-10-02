@@ -23,8 +23,8 @@ import { join } from "node:path";
 import type { RedisClientType } from "redis";
 import { z } from "zod";
 
-import { seal, unseal } from "../auth/crypto.js";
-import { log } from "../config.js";
+import { seal, unseal } from "../../auth/crypto.js";
+import { log } from "../../config.js";
 
 export const StoredDappSession = z.object({
   version: z.literal(1),

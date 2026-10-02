@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { HexId } from "../schema.js";
+import { HexId } from "../../schema.js";
 
 export const LaunchpadStatusInput = z.object({});
 

@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createDownloadModule } from "../../src/launchpad/download.js";
+import { createDownloadModule } from "../../src/applications/launchpad/download.js";
 
 const servers: Server[] = [];
 afterEach(async () => {

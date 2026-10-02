@@ -1,5 +1,6 @@
 /**
- * The write tools, and the one path every write takes: runWrite.
+ * The one path every write takes: runWrite. The write tools themselves are built by the capability each belongs to
+ * (src/capabilities) and put on a server by src/tools/register.ts.
  *
  * The hosted server runs it with a signed-in user, the pairing store, the WalletConnect hub and a journal in its data
  * directory. The stdio server runs the same code with a constant local user and small adapters over its own session
@@ -20,7 +21,6 @@
  * sign.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
@@ -29,37 +29,13 @@ import { messageOf } from "../errors.js";
 import { interactionUrl, NETWORKS } from "../moi/provider.js";
 import type { AuthInfo } from "../auth/types.js";
 import { isExpired } from "../wc/lifetime.js";
-import {
-  AssetInvokeInput,
-  CallLogicInput,
-  CreateAccountInput,
-  CreateAssetInput,
-  ErrorCode,
-  MintInput,
-  TransferInput,
-  type WriteResult,
-} from "../schema.js";
+import { ErrorCode, type WriteResult } from "../schema.js";
 import { MoiError } from "../moi-error.js";
 import type { StoredWalletSession, WalletSessionStore } from "../wc/store.js";
 import type { WalletConnectHubLike } from "../wc/hub.js";
 import type { WriteJournal } from "../journal.js";
 import { fingerprint, PreviewRegistry } from "./preview.js";
-import {
-  WriteOutputShape,
-  asWriteResult,
-  broadcastSigned,
-  kmoiBalance,
-  ok,
-  prepareCreateAccount,
-  prepareCreateAsset,
-  prepareLogicInvoke,
-  prepareMint,
-  prepareTransfer,
-  viewLogicCall,
-  type PreparedWrite,
-} from "./write-core.js";
-import { prepareAssetInvoke, resolveAssetCall, viewAssetRoutine } from "./asset-invoke.js";
-import type { ResolvedAssetCall } from "../capabilities/assets/invoke.js";
+import { asWriteResult, broadcastSigned, ok, type PreparedWrite } from "./write-core.js";
 
 /**
  * What the write path uses, and no more. The hosted server satisfies it with its real store, hub and journal
@@ -332,154 +308,4 @@ export async function runWrite(
     if (proposed) await markUnwound(deps.journal, id, signed, err);
     return ok(asWriteResult(err));
   }
-}
-
-/**
- * Register hosted write tools on the given server.
- *
- * Registered even when the caller is anonymous, so the tools appear in
- * tools/list and a model knows they exist. Hiding them looked safer but was
- * worse: an unlisted tool is never called, so the 401 that prompts sign-in
- * never fires, and the user is told this server is read-only. Calls are
- * still gated — see requireAuth.
- */
-export function registerHostedWrites(
-  server: McpServer,
-  deps: WriteDeps,
-  auth: AuthInfo | null,
-): void {
-  server.registerTool(
-    "moi_transfer",
-    {
-      title: "Transfer a MOI asset",
-      description:
-        "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first. " +
-        "Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation, before any preview." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...TransferInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "transfer", args, confirm, (s) => prepareTransfer(s.address, args)),
-  );
-
-  server.registerTool(
-    "moi_create_account",
-    {
-      title: "Create a MOI account",
-      description:
-        "Register a brand-new MOI account on chain and fund it with KMOI from the user's paired wallet; nothing happens until they tap Send on their phone. " +
-        "Needed because a transfer to an address that has never existed is refused by the node. Takes the new account's address and its public key, " +
-        "which MOI Wallet or the SDK shows for a freshly generated account; the tool refuses a key that does not produce that address." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...CreateAccountInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "create_account", args, confirm, (s) => prepareCreateAccount(s.address, args)),
-  );
-
-  server.registerTool(
-    "moi_create_asset",
-    {
-      title: "Create a MOI asset",
-      description:
-        "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much. " +
-        "Only the MAS0 standard can be created for now: leave `standard` out, because MAS1, MAS2 and MASX are not supported yet." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...CreateAssetInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "create_asset", args, confirm, async (s) =>
-        prepareCreateAsset(s.address, { ...args, balance: await kmoiBalance(s.address) }),
-      ),
-  );
-
-  server.registerTool(
-    "moi_mint",
-    {
-      title: "Mint tokens of a MOI asset",
-      description:
-        "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone. " +
-        "Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation, before any preview." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...MintInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "mint", args, confirm, (s) => prepareMint(s.address, args)),
-  );
-
-  server.registerTool(
-    "moi_call_logic",
-    {
-      title: "Call a MOI logic routine",
-      description:
-        "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. " +
-        "If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...CallLogicInput.shape, confirm: ConfirmArg },
-      annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
-    },
-    async ({ confirm, kind, ...call }) => {
-      // A view runs against the node directly — no wallet, no approval, no
-      // signed interaction, and so nothing for the journal to track.
-      if (kind === "view") {
-        try {
-          const value = await viewLogicCall({ ...call, kind: "view" });
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-            structuredContent: value,
-          };
-        } catch (err) {
-          return ok(asWriteResult(err));
-        }
-      }
-      return runWrite(deps, auth, "call_logic", call, confirm, (s) => prepareLogicInvoke(s.address, call));
-    },
-  );
-
-  server.registerTool(
-    "moi_asset_invoke",
-    {
-      title: "Call a MOI asset routine",
-      description:
-        "Call a routine of a MOI asset by name, as listed by moi_asset_routines. `args` is an object keyed by the routine's input labels; integers " +
-        "(amounts, token ids, timestamps) are whole numbers in the asset's base units, and the preview also shows an amount in whole tokens. " +
-        "A routine that only reads runs at once and returns its decoded outputs, with no preview or confirm; on the hosted server this tool still " +
-        "needs the user signed in for such a read, so for a plain balance use moi_get_account, which does not. " +
-        "A routine that changes state is simulated first and nothing happens until the user taps Send on their phone. " +
-        "This server describes the routines of MAS0, MAS1, MAS2 and the native asset KMOI in the preview; for any other routine pass `participants` " +
-        "(an empty list if it touches only the asset and the user's own account), and the preview then says plainly that this server cannot say what the " +
-        "routine does. KMOI cannot be minted or burned." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...AssetInvokeInput.shape, confirm: ConfirmArg },
-      annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
-    },
-    async ({ confirm, ...call }) => {
-      // Whether this is a read or a write is the manifest's word, so the manifest is read first. A read needs no
-      // wallet, preview or journal entry (like moi_call_logic kind=view); a write goes the one write path. So the node
-      // is asked for the asset and its manifest before the wallet check: an unpaired write still ends as
-      // rejected / wallet_disconnected before anything is simulated, built, previewed or signed.
-      let target: ResolvedAssetCall;
-      try {
-        target = await resolveAssetCall(call);
-      } catch (err) {
-        return ok(asWriteResult(err));
-      }
-      if (target.callable.access === "read") {
-        try {
-          return await viewAssetRoutine(target, call);
-        } catch (err) {
-          return ok(asWriteResult(err));
-        }
-      }
-      return runWrite(deps, auth, "asset_invoke", call, confirm, (s) => prepareAssetInvoke(s.address, target, call));
-    },
-  );
 }

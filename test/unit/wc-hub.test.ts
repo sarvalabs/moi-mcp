@@ -893,18 +893,24 @@ describe("message signing is reachable only from the two sign-in tools", () => {
 
   it("names signMessageFor only in the two sign-in tools and in the hub that defines it", () => {
     // The hub counts twice: the interface member and the class method.
-    expect(countsOf(/\bsignMessageFor\b/g)).toEqual({ "tools/dapp.ts": 1, "tools/launchpad.ts": 1, "wc/hub.ts": 2 });
+    expect(countsOf(/\bsignMessageFor\b/g)).toEqual({
+      "applications/dapp/tools.ts": 1,
+      "applications/launchpad/tools.ts": 1,
+      "wc/hub.ts": 2,
+    });
   });
 
   it.each([
-    ["tools/dapp.ts", "moi_dapp_sign_in"],
-    ["tools/launchpad.ts", "moi_launchpad_sign_in"],
+    ["applications/dapp/tools.ts", "moi_dapp_sign_in"],
+    ["applications/launchpad/tools.ts", "moi_launchpad_sign_in"],
   ])("calls it in %s from inside %s and no other tool", (file, tool) => {
     const text = sources().get(file)!;
     const call = text.search(/\bsignMessageFor\b/);
     expect(call).toBeGreaterThan(-1);
-    // The tool being registered at that point is the last registerTool before it.
-    const registered = [...text.slice(0, call).matchAll(/registerTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
+    // The tool being defined at that point is the last defineTool before it. A sign-in tool can change something, so
+    // layout.test.ts requires it to be built with defineTool and never registered by name: this test and that rule
+    // rely on each other.
+    const registered = [...text.slice(0, call).matchAll(/defineTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
     expect(registered.at(-1)).toBe(tool);
   });
 

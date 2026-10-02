@@ -25,7 +25,8 @@ import {
   type FakeWallet,
   type Harness,
 } from "../helpers/harness.js";
-import { registerHostedWrites, type HostedWriteDeps } from "../../src/tools/hosted-writes.js";
+import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
+import { registerHostedWrites } from "../../src/tools/register.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 let node: MockNode;

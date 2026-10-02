@@ -5,7 +5,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { NETWORKS } from "../moi/provider.js";
-import { DEFAULT_REGISTRY_LOGIC_ID, registryLogicId } from "../moi/registry.js";
+import { DEFAULT_REGISTRY_LOGIC_ID, registryLogicId } from "../capabilities/reads/registry.js";
 
 const QUICKSTART = `# MOI MCP — quickstart
 

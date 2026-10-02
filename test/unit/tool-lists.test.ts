@@ -43,7 +43,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { buildReadOnlyServer } from "../../src/http.js";
 import { withModernSchemaDialect } from "../../src/json-schema-dialect.js";
-import { LaunchpadClient } from "../../src/launchpad/client.js";
+import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
 import { buildHostedApp, GATED, type HostedDeps } from "../../src/server.js";
 import { applyEnv, buildServer, restoreEnv, tempHome } from "../helpers/harness.js";
 import { deps as writeDeps, fakeHub, fakeStore } from "../helpers/hosted.js";
@@ -220,21 +220,30 @@ describe("the hosted server's tool list", () => {
   });
 });
 
-describe("the write tools are registered in one place", () => {
-  it("each is registered by hosted-writes.ts or registry-writes.ts and by no other file under src/", () => {
+describe("the write tools are built in one place each and registered only by src/tools/register.ts", () => {
+  it("each is built by defineTool in the capability or application that owns it, and no file registers it by name", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const files = (readdirSync(`${root}src`, { recursive: true }) as string[])
       .filter((name) => name.endsWith(".ts"))
       .map((name) => `src/${name.split("\\").join("/")}`);
-    const registeredIn = (tool: string): string[] =>
-      files.filter((file) => new RegExp(`registerTool\\(\\s*"${tool}"`).test(readFileSync(`${root}${file}`, "utf8")));
-    for (const name of ["moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic", "moi_asset_invoke"]) {
-      expect(registeredIn(name), name).toEqual(["src/tools/hosted-writes.ts"]);
+    const calling = (call: string, tool: string): string[] =>
+      files.filter((file) => new RegExp(`${call}\\(\\s*"${tool}"`).test(readFileSync(`${root}${file}`, "utf8")));
+    const builtIn: Record<string, string> = {
+      moi_transfer: "src/capabilities/assets/shortcuts.ts",
+      moi_mint: "src/capabilities/assets/shortcuts.ts",
+      moi_create_account: "src/capabilities/accounts/create-participant.ts",
+      moi_create_asset: "src/capabilities/assets/create.ts",
+      moi_call_logic: "src/capabilities/logics/invoke.ts",
+      moi_asset_invoke: "src/capabilities/assets/execute.ts",
+      moi_register_agent: "src/applications/registry/tools.ts",
+      moi_set_agent_status: "src/applications/registry/tools.ts",
+      moi_transfer_agent: "src/applications/registry/tools.ts",
+    };
+    for (const [name, file] of Object.entries(builtIn)) {
+      expect(calling("defineTool", name), name).toEqual([file]);
+      expect(calling("registerTool", name), `${name} is registered by name somewhere; register.ts names no tool`).toEqual([]);
     }
     // The read half of the asset tools is registered with the other reads, and is on the gateway.
-    expect(registeredIn("moi_asset_routines")).toEqual(["src/tools/reads.ts"]);
-    for (const name of ["moi_register_agent", "moi_set_agent_status", "moi_transfer_agent"]) {
-      expect(registeredIn(name), name).toEqual(["src/tools/registry-writes.ts"]);
-    }
+    expect(calling("registerTool", "moi_asset_routines")).toEqual(["src/capabilities/reads/tools.ts"]);
   });
 });

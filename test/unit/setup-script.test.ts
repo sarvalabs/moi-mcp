@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeSetupScript, redactSetupScript } from "../../src/launchpad/setup-script.js";
+import { describeSetupScript, redactSetupScript } from "../../src/applications/launchpad/setup-script.js";
 
 const KEY = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 

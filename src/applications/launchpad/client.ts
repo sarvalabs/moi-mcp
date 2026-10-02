@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-import { readWhole } from "../bounds.js";
+import { readWhole } from "../../bounds.js";
 import { DappClient, sessionCookieFrom } from "../dapp/client.js";
-import { MoiError } from "../moi-error.js";
-import { ErrorCode } from "../schema.js";
+import { MoiError } from "../../moi-error.js";
+import { ErrorCode } from "../../schema.js";
 
 /** The real script is small, since it fetches the runtime rather than embedding it. A cut script must never be served, so over this is an error. */
 const MAX_SCRIPT_BYTES = 256 * 1024;

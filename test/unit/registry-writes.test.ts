@@ -9,9 +9,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
-import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/moi/registry.js";
+import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";
 import type { runWrite } from "../../src/tools/hosted-writes.js";
-import { registerRegistryWrites } from "../../src/tools/registry-writes.js";
+import { registerRegistryWrites } from "../../src/tools/register.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, session, structured, USER } from "../helpers/hosted.js";
 import { ACCOUNT } from "../helpers/mock-node.js";
@@ -19,8 +19,8 @@ import { ACCOUNT } from "../helpers/mock-node.js";
 // The interaction itself is not built here: prepareLogicInvoke needs a node.
 // What is under test is everything around it, so it is stood in for and the
 // registry-core descriptions and details run for real on top of it.
-vi.mock("../../src/tools/write-core.js", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../../src/tools/write-core.js")>();
+vi.mock("../../src/capabilities/logics/invoke.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../src/capabilities/logics/invoke.js")>();
   return {
     ...mod,
     prepareLogicInvoke: vi.fn(async (account: string, params: { logicId: string; routine: string; args?: unknown[] }) => ({

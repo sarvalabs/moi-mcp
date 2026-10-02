@@ -7,9 +7,10 @@
 
 import type { z } from "zod";
 
-import { registryLogicId } from "../moi/registry.js";
-import type { RegisterAgentInput, SetAgentStatusInput, TransferAgentInput } from "../schema.js";
-import { prepareLogicInvoke, type PreparedWrite } from "./write-core.js";
+import { registryLogicId } from "../../capabilities/reads/registry.js";
+import type { RegisterAgentInput, SetAgentStatusInput, TransferAgentInput } from "../../schema.js";
+import { prepareLogicInvoke } from "../../capabilities/logics/invoke.js";
+import type { PreparedWrite } from "../../tools/write-core.js";
 
 /** RegisterAgent(url, card_uri, agent_wallet) -> agent_id. The sender becomes the owner. */
 export async function prepareRegisterAgent(

@@ -12,8 +12,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { deriveKey } from "../../src/auth/crypto.js";
 import type { AuthInfo } from "../../src/auth/types.js";
-import { DAPP_SESSION_KEY_LABEL } from "../../src/dapp/store.js";
-import { registerHostedWrites, type HostedWriteDeps } from "../../src/tools/hosted-writes.js";
+import { DAPP_SESSION_KEY_LABEL } from "../../src/applications/dapp/store.js";
+import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
+import { registerHostedWrites } from "../../src/tools/register.js";
 import type { PreviewRegistry } from "../../src/tools/preview.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
 import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";

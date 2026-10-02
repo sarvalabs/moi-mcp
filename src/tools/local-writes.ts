@@ -3,8 +3,8 @@
  *
  * Every write, on every transport, goes through runWrite in hosted-writes.ts: preview, confirm token, journal. That
  * path was written for a server with many users, so it asks its caller for four things the stdio server does not have
- * in that form. Each gets a small local answer here, and registerLocalWriteTools registers the nine write tools with
- * them.
+ * in that form. Each gets a small local answer here, and registerLocalWriteTools (src/tools/register.ts) registers the nine
+ * write tools with them.
  *   - Who: there is one person, so one constant user.
  *   - The pairing: the session.json that WalletConnectClient already keeps. Its format is not touched, so a pairing
  *     made with `moi-mcp pair` or an older version still works.
@@ -15,12 +15,10 @@
  * the tests install their fake wallet after the server is built, so config, the wallet client and the journal are all
  * reached when a write is made, never before.
  *
- * Only the stdio entry point imports this file. It reaches the wallet client, so the read gateway (src/http.ts) must
+ * Only src/tools/register.ts imports this file. It reaches the wallet client, so the read gateway (src/http.ts) must
  * never import it; test/unit/gateway-imports.test.ts holds that line. For the same reason nothing here imports
  * src/server.ts: bundled into the stdio entry point, its isMain guard would start the hosted server inside it.
  */
-
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { AuthInfo } from "../auth/types.js";
 import { getConfig } from "../config.js";
@@ -29,8 +27,7 @@ import { MoiError } from "../moi-error.js";
 import { ErrorCode } from "../schema.js";
 import { clearSession, requireSession, type Session } from "../wc/session.js";
 import type { StoredWalletSession } from "../wc/store.js";
-import { registerHostedWrites, type WriteDeps } from "./hosted-writes.js";
-import { registerRegistryWrites } from "./registry-writes.js";
+import type { WriteDeps } from "./hosted-writes.js";
 import { walletClient } from "./wallet.js";
 
 /** The one person a stdio server acts for. The preview tokens and journal entries are filed under it. */
@@ -116,19 +113,4 @@ function localJournal(): WriteDeps["journal"] {
 
 export function localWriteDeps(): WriteDeps {
   return { store: localStore(), hub: localHub(), journal: localJournal() };
-}
-
-/**
- * The nine write tools on the stdio server: the hosted tools, run with the local user and the adapters above.
- *
- * registryWaitMs is 0 because a write that waits for the phone already uses most of the MCP client's 60 second
- * budget, and polling the registry afterwards for up to 30 more could lose the hash of a transaction that landed.
- * The result still carries the registry id if one look finds it, and says where to look otherwise.
- *
- * The journal is not reconciled at boot: several MCP clients start one stdio process each against the same
- * MOI_MCP_HOME, and a second process would mark the first one's live write orphaned.
- */
-export function registerLocalWriteTools(server: McpServer, deps: WriteDeps = localWriteDeps()): void {
-  registerHostedWrites(server, deps, LOCAL_AUTH);
-  registerRegistryWrites(server, deps, LOCAL_AUTH, { registryWaitMs: 0 });
 }

@@ -8,7 +8,7 @@
  * thousands of levels deep from becoming a text block of tens of millions of
  * characters, because pretty-printing indents every level.
  *
- * No MCP imports: this stays usable from src/moi and src/dapp.
+ * No MCP imports: this stays usable from src/moi and src/applications/dapp.
  */
 
 import { MoiError } from "./moi-error.js";

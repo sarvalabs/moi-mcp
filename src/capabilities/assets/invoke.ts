@@ -4,8 +4,8 @@
  * resolveFromManifest picks the routine out of a manifest view (an unknown name is refused with the names the manifest
  * does have), and planAssetCall turns the caller's inputs into everything a write needs: the encoded calldata, the
  * accounts the routine locks, the sentence a person reads, the labelled values the preview shows and a hint for a failed
- * simulation. Everything that touches the node or the write path lives in src/tools/asset-invoke.ts, which is the only
- * file that calls these.
+ * simulation. Everything that touches the node or the write path lives in src/capabilities/assets/execute.ts, which is the
+ * only file that calls these.
  *
  * This file contains no standard name and no routine name: what a routine means is the standard files' business.
  * Imports nothing from src/tools, src/wc or the journal.
@@ -53,7 +53,7 @@ export interface AssetCallPlan {
   hint?: string;
 }
 
-/** The same figure as PREVIEW_BODY_CHARS in src/tools/preview.ts; written again so this folder imports nothing from src/tools. */
+/** The same figure as PREVIEW_BODY_CHARS in src/tools/preview.ts; written again so this file imports nothing from src/tools. */
 export const PREVIEW_ARGS_CHARS = 2000;
 
 /** Names listed when a routine is not found. */

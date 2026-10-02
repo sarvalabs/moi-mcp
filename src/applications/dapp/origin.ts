@@ -11,8 +11,8 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { Agent, fetch as undiciFetch } from "undici";
 
-import { MoiError } from "../moi-error.js";
-import { ErrorCode } from "../schema.js";
+import { MoiError } from "../../moi-error.js";
+import { ErrorCode } from "../../schema.js";
 import type { FetchLike } from "./client.js";
 
 const LOCAL_SUFFIXES = [".local", ".localhost", ".internal", ".home", ".lan"];

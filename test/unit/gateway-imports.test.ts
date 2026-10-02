@@ -16,19 +16,28 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { importGraph } from "../helpers/import-graph.js";
 
-/** What the gateway must never reach: the wallet client tree, the write tools, and WalletConnect itself. */
+/**
+ * What the gateway must never reach: the wallet client tree, every file that builds or runs a write, every application,
+ * and WalletConnect itself.
+ */
 function isWalletOrWriteCode(name: string): boolean {
   return (
     name.startsWith("src/wc/") ||
-    name === "src/tools/wallet.ts" ||
-    name === "src/tools/writes.ts" ||
+    name.startsWith("src/applications/") ||
+    name.startsWith("src/capabilities/accounts/") ||
+    name.startsWith("src/capabilities/logics/") ||
+    name === "src/capabilities/assets/create.ts" ||
+    name === "src/capabilities/assets/shortcuts.ts" ||
+    name === "src/capabilities/assets/execute.ts" ||
+    name === "src/tools/define.ts" ||
     name === "src/tools/hosted-writes.ts" ||
     name === "src/tools/local-writes.ts" ||
-    name === "src/tools/registry-writes.ts" ||
-    name === "src/tools/registry-core.ts" ||
-    name === "src/tools/write-core.ts" ||
-    name === "src/tools/asset-invoke.ts" ||
     name === "src/tools/preview.ts" ||
+    name === "src/tools/register.ts" ||
+    name === "src/tools/wallet-hosted.ts" ||
+    name === "src/tools/wallet.ts" ||
+    name === "src/tools/write-core.ts" ||
+    name === "src/tools/writes.ts" ||
     name === "src/journal.ts" ||
     name === "@walletconnect" ||
     name.startsWith("@walletconnect/")
@@ -57,10 +66,13 @@ describe("the read gateway's module graph", () => {
     const stdio = importGraph("src/index.ts");
     expect(stdio.files).toEqual(
       expect.arrayContaining([
+        "src/tools/register.ts",
+        "src/tools/define.ts",
         "src/tools/local-writes.ts",
         "src/tools/hosted-writes.ts",
-        "src/tools/registry-writes.ts",
-        "src/tools/asset-invoke.ts",
+        "src/applications/registry/tools.ts",
+        "src/capabilities/assets/execute.ts",
+        "src/capabilities/assets/shortcuts.ts",
         "src/tools/wallet.ts",
         "src/wc/client.ts",
         "src/journal.ts",
@@ -78,20 +90,36 @@ describe("the read gateway's module graph", () => {
         "src/capabilities/assets/standards/index.ts",
       ]),
     );
+    expect(importGraph("src/http.ts").files).toEqual(
+      expect.arrayContaining(["src/tools/register-gateway.ts", "src/capabilities/reads/tools.ts", "src/capabilities/reads/registry.ts"]),
+    );
+    expect(importGraph("src/http.ts").files).not.toContain("src/tools/register.ts");
     // The hosted and read-only entry points start themselves when loaded. Bundled into the stdio entry point they
     // would start a second server inside it.
     expect(stdio.files).not.toContain("src/server.ts");
     expect(stdio.files).not.toContain("src/http.ts");
     expect(stdio.packages).toContain("@walletconnect/sign-client");
     expect(importGraph("src/server.ts").files).toContain("src/tools/hosted-writes.ts");
-    expect(importGraph("src/server.ts").files).toContain("src/tools/asset-invoke.ts");
+    expect(importGraph("src/server.ts").files).toContain("src/tools/register.ts");
+    expect(importGraph("src/server.ts").files).toContain("src/applications/launchpad/tools.ts");
+    expect(importGraph("src/server.ts").files).toContain("src/capabilities/assets/execute.ts");
     // moi_asset_invoke is write code: the read gateway must not reach the file that runs it.
-    expect(importGraph("src/http.ts").files).not.toContain("src/tools/asset-invoke.ts");
+    expect(importGraph("src/http.ts").files).not.toContain("src/capabilities/assets/execute.ts");
   });
 });
 
 describe("the capabilities folder", () => {
-  it("imports nothing from src/tools, src/wc or the journal, in any file and through any chain", () => {
+  /** The capability files that build or run a write through the shared write core, so they reach src/tools. */
+  const WRITE_SIDE = new Set([
+    "src/capabilities/accounts/create-participant.ts",
+    "src/capabilities/assets/create.ts",
+    "src/capabilities/assets/shortcuts.ts",
+    "src/capabilities/assets/execute.ts",
+    "src/capabilities/logics/invoke.ts",
+    "src/capabilities/logics/view.ts",
+  ]);
+
+  it("the files that do not build a write import nothing from src/tools, src/wc or the journal, in any file and through any chain", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const files = (readdirSync(`${root}src/capabilities`, { recursive: true }) as string[])
       .filter((name) => name.endsWith(".ts"))
@@ -100,7 +128,16 @@ describe("the capabilities folder", () => {
     expect(files).toEqual(
       expect.arrayContaining(["src/capabilities/assets/invoke.ts", "src/capabilities/assets/routines.ts", "src/capabilities/assets/standards/index.ts"]),
     );
+    // The exemption is kept honest from both sides: a file that starts importing src/tools without being listed fails the
+    // loop below, and a listed file that no longer needs the write core has to leave the list so the rule covers it again.
+    for (const file of WRITE_SIDE) {
+      expect(files, `${file} is listed as write-side but does not exist`).toContain(file);
+      expect(importGraph(file).files, `${file} is listed as write-side but no longer reaches the write core`).toContain(
+        "src/tools/write-core.ts",
+      );
+    }
     for (const file of files) {
+      if (WRITE_SIDE.has(file)) continue;
       const graph = importGraph(file);
       const reached = graph.files.filter((f) => f.startsWith("src/tools/") || f.startsWith("src/wc/") || f === "src/journal.ts");
       expect(reached.map((name) => graph.chain(name).join(" -> ")), `${file} must stay free of write code`).toEqual([]);

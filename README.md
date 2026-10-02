@@ -8,7 +8,7 @@ MOI uses its own words. An interaction is a transaction. A tesseract is a block.
 
 1. In claude.ai, open Settings, then Connectors, and add a custom connector with the server URL. A custom connector is a third party MCP server that claude.ai talks to over HTTP. Use the URL the operator gives you (the server is moving to a permanent domain, so the URL is a placeholder here).
 2. Sign in on the consent page the connector opens. The server runs its own OAuth 2.1 flow (`src/auth/`). OAuth is the protocol claude.ai uses to get a token that proves it acts for you. There are no accounts and no passwords; your identity is a browser cookie named `moi_uid` (`src/auth/routes.ts:22`).
-3. In a chat, ask Claude to connect your wallet. Claude calls `moi_connect_wallet`, and the tool returns a QR code image in the chat (`src/server.ts:198`).
+3. In a chat, ask Claude to connect your wallet. Claude calls `moi_connect_wallet`, and the tool returns a QR code image in the chat (`src/tools/wallet-hosted.ts:70`).
 4. Scan the QR code with the MOI Wallet app on your phone and approve the pairing there. The pairing uses WalletConnect v2, a protocol that links a phone wallet to another program through a relay server, so the two never need a direct connection. The QR code expires in about 5 minutes; if it does, call `moi_connect_wallet` again. By default the pairing lasts a week (`src/server.ts`).
 5. Chat. Reads work immediately. Balances, assets, interactions, logics, and the agent registry all come straight from the chain.
 
@@ -18,7 +18,7 @@ If a write fails with "The wallet pairing has expired", call `moi_connect_wallet
 
 ## Run it locally
 
-The local stdio server runs as a child process of your MCP client (`src/index.ts`). Its writes are the hosted server's: two calls, a preview and then a confirm, through the same code (`src/tools/hosted-writes.ts`, `src/tools/registry-writes.ts`), with one fixed local user, the pairing kept in `session.json`, and a journal at `$MOI_MCP_HOME/journal.jsonl` (`src/tools/local-writes.ts`).
+The local stdio server runs as a child process of your MCP client (`src/index.ts`). Its writes are the hosted server's: two calls, a preview and then a confirm, through the same code (`src/tools/hosted-writes.ts`, `src/applications/registry/tools.ts`), with one fixed local user, the pairing kept in `session.json`, and a journal at `$MOI_MCP_HOME/journal.jsonl` (`src/tools/local-writes.ts`).
 
 You need Node.js 20 or later (`package.json` engines) and the MOI Wallet app on your phone for writes. Reads work without the wallet. The default network, `voyage`, is MOI's devnet, a test network where currency has no real value; KMOI there is test currency, claimable from the [Voyage faucet](https://voyage.moi.technology/faucet/).
 
@@ -84,7 +84,7 @@ If pairing fails with "The WalletConnect relay refused the pairing", the `WC_PRO
 
 ## Tools
 
-The hosted server and the local stdio server list the same read tools and the same nine write tools. Reads are defined in `src/tools/reads.ts`, the wallet surface in `src/server.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/tools/hosted-writes.ts` and `src/tools/registry-writes.ts`, which both servers register; the stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
+The hosted server and the local stdio server list the same read tools and the same nine write tools. Reads are defined in `src/capabilities/reads/tools.ts`, the wallet surface in `src/tools/wallet-hosted.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/capabilities/` (accounts, assets, logics) and `src/applications/registry/tools.ts`. Every tool that can change something is put on a server in `src/tools/register.ts` and nowhere else; the read gateway's own list is `src/tools/register-gateway.ts`, which imports no wallet, write or application code. The stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
 
 | Tool | Phone approval | What it does |
 |---|---|---|

@@ -12,9 +12,9 @@
 
 import { z } from "zod";
 
-import { clip, MAX_BODY_BYTES, readCapped, readWhole } from "../bounds.js";
-import { MoiError } from "../moi-error.js";
-import { ErrorCode } from "../schema.js";
+import { clip, MAX_BODY_BYTES, readCapped, readWhole } from "../../bounds.js";
+import { MoiError } from "../../moi-error.js";
+import { ErrorCode } from "../../schema.js";
 
 const TIMEOUT_MS = 20_000;
 export const SESSION_COOKIE = "moi_session";
@@ -340,7 +340,7 @@ export class DappClient {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
-      // The address guard (src/dapp/origin.ts) refuses with a MoiError. undici reports a failure in its connect step as
+      // The address guard (src/applications/dapp/origin.ts) refuses with a MoiError. undici reports a failure in its connect step as
       // TypeError("fetch failed") with the real error as the cause, so look there too: the guard's own words are what the
       // person needs, not "fetch failed".
       const refused = err instanceof MoiError ? err : err instanceof Error && err.cause instanceof MoiError ? err.cause : undefined;

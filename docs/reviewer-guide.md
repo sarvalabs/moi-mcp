@@ -111,17 +111,31 @@ Top level:
 - `src/moi/provider.ts` (224): network registry, provider factory, and the ReadOnlySigner (see custody below).
 - `src/moi/ix-builder.ts` (565): builds unsigned interactions, documents the two encodings that are often confused (plain InteractionObject to the wallet, POLO hex to the node), fuel estimation (fuel is the compute cost a transaction may consume), and `quoteChainText`.
 - `src/moi/reads.ts` (324): account, asset, interaction, and logic reads returning exactly the schema shapes, plus `clampChainText`.
-- `src/moi/registry.ts` (285): agent-registry reads through getLogicDriver, deliberately avoiding `AgentRegistry.init()` because it demands a Signer with keys.
 
-`src/tools/` (MCP tool layer):
+`src/tools/` (what every tool shares):
 
-- `src/tools/reads.ts` (134): the read tools: `moi_get_account`, `moi_get_asset`, `moi_asset_routines`, `moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent`, `moi_list_agents`.
-- `src/tools/wallet.ts` (214): stdio pairing tools: `moi_connect_wallet`, `moi_wallet_status`, `moi_disconnect_wallet`.
-- `src/tools/local-writes.ts`: what the stdio server supplies to the write path: a constant local user, a store over `session.json`, a hub over the WalletConnect client, and a journal in `MOI_MCP_HOME`. The stdio write tools are the hosted ones.
-- `src/tools/write-core.ts` (444): shared build, simulate, fuel-measure, and broadcast helpers used by both write paths. Handles no signing and no session routing.
-- `src/tools/hosted-writes.ts` (371): the hosted write tools and `runWrite`, the one write path.
-- `src/tools/preview.ts` (116): the confirm-token registry for hosted writes.
-- `src/tools/asset-invoke.ts`: the half of `moi_asset_invoke` that needs the node and the write path: reads the manifest, plans and simulates a write, runs a read-only routine. The domain logic is in `src/capabilities/assets/` (manifest reading, argument coding, one file per asset standard) and imports nothing from `src/tools/`.
+- `src/tools/register.ts`: the one place a tool that can change something is put on a server, for the stdio and hosted servers. `registerTools(server, { mode })` is the whole list of each mode.
+- `src/tools/register-gateway.ts`: the read gateway's list (its ping, the read tools, the resources). Imports no wallet, write or application code; the hosted server reuses it for its read half.
+- `src/tools/define.ts`: `defineTool`, which builds a tool as data so only register.ts can put it on a server.
+- `src/tools/ping.ts`: the stdio and HTTP health-check tools.
+- `src/tools/wallet.ts` (stdio) and `src/tools/wallet-hosted.ts` (hosted): the pairing tools `moi_connect_wallet`, `moi_wallet_status`, `moi_disconnect_wallet`.
+- `src/tools/local-writes.ts`: what the stdio server supplies to the write path: a constant local user, a store over `session.json`, a hub over the WalletConnect client, and a journal in `MOI_MCP_HOME`.
+- `src/tools/write-core.ts`: the helpers every write shares: simulation, fuel measurement, the result envelope and the broadcast. Handles no signing and no session routing.
+- `src/tools/hosted-writes.ts`: `runWrite`, the one write path.
+- `src/tools/preview.ts`: the confirm-token registry for hosted writes.
+
+`src/capabilities/` (what the node can do, by capability; imports nothing from `src/applications`):
+
+- `src/capabilities/accounts/create-participant.ts`: `moi_create_account`.
+- `src/capabilities/assets/`: `create.ts` (`moi_create_asset`), `shortcuts.ts` (`moi_transfer`, `moi_mint` and the standard guard), `execute.ts` (the half of `moi_asset_invoke` that needs the node and the write path), and the manifest reading, argument coding and one file per asset standard, which import nothing from `src/tools/`.
+- `src/capabilities/logics/`: `invoke.ts` and `view.ts` (`moi_call_logic`).
+- `src/capabilities/reads/`: `tools.ts` (the read tools) and `registry.ts` (agent-registry reads through getLogicDriver, deliberately avoiding `AgentRegistry.init()` because it demands a Signer with keys; it is here because the read gateway serves it).
+
+`src/applications/` (products built on the write path; the core has none):
+
+- `src/applications/registry/`: the agent registry's write tools (`tools.ts`) and what they prepare (`core.ts`).
+- `src/applications/launchpad/`: the Agent Launchpad client, one-time download links, setup-script handling and tools.
+- `src/applications/dapp/`: the generic dapp client, origin guard, encrypted session store and tools.
 
 Other directories:
 
@@ -168,7 +182,7 @@ Headers (src/security-headers.ts): nosniff, `X-Frame-Options: DENY`, no-referrer
 
 Chain text is treated as untrusted input to the model. `clampChainText` (src/moi/reads.ts:85) strips control characters and caps symbols and names at 64 characters, because asset symbols are chosen by whoever creates the asset. `quoteChainText` (src/moi/ix-builder.ts:426) does the same at 240 characters for revert reasons and wraps the result in quotes so it reads as something said, and never as an instruction. `cleanErrors` (src/clean-errors.ts) keeps stack traces and filesystem paths out of HTTP responses.
 
-One recorded oddity worth knowing while reviewing writes: the storage fund deposited when creating an asset goes into the asset's own account and is not spent (src/tools/write-core.ts:339 labels it exactly that way in the preview).
+One recorded oddity worth knowing while reviewing writes: the storage fund deposited when creating an asset goes into the asset's own account and is not spent (src/capabilities/assets/create.ts labels it exactly that way in the preview).
 
 ## Tests
 
@@ -215,6 +229,6 @@ Roughly two and a half hours of reading time.
 8. src/moi/ix-builder.ts, 15 min, and src/moi/provider.ts for the ReadOnlySigner, 5 min.
 9. src/pairing/index.ts, 10 min. The URI-handling rules.
 10. src/journal.ts, 5 min.
-11. src/moi/reads.ts and src/moi/registry.ts, 10 min.
-12. src/index.ts, src/http.ts, src/tools/reads.ts, src/tools/wallet.ts, src/tools/local-writes.ts, 10 min. The stdio and read-only paths reuse everything above.
+11. src/moi/reads.ts and src/capabilities/reads/registry.ts, 10 min.
+12. src/index.ts, src/http.ts, src/tools/register.ts, src/tools/register-gateway.ts, src/capabilities/reads/tools.ts, src/tools/wallet.ts, src/tools/local-writes.ts, 10 min. The stdio and read-only paths reuse everything above.
 13. test/helpers/ and the hosted-writes test trio, 15 min, reading hosted-writes.test.ts with the weak-test note above in hand.

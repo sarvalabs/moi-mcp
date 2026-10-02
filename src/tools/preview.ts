@@ -12,8 +12,8 @@
  * In memory on purpose. A token that outlives the process is a token nobody
  * is looking at any more; the model previews again and loses a second.
  *
- * Writes to a dapp (src/tools/dapp.ts, and create_agent in
- * src/tools/launchpad.ts) use this same registry through redeemOrIssue below,
+ * Writes to a dapp (src/applications/dapp/tools.ts, and create_agent in
+ * src/applications/launchpad/tools.ts) use this same registry through redeemOrIssue below,
  * with no phone behind them. There the token only proves the call was
  * previewed with exactly these arguments; it is not proof that a person read it.
  */

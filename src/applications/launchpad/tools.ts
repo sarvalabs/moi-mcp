@@ -10,28 +10,28 @@
  *
  * Two things never pass through a tool result: the Launchpad cookie, and the
  * agent's private key. The setup script that embeds the key is fetched only
- * when the person opens a one-time download link (src/launchpad/download.ts).
+ * when the person opens a one-time download link (src/applications/launchpad/download.ts).
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomBytes } from "node:crypto";
 
-import type { AuthInfo } from "../auth/types.js";
-import { boundedResult } from "../bounds.js";
-import { getConfig } from "../config.js";
-import { messageOf, toMcpError } from "../errors.js";
-import type { AgentRecord, LaunchpadClient, RegisterIntent } from "../launchpad/client.js";
-import * as S from "../launchpad/schema.js";
+import type { AuthInfo } from "../../auth/types.js";
+import { boundedResult } from "../../bounds.js";
+import { getConfig } from "../../config.js";
+import { messageOf, toMcpError } from "../../errors.js";
+import type { AgentRecord, LaunchpadClient, RegisterIntent } from "./client.js";
+import * as S from "./schema.js";
 import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
-import { describeSetupScript } from "../launchpad/setup-script.js";
-import { MoiError } from "../moi-error.js";
-import { getReadOnlySigner, NETWORKS } from "../moi/provider.js";
-import { findAgentByWallet } from "../moi/registry.js";
-import { ErrorCode } from "../schema.js";
-import { ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "./hosted-writes.js";
-import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "./preview.js";
-import { prepareRegisterAgent } from "./registry-core.js";
-import { asWriteResult, ok } from "./write-core.js";
+import { describeSetupScript } from "./setup-script.js";
+import { MoiError } from "../../moi-error.js";
+import { getReadOnlySigner, NETWORKS } from "../../moi/provider.js";
+import { findAgentByWallet } from "../../capabilities/reads/registry.js";
+import { ErrorCode } from "../../schema.js";
+import { defineTool, type ToolDef } from "../../tools/define.js";
+import { ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "../../tools/hosted-writes.js";
+import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "../../tools/preview.js";
+import { prepareRegisterAgent } from "../registry/core.js";
+import { asWriteResult, ok } from "../../tools/write-core.js";
 
 export interface LaunchpadDeps {
   client: LaunchpadClient;
@@ -112,10 +112,11 @@ async function findRegistryAgentId(owner: string, agentWallet: string, waitMs: n
   return findAgentByWallet(signer, owner, agentWallet, waitMs);
 }
 
-export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, auth: AuthInfo | null): void {
+export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): ToolDef[] {
   const launchpad = deps.client.baseUrl;
+  const tools: ToolDef[] = [];
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_status",
     {
       title: "MOI Agent Launchpad status",
@@ -162,9 +163,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
           throw err;
         }
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_sign_in",
     {
       title: "Sign in to the MOI Agent Launchpad",
@@ -198,9 +199,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
           text: `Signed in to ${launchpad} as ${wallet.address}. The session lasts until ${iso(session.expiresAt)}.`,
         };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_templates",
     {
       title: "List MOI Agent Launchpad templates",
@@ -237,9 +238,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
           },
         };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_create_agent",
     {
       title: "Create an agent on the MOI Agent Launchpad",
@@ -335,9 +336,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
           throw err;
         }
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_register_agent",
     {
       title: "Register a Launchpad agent on chain",
@@ -465,9 +466,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
       };
       return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], structuredContent: value };
     },
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_telegram_link",
     {
       title: "Link Telegram to the Launchpad",
@@ -508,9 +509,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
           throw err;
         }
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_setup_script",
     {
       title: "Download link for an agent's setup script",
@@ -565,9 +566,9 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
             script.summary.map((s) => `- ${s}`).join("\n"),
         };
       }),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_launchpad_sign_out",
     {
       title: "Sign out of the Launchpad",
@@ -590,5 +591,6 @@ export function registerLaunchpadTools(server: McpServer, deps: LaunchpadDeps, a
         }
         return { value: { signedIn: false }, text: rec ? "Signed out of the Launchpad." : "There was no Launchpad session." };
       }),
-  );
+  ));
+  return tools;
 }

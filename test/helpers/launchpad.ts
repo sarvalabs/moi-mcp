@@ -14,9 +14,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
-import { LaunchpadClient } from "../../src/launchpad/client.js";
-import type { DappSessionStore, StoredDappSession } from "../../src/dapp/store.js";
-import { registerLaunchpadTools, type LaunchpadDeps } from "../../src/tools/launchpad.js";
+import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
+import type { DappSessionStore, StoredDappSession } from "../../src/applications/dapp/store.js";
+import type { LaunchpadDeps } from "../../src/applications/launchpad/tools.js";
+import { registerLaunchpadTools } from "../../src/tools/register.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
 import { authFor, USER } from "./hosted.js";
 

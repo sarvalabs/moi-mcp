@@ -14,7 +14,7 @@ import {
   purgeDappSessionsOnBoot,
   RedisDappSessionStore,
   type StoredDappSession,
-} from "../../src/dapp/store.js";
+} from "../../src/applications/dapp/store.js";
 import { dappKey, SESSION_SECRET } from "../helpers/hosted.js";
 
 const dirs: string[] = [];

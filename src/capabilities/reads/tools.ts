@@ -5,12 +5,12 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import { getConfig } from "../config.js";
-import { toMcpError } from "../errors.js";
-import { getProvider, getReadOnlySigner, interactionUrl } from "../moi/provider.js";
-import { getAssetRoutines } from "../capabilities/assets/routines.js";
-import { getAccount, getAsset, getInteraction, getLogic } from "../moi/reads.js";
-import { listAgents, resolveAgent } from "../moi/registry.js";
+import { getConfig } from "../../config.js";
+import { toMcpError } from "../../errors.js";
+import { getProvider, getReadOnlySigner, interactionUrl } from "../../moi/provider.js";
+import { getAssetRoutines } from "../assets/routines.js";
+import { getAccount, getAsset, getInteraction, getLogic } from "../../moi/reads.js";
+import { listAgents, resolveAgent } from "./registry.js";
 import {
   AssetRoutinesInput,
   AssetRoutinesOutput,
@@ -26,7 +26,7 @@ import {
   ListAgentsOutput,
   ResolveAgentInput,
   ResolveAgentOutput,
-} from "../schema.js";
+} from "../../schema.js";
 
 /** Wrap a handler so library errors surface as proper MCP errors. */
 async function run<T>(fn: () => Promise<T>): Promise<{

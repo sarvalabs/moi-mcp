@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/moi/registry.js";
+import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";
 import { ACCOUNT, OTHER, SENT_HASH, startMockNode, type MockNode } from "../helpers/mock-node.js";
 import {
   fakeWallet,
@@ -17,8 +17,8 @@ import {
   type Harness,
 } from "../helpers/harness.js";
 
-vi.mock("../../src/tools/write-core.js", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../../src/tools/write-core.js")>();
+vi.mock("../../src/capabilities/logics/invoke.js", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("../../src/capabilities/logics/invoke.js")>();
   return {
     ...mod,
     prepareLogicInvoke: vi.fn(async (account: string, params: { logicId: string; routine: string; args?: unknown[] }) => ({

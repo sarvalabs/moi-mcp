@@ -13,10 +13,10 @@
 import { getLogicDriver } from "js-moi-sdk";
 import { z } from "zod";
 
-import { limitDepth, readWhole } from "../bounds.js";
-import { MoiError, asRpcError } from "../moi-error.js";
-import { ErrorCode, type ResolveAgentOutput } from "../schema.js";
-import type { ReadOnlySigner } from "./provider.js";
+import { limitDepth, readWhole } from "../../bounds.js";
+import { MoiError, asRpcError } from "../../moi-error.js";
+import { ErrorCode, type ResolveAgentOutput } from "../../schema.js";
+import type { ReadOnlySigner } from "../../moi/provider.js";
 
 /**
  * The registry logic id on the current devnet. Redeployed after the

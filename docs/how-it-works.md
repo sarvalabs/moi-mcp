@@ -52,22 +52,22 @@ If you click Deny, or the sign-in stalls, Claude will report that the connector 
 
 ## Pairing the phone, step by step
 
-1. In the chat, ask to connect your wallet. Claude calls the tool `moi_connect_wallet` (src/server.ts:198).
+1. In the chat, ask to connect your wallet. Claude calls the tool `moi_connect_wallet` (src/tools/wallet-hosted.ts:70).
 2. The server asks the WalletConnect relay to open a pairing proposal and gets back a `wc:` URI, a line of text that encodes the proposal and the key to join it (src/wc/hub.ts:154-181).
-3. The server renders that URI as a QR code image, 320 pixels wide, and returns it inline in the chat, together with the raw text to paste if the image does not render (src/server.ts:237-247).
+3. The server renders that URI as a QR code image, 320 pixels wide, and returns it inline in the chat, together with the raw text to paste if the image does not render (src/tools/wallet-hosted.ts:121-143).
 4. You open MOI Wallet on your phone and scan the QR code. Scanning gives the phone the proposal and the key to join it. The phone and the server then open a shared channel through the relay, identified by a string called a topic (src/wc/store.ts:22). From then on they exchange messages through the relay on that topic (src/wc/hub.ts:271-275).
 5. The phone shows the pairing request, labeled "MOI MCP", and you approve it there. The server stores a record linking your user id to the topic and your wallet address (src/server.ts:490-540).
-6. The QR proposal expires after about 5 minutes if nobody scans it (src/server.ts:246, 536-537). If it expires, ask Claude to connect again, and the server issues a fresh QR.
+6. The QR proposal expires after about 5 minutes if nobody scans it (src/tools/wallet-hosted.ts:130, src/server.ts:536-537). If it expires, ask Claude to connect again, and the server issues a fresh QR.
 
 A pairing has one of two lifetimes, and you choose it. The default, persistent, lasts 7 days (src/wc/lifetime.ts:16). The other, once, lasts 15 minutes or one approved transaction, whichever comes first (src/wc/lifetime.ts:19; src/tools/hosted-writes.ts:133-146). The chat tool takes a `remember` argument; the browser pairing page has the same choice as two radio buttons (src/pairing/index.ts:300-303).
 
-Pairing again while a wallet is already paired replaces it. The tool warns you first: the reply names the currently paired address and says that approving the new scan replaces it, and that if you did not ask to change wallets you should not scan (src/server.ts:224-252). When a pairing expires, the server deletes its record the next time it is touched, and the server answers any write attempt with a message that the pairing has expired and you should pair again (src/tools/hosted-writes.ts:121-126).
+Pairing again while a wallet is already paired replaces it. The tool warns you first: the reply names the currently paired address and says that approving the new scan replaces it, and that if you did not ask to change wallets you should not scan (src/tools/wallet-hosted.ts:96-138). When a pairing expires, the server deletes its record the next time it is touched, and the server answers any write attempt with a message that the pairing has expired and you should pair again (src/tools/hosted-writes.ts:121-126).
 
 ## Sending a transaction, step by step
 
 Suppose you type: "send 5 KMOI to 0xabc...". Every state-changing tool works as two calls (src/tools/hosted-writes.ts:180-186).
 
-Call one: Claude calls `moi_transfer` with the recipient, the asset, and the amount, and no `confirm` argument. The server looks up your pairing. It reads the asset's details from the node. It checks that your balance covers 5 KMOI. It builds the unsigned interaction. It asks the node to estimate the fuel. It simulates the transaction, and refuses one that would fail, before it asks you anything (src/tools/write-core.ts:258-297, 69-82). Nothing reaches the phone. The reply is a preview. Rendered in the chat, it begins like this (src/tools/write-core.ts:169-185):
+Call one: Claude calls `moi_transfer` with the recipient, the asset, and the amount, and no `confirm` argument. The server looks up your pairing. It reads the asset's details from the node. It checks that your balance covers 5 KMOI. It builds the unsigned interaction. It asks the node to estimate the fuel. It simulates the transaction, and refuses one that would fail, before it asks you anything (src/capabilities/assets/shortcuts.ts:84-124, src/tools/write-core.ts:69-82). Nothing reaches the phone. The reply is a preview. Rendered in the chat, it begins like this (src/tools/write-core.ts:169-185):
 
 ```
 PREVIEW. Nothing has been sent to the phone.
@@ -85,7 +85,7 @@ What the phone will show:
 
 The block above shows the first part of the rendering. The full reply ends with an instruction that carries the confirm token, tells Claude to get an explicit yes from you, and tells you to check that the amount and address on the phone match (src/tools/write-core.ts:180-182).
 
-The field labels Operation, Asset, Amount, "Amount in base units", and To come from src/tools/write-core.ts:289-294. Base units are the asset's smallest unit. Decimals is the asset's number of decimal places. For an asset with 6 decimals, an amount of 1.5 is 1500000 base units (src/moi/ix-builder.ts:83-100). Dimension is a separate field naming the asset's kind: 0 Economic, 1 Possession. The fuel line is built as "up to (limit) at price (price)" (src/tools/hosted-writes.ts:207). The preview also carries a confirm token: a short random string bound to your user id, this tool, and these exact arguments, valid for 10 minutes and usable once (src/tools/preview.ts:5-9, 28).
+The field labels Operation, Asset, Amount, "Amount in base units", and To come from src/capabilities/assets/shortcuts.ts:116-120. Base units are the asset's smallest unit. Decimals is the asset's number of decimal places. For an asset with 6 decimals, an amount of 1.5 is 1500000 base units (src/moi/ix-builder.ts:83-100). Dimension is a separate field naming the asset's kind: 0 Economic, 1 Possession. The fuel line is built as "up to (limit) at price (price)" (src/tools/hosted-writes.ts:207). The preview also carries a confirm token: a short random string bound to your user id, this tool, and these exact arguments, valid for 10 minutes and usable once (src/tools/preview.ts:5-9, 28).
 
 The preview exists because the wallet lacks a feature: `moi.signInteraction` has no field for a description, so the phone shows only the raw operation fields it can decode (docs/upstream-issues.md, issue 6). The chat shows you the same numbers first, in the same units the phone will use. The confirm token is the proof you saw them. Without a matching token, the server refuses to contact the phone at all.
 
@@ -109,7 +109,7 @@ Each row shows the reply Claude receives, from `WriteResult` in src/schema.ts:19
 | You ignored the phone past the time limit | `status: "rejected"`, `reason: "timeout"`, with the message "No answer from MOI Wallet within N seconds. Nothing was sent. Check the phone and try again." (src/wc/hub.ts:87). The hosted wait is 240 seconds by default (src/config.ts:157). | A tap after the timeout broadcasts nothing (src/wc/hub.ts:277-281). Retry from a fresh preview. |
 | The pairing expired | `status: "rejected"`, `reason: "wallet_disconnected"`, message "The wallet pairing has expired. Call moi_connect_wallet to pair again." (src/tools/hosted-writes.ts:121-126) | Ask Claude to connect your wallet and scan a new QR. |
 | The wallet is on the wrong network | `status: "rejected"`, `reason: "network_mismatch"`, message "Wallet is on (chain), expected (chain)" (src/tools/hosted-writes.ts:103-106) | Re-pair on the network the server is configured for. |
-| Your balance is too small | `status: "error"`, `code: "INSUFFICIENT_BALANCE"`, with a message naming what you hold and what the transfer needs, in base units (src/tools/write-core.ts:270-277) | Get more of the asset, or send less. On devnet, use the Voyage faucet, a web page that hands out free test tokens (docs/quickstart.md:81-82). |
+| Your balance is too small | `status: "error"`, `code: "INSUFFICIENT_BALANCE"`, with a message naming what you hold and what the transfer needs, in base units (src/capabilities/assets/shortcuts.ts:97-103) | Get more of the asset, or send less. On devnet, use the Voyage faucet, a web page that hands out free test tokens (docs/quickstart.md:81-82). |
 | The numbers changed between preview and confirm | A fresh preview with the note "The numbers changed since the preview, for example because a balance moved. Nothing was sent to the phone." (src/tools/hosted-writes.ts:192-194) | Read the new preview and say yes again. |
 | The token was missing, expired, used, or the arguments changed | A fresh preview with the note beginning "That confirm token did not match this call" (src/tools/hosted-writes.ts:188-190) | Read the new preview and say yes again. |
 

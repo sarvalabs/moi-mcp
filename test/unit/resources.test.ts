@@ -4,7 +4,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/moi/registry.js";
+import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/capabilities/reads/registry.js";
 import { startMockNode, type MockNode } from "../helpers/mock-node.js";
 import { startHarness, type Harness } from "../helpers/harness.js";
 

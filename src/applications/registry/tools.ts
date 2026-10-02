@@ -4,16 +4,15 @@
  * the same two-call preview and confirm path as every other write.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
-import type { AuthInfo } from "../auth/types.js";
-import { getConfig } from "../config.js";
-import { getReadOnlySigner } from "../moi/provider.js";
-import { findAgentByWallet } from "../moi/registry.js";
-import { RegisterAgentInput, SetAgentStatusInput, TransferAgentInput } from "../schema.js";
-import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type WriteDeps } from "./hosted-writes.js";
-import { prepareRegisterAgent, prepareSetAgentStatus, prepareTransferAgent } from "./registry-core.js";
-import { WriteOutputShape } from "./write-core.js";
+import type { AuthInfo } from "../../auth/types.js";
+import { getConfig } from "../../config.js";
+import { getReadOnlySigner } from "../../moi/provider.js";
+import { findAgentByWallet } from "../../capabilities/reads/registry.js";
+import { RegisterAgentInput, SetAgentStatusInput, TransferAgentInput } from "../../schema.js";
+import { defineTool, type ToolDef } from "../../tools/define.js";
+import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type WriteDeps } from "../../tools/hosted-writes.js";
+import { prepareRegisterAgent, prepareSetAgentStatus, prepareTransferAgent } from "./core.js";
+import { WriteOutputShape } from "../../tools/write-core.js";
 
 export interface RegistryWriteOptions {
   /** The write path. Injectable so tests can stand in for the phone and the node. */
@@ -24,15 +23,15 @@ export interface RegistryWriteOptions {
 
 const DEFAULT_REGISTRY_WAIT_MS = 30_000;
 
-export function registerRegistryWrites(
-  server: McpServer,
+export function registryWriteTools(
   deps: WriteDeps,
   auth: AuthInfo | null,
   options: RegistryWriteOptions = {},
-): void {
+): ToolDef[] {
   const write = options.write ?? runWrite;
+  const tools: ToolDef[] = [];
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_register_agent",
     {
       title: "Register an agent in the MOI agent registry",
@@ -73,9 +72,9 @@ export function registerRegistryWrites(
       };
       return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], structuredContent: value };
     },
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_set_agent_status",
     {
       title: "Set an agent's status in the MOI agent registry",
@@ -89,9 +88,9 @@ export function registerRegistryWrites(
     },
     async ({ confirm, ...args }) =>
       write(deps, auth, "set_agent_status", args, confirm, (session) => prepareSetAgentStatus(session.address, args)),
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_transfer_agent",
     {
       title: "Transfer an agent to a new owner",
@@ -105,5 +104,7 @@ export function registerRegistryWrites(
     },
     async ({ confirm, ...args }) =>
       write(deps, auth, "transfer_agent", args, confirm, (session) => prepareTransferAgent(session.address, args)),
-  );
+  ));
+
+  return tools;
 }

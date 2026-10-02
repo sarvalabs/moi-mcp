@@ -16,12 +16,13 @@ import { vi } from "vitest";
 
 import { resetConfigCache } from "../../src/config.js";
 import { resetProviderCache } from "../../src/moi/provider.js";
-import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/moi/registry.js";
+import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/capabilities/reads/registry.js";
 import { registerResources } from "../../src/resources/index.js";
-import { localWriteDeps, registerLocalWriteTools } from "../../src/tools/local-writes.js";
+import { localWriteDeps } from "../../src/tools/local-writes.js";
 import { PreviewRegistry } from "../../src/tools/preview.js";
-import { registerReadTools } from "../../src/tools/reads.js";
-import { registerWalletTools, resetWalletClient, setWalletClient } from "../../src/tools/wallet.js";
+import { registerReadTools } from "../../src/capabilities/reads/tools.js";
+import { registerLocalWriteTools, registerWalletTools } from "../../src/tools/register.js";
+import { resetWalletClient, setWalletClient } from "../../src/tools/wallet.js";
 import { withModernSchemaDialect } from "../../src/json-schema-dialect.js";
 import type { SignClientLike, WcConfig } from "../../src/wc/client.js";
 import { saveSession, type Session } from "../../src/wc/session.js";
