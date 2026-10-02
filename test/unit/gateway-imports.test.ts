@@ -116,6 +116,11 @@ describe("the read gateway's module graph", () => {
     expect(importGraph("src/server.ts").files).toEqual(expect.arrayContaining(deployFiles));
     expect(stdio.files).toEqual(expect.arrayContaining(deployFiles));
     for (const file of deployFiles) expect(importGraph("src/http.ts").files).not.toContain(file);
+    // Enlisting is sent through moi_call_logic, so the file that builds it is reached from the signing servers and never from the gateway.
+    const enlist = "src/capabilities/logics/enlist.ts";
+    expect(importGraph("src/server.ts").files).toContain(enlist);
+    expect(stdio.files).toContain(enlist);
+    expect(importGraph("src/http.ts").files).not.toContain(enlist);
   });
 });
 
@@ -127,6 +132,7 @@ describe("the capabilities folder", () => {
     "src/capabilities/assets/shortcuts.ts",
     "src/capabilities/assets/execute.ts",
     "src/capabilities/logics/deploy.ts",
+    "src/capabilities/logics/enlist.ts",
     "src/capabilities/logics/invoke.ts",
     "src/capabilities/logics/view.ts",
   ]);

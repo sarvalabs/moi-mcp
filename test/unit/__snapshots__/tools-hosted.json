@@ -607,7 +607,7 @@
   {
     "name": "moi_get_logic",
     "title": "Get MOI logic",
-    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order.",
+    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order. A routine listed with kind enlist is sent by moi_call_logic as an enlistment of the user's account in the logic, not as a plain call; one listed with kind deploy runs only when a logic is deployed (moi_deploy_logic), and moi_call_logic refuses it.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1526,7 +1526,7 @@
   {
     "name": "moi_call_logic",
     "title": "Call a MOI logic routine",
-    "description": "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "description": "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution. The logic's manifest says what a routine is sent as, and moi_get_logic shows each routine's kind: an invoke routine is a logic call, and an enlist routine enlists the user's account in the logic, which the protocol docs describe as setting up storage for that logic in the account and running the logic's setup routine. The docs list that operation as reserved, not yet active, so the node may refuse it, and this tool cannot send an enlist routine any other way; a refusal arrives before the phone is asked. A deploy routine cannot be called here: moi_deploy_logic deploys a logic. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {

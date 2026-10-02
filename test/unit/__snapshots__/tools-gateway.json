@@ -607,7 +607,7 @@
   {
     "name": "moi_get_logic",
     "title": "Get MOI logic",
-    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order.",
+    "description": "Read a deployed MOI logic (MOI's term for a smart contract) by logic id. Returns its callable routines with their input and output types. Call this before moi_call_logic so you know the routine name and argument order. A routine listed with kind enlist is sent by moi_call_logic as an enlistment of the user's account in the logic, not as a plain call; one listed with kind deploy runs only when a logic is deployed (moi_deploy_logic), and moi_call_logic refuses it.",
     "inputSchema": {
       "type": "object",
       "properties": {

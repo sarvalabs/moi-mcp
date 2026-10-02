@@ -8,7 +8,8 @@
  * served by a node, does.
  *
  * The rest are synthetic, built with the callable() helper of asset-fixtures.ts, for the cases a real manifest does not
- * show. Their bytecode is empty, which the encoder accepts and a node would not run.
+ * show. Their bytecode is empty, which the encoder accepts and a node would not run. LOCK_LEDGER's enlist routine,
+ * Register, takes no inputs; MEMBERS has one that does.
  *
  * Imports asset-fixtures.ts and mock-node.ts; neither imports this file.
  */
@@ -17,8 +18,8 @@ import { deriveLogicId } from "js-moi-sdk";
 
 import flipperFixture from "../fixtures/logics/flipper.json";
 import lockLedgerFixture from "../fixtures/logics/lock-ledger.json";
-import { callable, type ManifestLike } from "./asset-fixtures.js";
-import { ACCOUNT, SENT_HASH } from "./mock-node.js";
+import { callable, manifestHex, type ManifestLike } from "./asset-fixtures.js";
+import { ACCOUNT, RpcFailure, SENT_HASH, type MockNode } from "./mock-node.js";
 
 export const LOCK_LEDGER: ManifestLike = lockLedgerFixture.manifest as unknown as ManifestLike;
 export const FLIPPER: ManifestLike = flipperFixture.manifest as unknown as ManifestLike;
@@ -48,6 +49,26 @@ export const COUNTER: ManifestLike = logicManifest([
   callable(1, "Increment", "dynamic", []),
   callable(2, "GetCount", "static", [], [["current_count", "u64"]]),
 ]);
+
+/** An enlist routine that takes an input, an invoke and a read: the case LOCK_LEDGER's Register, which takes nothing, does not show. */
+export const MEMBERS: ManifestLike = logicManifest([
+  callable(0, "Join", "dynamic", [["nickname", "string"]], [], "enlist"),
+  callable(1, "Post", "dynamic", [["text", "string"]]),
+  callable(2, "Count", "static", [], [["total", "u64"]]),
+]);
+
+/**
+ * Make the mock node serve `manifest` for every logic id, as moi.LogicManifest does for a deployed logic (the JSON as hex
+ * bytes). The two checks the default handler makes stay, because the real node makes them: a valid id, and an options block.
+ */
+export function serveLogic(node: MockNode, manifest: unknown): void {
+  node.on("moi.LogicManifest", (p) => {
+    if (typeof p["logic_id"] !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(p["logic_id"])) throw new RpcFailure(`invalid identifier: ${String(p["logic_id"])}`);
+    const options = p["options"];
+    if (typeof options !== "object" || options === null || Object.keys(options).length === 0) throw new RpcFailure("empty options");
+    return manifestHex(manifest);
+  });
+}
 
 /**
  * The id a deploy from ACCOUNT will have on the mock node: moi.PendingInteractionCount answers 5 for every account, so the

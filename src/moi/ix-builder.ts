@@ -743,20 +743,58 @@ interface RoutineCtx {
   ctx?: { opType?: number; payload?: Record<string, unknown> };
 }
 
+/** What the SDK's logic driver can say about a manifest's callables: the kind declared for each name (the last declaration of a name wins). */
+export interface CallsiteReader {
+  getCallsites?: () => Map<string, { kind?: string }>;
+}
+
+/**
+ * Refuse a call to a routine the manifest declares as a deploy routine, and say where a deploy goes. The SDK's driver offers
+ * only invoke and enlist routines, so a deploy routine would otherwise read as a name the logic does not have. It runs once,
+ * when a logic is deployed (protocol docs, logics.md, "Endpoint Qualifiers"). Call it only for a name the driver does not
+ * offer: for one it offers, the SDK has already decided what the call is, and logicCallKind follows that.
+ */
+export function assertNotDeployRoutine(driver: CallsiteReader, logicId: string, name: string): void {
+  if (driver.getCallsites?.().get(name)?.kind !== "deploy") return;
+  throw new MoiError(
+    ErrorCode.INVALID_ARGS,
+    `${quoteChainText(name, 64)} is a deploy routine of logic ${logicId}. A deploy routine runs once, when a logic is deployed, and cannot be called on a ` +
+      "logic that already exists. To deploy a new logic from its compiled manifest use moi_deploy_logic. Nothing was sent to your wallet.",
+    { logicId, callsite: name, kind: "deploy" },
+  );
+}
+
+/**
+ * What a logic call is sent as, from the operation type the SDK built for it: LOGIC_INVOKE or LOGIC_ENLIST, nothing else. The
+ * driver chooses the type from the routine's declared kind (js-moi-logic, logic-base.ts, getTxType). A second lookup of the
+ * kind by name, in the driver's callsite map, disagrees with it when a manifest declares one name twice, so this reads the
+ * request instead, and an SDK that stops saying fails closed.
+ */
+export function logicCallKind(opType: number | undefined, callsite: string): "invoke" | "enlist" {
+  if (opType === OpType.LOGIC_INVOKE) return "invoke";
+  if (opType === OpType.LOGIC_ENLIST) return "enlist";
+  throw new MoiError(
+    ErrorCode.INVALID_ARGS,
+    `Could not tell which operation a call to ${quoteChainText(callsite, 64)} is sent as. Nothing was sent to your wallet.`,
+    { callsite, opType: opType ?? null },
+  );
+}
+
 /**
  * Ask the SDK's logic driver to encode a routine call, rather than
  * hand-rolling POLO calldata. Calling `driver.routines.X(...args)` returns a
- * request whose `ctx.payload` is exactly the LOGIC_INVOKE payload we need:
- * `{ logic_id, callsite, calldata }`.
+ * request whose `ctx.payload` is exactly the payload we need: `{ logic_id, callsite, calldata }`. The same shape serves
+ * LOGIC_INVOKE and LOGIC_ENLIST (js-moi-providers, LogicActionPayload); `kind` says which one the request's `ctx.opType` is.
+ * The driver offers invoke and enlist routines only; a deploy routine is refused by name (assertNotDeployRoutine).
  */
 export async function encodeLogicCall(
   signer: unknown,
   logicId: string,
   callsite: string,
   args: unknown[],
-): Promise<{ logic_id: string; callsite: string; calldata?: string }> {
+): Promise<{ logic_id: string; callsite: string; calldata?: string; kind: "invoke" | "enlist" }> {
   const { getLogicDriver } = await import("js-moi-sdk");
-  let driver: { routines: Record<string, (...a: unknown[]) => Promise<RoutineCtx>> };
+  let driver: CallsiteReader & { routines: Record<string, (...a: unknown[]) => Promise<RoutineCtx>> };
   try {
     driver = (await getLogicDriver(logicId, signer as never)) as never;
   } catch (err) {
@@ -767,8 +805,11 @@ export async function encodeLogicCall(
     );
   }
 
-  const routine = driver.routines[callsite];
+  // Own properties only: `routines` is a plain object, so a name like "constructor" is a function on it that the manifest never
+  // declared, and calling that with arguments shaped like a request would make the caller's object the request.
+  const routine = Object.hasOwn(driver.routines, callsite) ? driver.routines[callsite] : undefined;
   if (typeof routine !== "function") {
+    assertNotDeployRoutine(driver, logicId, callsite);
     const available = Object.keys(driver.routines ?? {}).join(", ");
     throw new MoiError(
       ErrorCode.LOGIC_ROUTINE_NOT_FOUND,
@@ -782,5 +823,8 @@ export async function encodeLogicCall(
   if (!payload) {
     throw new MoiError(ErrorCode.INVALID_ARGS, `Could not encode a call to ${callsite}.`);
   }
-  return payload as { logic_id: string; callsite: string; calldata?: string };
+  return {
+    ...(payload as { logic_id: string; callsite: string; calldata?: string }),
+    kind: logicCallKind(request.ctx?.opType, callsite),
+  };
 }
