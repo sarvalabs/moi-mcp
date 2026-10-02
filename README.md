@@ -64,7 +64,7 @@ Environment variables, validated by `src/config.ts` against the schema at `src/s
 
 The server also loads a `.env` from its working directory; see `.env.example`. Three more variables are read where they are used: `MOI_AGENT_REGISTRY_LOGIC_ID` (registry override), `MOI_READ_CALLER` (caller identity for read only logic simulation), and `MOI_WC_PARAM_STYLE` (set to `ix_args` to switch the WalletConnect parameter encoding; the default is positional, `src/wc/client.ts:41`).
 
-A read only HTTP gateway also exists (`src/http.ts`). It registers `ping`, the seven combined reads and the 34 node method tools (`moi_rpc_*`, see Tools), holds no wallet code, and needs no `WC_PROJECT_ID`:
+A read only HTTP gateway also exists (`src/http.ts`). It registers `ping`, the eight combined reads and the 34 node method tools (`moi_rpc_*`, see Tools), holds no wallet code, and needs no `WC_PROJECT_ID`:
 
 ```bash
 PORT=8787 npx -y -p @moi-protocol/mcp-server moi-mcp-http
@@ -90,12 +90,12 @@ The tools come in layers, each built on the one before. The node methods are the
 |---|---|---|---|
 | `ping` | yes | yes | yes |
 | Node methods, 34 `moi_rpc_*` tools | no | no | yes |
-| Combined reads, 7 tools | yes | yes | yes |
+| Combined reads, 8 tools | yes | yes | yes |
 | Wallet tools and chain writes, 9 tools | yes | yes | no |
 | Agent registry writes, 3 tools | yes | yes | no |
 | Launchpad and dapp tools, 13 tools | no | yes | no |
 
-The read gateway (`src/http.ts`) lists the most tools, 42, and can only read. The hosted server and the stdio server list the combined reads and not the node methods, which keeps their lists short. Every tool that can change something is put on a server in `src/tools/register.ts` and nowhere else. The read gateway's own list is `src/tools/register-gateway.ts`, which imports no wallet, write or application code; the hosted server reuses its first half (`registerSharedReadTools`). The stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
+The read gateway (`src/http.ts`) lists the most tools, 43, and can only read. The hosted server and the stdio server list the combined reads and not the node methods, which keeps their lists short. Every tool that can change something is put on a server in `src/tools/register.ts` and nowhere else. The read gateway's own list is `src/tools/register-gateway.ts`, which imports no wallet, write or application code; the hosted server reuses its first half (`registerSharedReadTools`). The stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
 
 ### Node methods
 
@@ -123,15 +123,16 @@ Eight node methods are not tools. `moi.SendInteractions` is how a signed interac
 
 ### Health check and combined reads
 
-`ping` is the health check. The other seven each ask the node several questions and return one answer, built on the node methods above: `moi_get_account` reads `moi.AccountState`, `moi.InteractionCount`, `moi.AccountMetaInfo` and `moi.TDU`; `moi_get_asset` reads `moi.AssetInfoByAssetID`; `moi_get_interaction` reads `moi.InteractionByHash` and `moi.InteractionReceipt`; `moi_get_logic` and `moi_asset_routines` read `moi.LogicManifest`; the two agent reads call the agent registry logic. All three deployments list them, they need no wallet, and they cannot sign anything. Use one when it fits, and a node method when you need exactly what the node says, a tesseract other than the latest, or something no combined read covers.
+`ping` is the health check. The other eight each ask the node several questions and return one answer, built on the node methods above: `moi_get_account` reads `moi.AccountState`, `moi.InteractionCount`, `moi.AccountMetaInfo`, `moi.TDU` and `moi.Deeds`; `moi_get_history` reads `moi.AccountMetaInfo` and then `moi.Tesseract` once for each height; `moi_get_asset` reads `moi.AssetInfoByAssetID`; `moi_get_interaction` reads `moi.InteractionByHash` and `moi.InteractionReceipt`, and for an interaction with no receipt yet `ixpool.ContentFrom` and `ixpool.WaitTime`; `moi_get_logic` and `moi_asset_routines` read `moi.LogicManifest`; the two agent reads call the agent registry logic. All three deployments list them, they need no wallet, and they cannot sign anything. Use one when it fits, and a node method when you need exactly what the node says, a tesseract other than the latest, or something no combined read covers.
 
 | Tool | Phone approval | What it does |
 |---|---|---|
 | `ping` | no | Health check: server version, network, config status |
-| `moi_get_account` | no | The account's nonce (the count of interactions the account has sent), whether it is registered on chain, and its balance in every asset |
+| `moi_get_account` | no | The account's nonce (the count of interactions the account has sent), whether it is registered on chain, its balance in every asset (one row for each asset and token id, 0 for a fungible asset), and the assets it created (deeds, at most 50) |
+| `moi_get_history` | no | An account's recent interactions, newest first: the last few heights (default 5, at most 20), one node call each, with each interaction's hash, operation types and explorer link, and how far it went. It reads only recent history; older or bulk history is not available until an indexer exists |
 | `moi_get_asset` | no | Asset symbol, standard, supply, decimals, dimension (0 Economic, 1 Possession), owner |
 | `moi_asset_routines` | no | What an asset can do, read from its own manifest on the node: each routine's name, whether it reads or changes state, its inputs and outputs, and whether this server can describe it in a preview |
-| `moi_get_interaction` | no | Interaction status, sender, operations, and fuel used, by hash |
+| `moi_get_interaction` | no | Interaction status, sender, operations, and fuel used, by hash; for an interaction with no receipt yet, what the node's pool says about its sender (pending or queued, how many come first, whether the wait has expired) |
 | `moi_get_logic` | no | A deployed logic's callable routines with input and output types |
 | `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address |
 | `moi_list_agents` | no | Page through the on chain registry: every agent, or those one account registered |

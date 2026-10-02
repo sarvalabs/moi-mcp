@@ -21,7 +21,7 @@
  *   hosted   buildHostedApp (src/server.ts) with the Launchpad and dapp tools on.
  *            Asked over loopback HTTP, because the server is rebuilt per request
  *            inside the handler and is not reachable any other way.
- *   gateway  buildReadOnlyServer (src/http.ts). Its list is the eight tools the hosted server also lists, then the 34 moi_rpc_
+ *   gateway  buildReadOnlyServer (src/http.ts). Its list is the nine tools the hosted server also lists, then the 34 moi_rpc_
  *            node methods (src/capabilities/reads/rpc-methods.ts), which only the gateway registers.
  *   stdio    buildServer from test/helpers/harness.ts, which mirrors src/index.ts
  *            except for ping: index.ts starts the server when imported, so a test
@@ -194,8 +194,8 @@ describe("the hosted server's tool list", () => {
     expect(gateway.filter((name) => name.startsWith("moi_rpc_"))).toEqual(nodeTools);
     expect(names(tools).filter((name) => name.startsWith("moi_rpc_")), "hosted").toEqual([]);
     expect(stdio.filter((name) => name.startsWith("moi_rpc_")), "stdio").toEqual([]);
-    // What the hosted server lists first is what the gateway lists first.
-    expect(names(tools).slice(0, 8)).toEqual(gateway.slice(0, 8));
+    // What the hosted server lists first is what the gateway lists first: ping and the eight combined reads.
+    expect(names(tools).slice(0, 9)).toEqual(gateway.slice(0, 9));
   });
 
   it("lists the nine write tools exactly as the stdio server does", async () => {

@@ -65,6 +65,7 @@ describe("resources", () => {
     expect(item.text).toMatch(/^# MOI MCP/);
     for (const tool of [
       "moi_get_account",
+      "moi_get_history",
       "moi_get_asset",
       "moi_asset_routines",
       "moi_get_interaction",

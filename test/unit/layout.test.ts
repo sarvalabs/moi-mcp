@@ -107,7 +107,7 @@ describe("a tool that can change something is registered only in src/tools/regis
     }
     expect([...seen]).toEqual(
       expect.arrayContaining([
-        "ping", "moi_get_account", "moi_get_asset", "moi_asset_routines", "moi_get_interaction",
+        "ping", "moi_get_account", "moi_get_history", "moi_get_asset", "moi_asset_routines", "moi_get_interaction",
         "moi_get_logic", "moi_resolve_agent", "moi_list_agents",
       ]),
     );

@@ -90,11 +90,12 @@ const sent = (): Record<string, unknown> => node.calls.at(-1)?.params ?? {};
 const answer = (result: { structuredContent?: Record<string, unknown> }): unknown => result.structuredContent?.["result"];
 
 describe("the node-method tools on the read gateway", () => {
-  it("come after the eight tools the gateway had, one per row, read-only, each with the shared output shape", async () => {
+  it("come after the nine tools the gateway had, one per row, read-only, each with the shared output shape", async () => {
     const { tools } = await h.client.listTools();
-    expect(tools.slice(0, 8).map((tool) => tool.name)).toEqual([
+    expect(tools.slice(0, 9).map((tool) => tool.name)).toEqual([
       "ping",
       "moi_get_account",
+      "moi_get_history",
       "moi_get_asset",
       "moi_asset_routines",
       "moi_get_interaction",
@@ -102,8 +103,8 @@ describe("the node-method tools on the read gateway", () => {
       "moi_resolve_agent",
       "moi_list_agents",
     ]);
-    expect(tools.slice(8).map((tool) => tool.name)).toEqual(rows.map((row) => row.tool));
-    for (const tool of tools.slice(8)) {
+    expect(tools.slice(9).map((tool) => tool.name)).toEqual(rows.map((row) => row.tool));
+    for (const tool of tools.slice(9)) {
       const row = rows.find((r) => r.tool === tool.name);
       expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true });
       expect(tool.title, tool.name).toBe(`Node method ${row?.wire}`);

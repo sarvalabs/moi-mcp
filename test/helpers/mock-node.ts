@@ -365,6 +365,75 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
   };
 }
 
+/** The hash of the interaction the history mock lists at a height: 0x, then the height in hex, padded to 64 digits. */
+export function ixHashAt(height: number): string {
+  return `0x${height.toString(16).padStart(64, "0")}`;
+}
+
+export interface HistoryHeight {
+  /** moi.Tesseract's time_stamp, as the node sends it: a hex quantity. Defaults to 1700000000 + the height. */
+  time_stamp?: string;
+  /** What the tesseract lists. Defaults to one ASSET_INVOKE interaction whose hash is ixHashAt(height). */
+  ixns?: unknown[];
+}
+
+export interface HistoryServing {
+  /** The account's latest height, which moi.AccountMetaInfo reports. */
+  latest: number;
+  /** Per-height answers; a height with no entry gets the defaults. */
+  heights?: Record<number, HistoryHeight>;
+  /** Heights at which moi.Tesseract fails, as a node that cannot find them does. */
+  failAt?: number[];
+  /** Heights at which moi.Tesseract answers only after this many milliseconds, as a slow node does. */
+  slowAt?: Record<number, number>;
+  /** Every height answers only after this many milliseconds, as a node that is slow on each call does. slowAt wins for its heights. */
+  slowAll?: number;
+}
+
+/**
+ * Make the mock serve an account that has a history, for moi_get_history: moi.AccountMetaInfo reports `latest` as the
+ * account's height, and moi.Tesseract answers each height from 0 to `latest`, and only when asked for the interactions,
+ * which is what the tool must ask for. Like every `on()` override, node.reset() drops it. The default handlers are untouched.
+ */
+export function serveHistory(node: MockNode, serving: HistoryServing): void {
+  node.on("moi.AccountMetaInfo", (p) => {
+    requireId(p["id"]);
+    return { type: 0, id: p["id"], height: hex(serving.latest), tesseract_hash: IX_HASH, lattice_exists: true, state_exists: true };
+  });
+  node.on("moi.Tesseract", async (p) => {
+    requireId(p["id"]);
+    requireOptions(p);
+    const height = (p["options"] as { tesseract_number?: unknown }).tesseract_number;
+    if (
+      typeof height !== "number" ||
+      !Number.isInteger(height) ||
+      height < 0 ||
+      height > serving.latest ||
+      serving.failAt?.includes(height)
+    ) {
+      throw new RpcFailure(`tesseract not found at height ${String(height)}`);
+    }
+    const slow = serving.slowAt?.[height] ?? serving.slowAll;
+    if (slow !== undefined) await new Promise((resolve) => setTimeout(resolve, slow));
+    const at = serving.heights?.[height] ?? {};
+    const defaults = [
+      {
+        hash: ixHashAt(height),
+        sender: { id: p["id"], sequence: height, key_id: 0 },
+        fuel_price: "0x1",
+        fuel_limit: "0x1c1",
+        ix_operations: [{ type: 5, payload: { asset_id: KMOI, callsite: "Transfer" } }],
+      },
+    ];
+    return {
+      participants: [{ address: p["id"], height: hex(height) }],
+      hash: ixHashAt(height),
+      time_stamp: at.time_stamp ?? hex(1_700_000_000 + height),
+      ...(p["with_interactions"] === true ? { ixns: at.ixns ?? defaults } : {}),
+    };
+  });
+}
+
 export async function startMockNode(overrides: Partial<NodeState> = {}): Promise<MockNode> {
   const state: NodeState = {
     kmoiBalance: 110_000_000_000_000n,

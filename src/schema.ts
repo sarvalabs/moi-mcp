@@ -116,13 +116,32 @@ export const GetAccountInput = z.object({
   address: HexId.describe("Account address (0x…). Required; ask moi_wallet_status for the paired wallet's address if the user means their own."),
 });
 
+/** A token's number within its asset, as a decimal string: token ids can pass what a JSON number holds exactly. */
+export const TokenId = z.string().regex(/^\d+$/, "decimal string");
+
 export const GetAccountOutput = z.object({
   address: HexId,
   nonce: z.number(),
   balances: z.array(
-    z.object({ assetId: AssetId, symbol: z.string().optional(), amount: Amount })
+    z.object({
+      assetId: AssetId,
+      symbol: z.string().optional(),
+      tokenId: TokenId.optional().describe(
+        "The token's number within the asset: 0 for a fungible asset. An asset with several token ids has one row for each.",
+      ),
+      amount: Amount,
+    })
   ),
   isRegistered: z.boolean(),
+  deeds: z
+    .array(z.object({ assetId: AssetId, symbol: z.string() }))
+    .optional()
+    .describe("The assets this account created, from the node's Deeds read. Absent when that read failed (see deedsError)."),
+  deedsTruncated: z.boolean().optional().describe("True when the account has more deeds than deeds lists."),
+  deedsError: z
+    .string()
+    .optional()
+    .describe("Says the node's Deeds read failed or did not answer in time, so deeds is absent. The rest of the answer is not affected."),
 });
 
 export const GetAssetInput = z.object({ assetId: AssetId });
@@ -153,6 +172,31 @@ export const GetInteractionOutput = z.object({
   fuelUsed: z.number().optional(),
   blockHeight: z.number().optional(),
   receipt: z.record(z.string(), z.unknown()).optional(),
+  pool: z
+    .object({
+      state: z
+        .enum(["pending", "queued", "not_listed"])
+        .optional()
+        .describe(
+          "Whether the sender's pool entries list this interaction as pending or queued. not_listed means they do not list it: " +
+            "it may have just been included or replaced, or the receipt read may have failed.",
+        ),
+      ahead: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "How many of the sender's interactions in the pool have a lower nonce, so come first. It counts only what the pool " +
+            "holds, not nonces the sender never sent.",
+        ),
+      waitExpired: z.boolean().optional().describe("Whether the pool reports the sender's wait as expired."),
+    })
+    .optional()
+    .describe("Only when the interaction has no receipt yet: what the node's pool says about its sender."),
+  poolError: z
+    .string()
+    .optional()
+    .describe("Says the pool could not be read in full, or did not answer in time, so pool is missing or incomplete. The rest of the answer is not affected."),
 });
 
 export const GetLogicInput = z.object({ logicId: LogicId });
@@ -168,6 +212,60 @@ export const GetLogicOutput = z.object({
       outputs: z.array(z.object({ name: z.string(), type: z.string() })),
     })
   ),
+});
+
+/** How many heights moi_get_history reads when it is not told how many. */
+export const HISTORY_DEFAULT_HEIGHTS = 5;
+/** The most heights it reads in one call. Each height is one node call. */
+export const HISTORY_MAX_HEIGHTS = 20;
+
+export const GetHistoryInput = z.object({
+  address: HexId.describe("Account address (0x…) whose recent interactions to read."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(HISTORY_MAX_HEIGHTS)
+    .default(HISTORY_DEFAULT_HEIGHTS)
+    .describe(`How many of the newest heights to read, one node call each. At most ${HISTORY_MAX_HEIGHTS}.`),
+});
+
+export const GetHistoryOutput = z.object({
+  address: HexId,
+  /** False when the node has no account by this id; there is then no history to read. */
+  isRegistered: z.boolean(),
+  /** The account's newest height, as the node reports it. */
+  latestHeight: z.number().int().optional(),
+  /** The lowest height this answer read. */
+  oldestHeightRead: z.number().int().optional(),
+  /** One entry for each height read, newest first. */
+  heights: z.array(
+    z.object({
+      height: z.number().int(),
+      timeStamp: z
+        .string()
+        .optional()
+        .describe("The tesseract's time stamp exactly as the node gives it, as a decimal string. Its unit is the node's."),
+      interactionCount: z
+        .number()
+        .int()
+        .describe("How many interactions the node lists at this height; interactions holds fewer when it was cut."),
+      interactions: z.array(
+        z.object({
+          hash: z.string(),
+          operationTypes: z.array(z.string()),
+          operationCount: z.number().int(),
+          explorerUrl: z.string(),
+        }),
+      ),
+    }),
+  ),
+  olderHeightsExist: z.boolean().describe("True when heights older than the oldest one read exist and were not read."),
+  truncated: z
+    .boolean()
+    .describe("True when an interaction list or an operation list was cut at its limit; the counts say how many there were."),
+  /** Plain words: what was read, how far it went, what was not read, and why history stops here. */
+  note: z.string(),
 });
 
 export const ResolveAgentInput = z.object({
@@ -720,6 +818,7 @@ export const TOOLS = {
   moi_wallet_status:     { input: WalletStatusInput,     write: false },
   moi_disconnect_wallet: { input: DisconnectWalletInput, write: false },
   moi_get_account:       { input: GetAccountInput,       write: false },
+  moi_get_history:       { input: GetHistoryInput,       write: false },
   moi_get_asset:         { input: GetAssetInput,         write: false },
   moi_get_interaction:   { input: GetInteractionInput,   write: false },
   moi_get_logic:         { input: GetLogicInput,         write: false },
