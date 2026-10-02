@@ -176,3 +176,41 @@ describe("loadHostedConfig", () => {
     expect(Object.keys(loadConfig(baseEnv()))).not.toContain("MOI_SESSION_KEY");
   });
 });
+
+describe("loadHostedConfig: the faucet settings", () => {
+  /** A MOI_DATA_DIR in a temp dir, because a successful load creates it. */
+  const env = (over: Record<string, string> = {}) => hostedEnv(tempHome(), over);
+
+  it("has no default for either: both are undefined when unset", () => {
+    // No default for the address in particular: a wrong default would send MOI_FAUCET_KEY to the wrong host.
+    const cfg = loadHostedConfig(env());
+    expect(cfg.MOI_FAUCET_URL).toBeUndefined();
+    expect(cfg.MOI_FAUCET_KEY).toBeUndefined();
+  });
+
+  it("treats a blank or whitespace-only value as unset", () => {
+    for (const value of ["", "   ", "\n"]) {
+      const cfg = loadHostedConfig(env({ MOI_FAUCET_URL: value, MOI_FAUCET_KEY: value }));
+      expect(cfg.MOI_FAUCET_URL, JSON.stringify(value)).toBeUndefined();
+      expect(cfg.MOI_FAUCET_KEY, JSON.stringify(value)).toBeUndefined();
+    }
+  });
+
+  it("returns both, trimmed, and does not judge them", () => {
+    // The rules (https only, a public host, no query or credentials, a usable key) belong to FaucetClient and faucetDepsFor,
+    // which turn a bad value into "tool off" plus one log line. If config.ts judged them too, a typo in an optional feature
+    // would stop the whole write gateway at boot. This test is what stops that strictness coming back by accident.
+    for (const url of ["http://example.test/x", "not a url", "https://u:p@example.test/"]) {
+      expect(loadHostedConfig(env({ MOI_FAUCET_URL: `  ${url}\n` })).MOI_FAUCET_URL, url).toBe(url);
+    }
+    for (const key of ["..", ".", "k".repeat(300)]) {
+      expect(loadHostedConfig(env({ MOI_FAUCET_KEY: ` ${key} ` })).MOI_FAUCET_KEY).toBe(key);
+    }
+  });
+
+  it("leaves the shared config alone: loadConfig has neither key", () => {
+    const keys = Object.keys(loadConfig(baseEnv({ MOI_FAUCET_URL: "https://faucet.example.test/x", MOI_FAUCET_KEY: "k" })));
+    expect(keys).not.toContain("MOI_FAUCET_URL");
+    expect(keys).not.toContain("MOI_FAUCET_KEY");
+  });
+});

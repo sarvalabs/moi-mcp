@@ -158,6 +158,21 @@ const HostedConfigSchema = z.object({
   /** The MOI Agent Launchpad the moi_launchpad_* tools act on. */
   MOI_LAUNCHPAD_URL: z.string().url().default("https://launchpad.moi.technology"),
   /**
+   * The Voyage devnet faucet the moi_faucet tool claims from (src/applications/faucet): its base address. Plain optional text
+   * on purpose, with no default and no judgement here. Every rule (https only, a public host, no query, fragment or
+   * credentials) is applied once, by FaucetClient's constructor, and faucetDepsFor turns a refused value into "tool off" plus
+   * one fixed error line. Judging it here too would stop the whole write gateway at boot, wallet pairing included, over a typo
+   * in an optional feature. No default, so that a wrong default can never send MOI_FAUCET_KEY to the wrong host.
+   */
+  MOI_FAUCET_URL: z.string().trim().optional(),
+  /**
+   * The faucet's API key. The faucet takes it as a path segment of its address, so the key and the address built from it are
+   * both secrets: HostedConfig now carries two (this and MOI_SESSION_KEY), so never log or serialise it whole, and server.ts
+   * logs individual fields only. Its real format is not documented, so nothing is assumed of it here; FaucetClient refuses an
+   * empty key, one over 256 characters, and one of only dots.
+   */
+  MOI_FAUCET_KEY: z.string().trim().optional(),
+  /**
    * The secret stored dapp sessions are encrypted under (one HKDF subkey per
    * purpose, deriveKey in src/auth/crypto.ts). Required on the hosted server
    * only. HostedConfig now carries a secret: never log or serialise it whole

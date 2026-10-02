@@ -121,10 +121,11 @@ function assertNetworkMatches(stored: StoredWalletSession, expectedNetwork?: str
 }
 
 /**
- * Load and validate the user's wallet session from the store.
+ * Load and validate the user's wallet session from the store. Takes only the store, so a tool that reads the pairing and
+ * never signs does not need to be handed the hub.
  */
 export async function loadSession(
-  deps: WriteDeps,
+  deps: Pick<WriteDeps, "store">,
   auth: AuthInfo,
   expectedNetwork?: string,
 ): Promise<StoredWalletSession> {

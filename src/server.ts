@@ -65,6 +65,7 @@ import {
   type DappSessionBackend,
 } from "./applications/dapp/store.js";
 import type { DappDeps } from "./applications/dapp/tools.js";
+import { faucetDepsFor, type FaucetDeps } from "./applications/faucet/tools.js";
 import { registerTools } from "./tools/register.js";
 import { WalletConnectHub, type WalletConnectHubLike } from "./wc/hub.js";
 import { FileWalletSessionStore, type StoredWalletSession, type WalletSessionStore } from "./wc/store.js";
@@ -107,6 +108,7 @@ export const GATED = [
   "moi_dapp_sign_out",
   "moi_dapp_api",
   "moi_dapp_call",
+  "moi_faucet",
 ] as const;
 
 /**
@@ -144,6 +146,7 @@ const REQUIRED_SCOPE: Record<(typeof GATED)[number], "moi:read" | "moi:write"> =
   moi_dapp_sign_out: "moi:write",
   moi_dapp_api: "moi:read",
   moi_dapp_call: "moi:write",
+  moi_faucet: "moi:write",
 };
 
 export interface HostedDeps {
@@ -173,6 +176,8 @@ export interface HostedDeps {
   launchpad?: LaunchpadDeps;
   /** The generic dapp tools; absent in tests that do not need them. */
   dapp?: DappDeps;
+  /** The devnet faucet tool; absent unless MOI_FAUCET_URL and MOI_FAUCET_KEY are set and the network is voyage (faucetDepsFor). */
+  faucet?: FaucetDeps;
 }
 
 /** Collect a JSON body, refusing anything oversized. Mirrors src/http.ts. */
@@ -522,6 +527,9 @@ async function main(): Promise<void> {
     ...(wcStorage ? { storage: wcStorage } : {}),
   });
   const journal = new WriteJournal(hosted.dataDir);
+  // Decided once, here: the tool is absent from tools/list unless both settings are set, the client accepts them and the
+  // network is the devnet. Never log `hosted` or either setting: the key is part of the faucet's address.
+  const faucet = faucetDepsFor(hosted, cfg.MOI_NETWORK, { store });
   wireSessionDeleteReconciliation(hub, store);
   await reconcileJournalOnBoot(journal);
 
@@ -558,6 +566,7 @@ async function main(): Promise<void> {
         createDownloadLink: (userId, agentId) => downloads.createDownloadLink(userId, agentId, hosted.PUBLIC_URL),
       },
       dapp: { sessions: dappSessions, writes: { store, hub, journal } },
+      ...(faucet ? { faucet } : {}),
     }),
   );
 

@@ -14,6 +14,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { dappTools, type DappDeps } from "../applications/dapp/tools.js";
+import { faucetTool, type FaucetDeps } from "../applications/faucet/tools.js";
 import { launchpadTools, type LaunchpadDeps } from "../applications/launchpad/tools.js";
 import { registryWriteTools, type RegistryWriteOptions } from "../applications/registry/tools.js";
 import type { AuthInfo } from "../auth/types.js";
@@ -111,8 +112,14 @@ export function registerDappTools(server: McpServer, deps: DappDeps, auth: AuthI
   install(server, dappTools(deps, auth));
 }
 
+/** The devnet faucet tool, on the hosted server when it is configured (faucetDepsFor in src/applications/faucet/tools.ts). */
+export function registerFaucetTools(server: McpServer, deps: FaucetDeps, auth: AuthInfo | null): void {
+  install(server, [faucetTool(deps, auth)]);
+}
+
 /** What the hosted server hands over: the pairing store and hub, the write path, and the optional applications. */
-export type HostedToolDeps = HostedWalletDeps & HostedWriteDeps & { launchpad?: LaunchpadDeps; dapp?: DappDeps };
+export type HostedToolDeps = HostedWalletDeps &
+  HostedWriteDeps & { launchpad?: LaunchpadDeps; dapp?: DappDeps; faucet?: FaucetDeps };
 
 export type ToolContext =
   | {
@@ -139,4 +146,5 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
   registerRegistryWrites(server, deps, auth);
   if (deps.launchpad) registerLaunchpadTools(server, deps.launchpad, auth);
   if (deps.dapp) registerDappTools(server, deps.dapp, auth);
+  if (deps.faucet) registerFaucetTools(server, deps.faucet, auth);
 }

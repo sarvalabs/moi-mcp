@@ -880,6 +880,8 @@ export const ErrorCode = {
   LAUNCHPAD_NOT_SIGNED_IN: "LAUNCHPAD_NOT_SIGNED_IN",
   /** The Launchpad answered with an error, or could not be reached. */
   LAUNCHPAD_ERROR: "LAUNCHPAD_ERROR",
+  /** The devnet faucet refused, could not be reached, or answered in a way this server could not use. */
+  FAUCET_ERROR: "FAUCET_ERROR",
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 

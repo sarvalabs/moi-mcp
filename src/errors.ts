@@ -30,6 +30,9 @@ const JSONRPC_FOR: Record<ErrorCode, number> = {
   // The Launchpad: sign in first, or it answered with an error.
   [ErrorCode.LAUNCHPAD_NOT_SIGNED_IN]: JsonRpcErrorCode.InvalidRequest,
   [ErrorCode.LAUNCHPAD_ERROR]: JsonRpcErrorCode.InternalError,
+
+  // The devnet faucet answered with a refusal, or could not be reached.
+  [ErrorCode.FAUCET_ERROR]: JsonRpcErrorCode.InternalError,
 };
 
 /** Build an McpError carrying the MOI string code in `data.code`. */

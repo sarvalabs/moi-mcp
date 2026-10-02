@@ -18,7 +18,7 @@
  * real transport applies (src/json-schema-dialect.ts) is switched on.
  *
  * The three modes:
- *   hosted   buildHostedApp (src/server.ts) with the Launchpad and dapp tools on.
+ *   hosted   buildHostedApp (src/server.ts) with the Launchpad, dapp and faucet tools on.
  *            Asked over loopback HTTP, because the server is rebuilt per request
  *            inside the handler and is not reachable any other way.
  *   gateway  buildReadOnlyServer (src/http.ts). Its list is the nine tools the hosted server also lists, then the 34 moi_rpc_
@@ -45,8 +45,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { RPC_METHODS } from "../../src/capabilities/reads/rpc-methods.js";
 import { buildReadOnlyServer } from "../../src/http.js";
 import { withModernSchemaDialect } from "../../src/json-schema-dialect.js";
+import { FaucetClient } from "../../src/applications/faucet/client.js";
 import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
 import { buildHostedApp, GATED, type HostedDeps } from "../../src/server.js";
+import { FAUCET_KEY } from "../helpers/faucet.js";
 import { applyEnv, buildServer, restoreEnv, tempHome } from "../helpers/harness.js";
 import { deps as writeDeps, fakeHub, fakeStore } from "../helpers/hosted.js";
 import { fakeSessions } from "../helpers/launchpad.js";
@@ -142,6 +144,11 @@ function hostedDeps(): HostedDeps {
       }),
     },
     dapp: { sessions: fakeSessions(), writes },
+    // Constructing the client opens no socket, and registering the tool reads nothing from it.
+    faucet: {
+      client: new FaucetClient({ baseUrl: "https://faucet.example.test/devnet/v2/faucet", key: FAUCET_KEY }),
+      wallets: writes,
+    },
   };
 }
 
@@ -234,6 +241,38 @@ describe("the hosted server's tool list", () => {
       expect(registered.has(name), `${name} is in GATED but the hosted server does not register it`).toBe(true);
     }
   });
+
+  it("lists moi_faucet last, and on neither the stdio server nor the read gateway", async () => {
+    // The faucet is the third optional module, registered after the dapp tools, and only the hosted server has it.
+    expect(tools.map((tool) => tool.name).at(-1)).toBe("moi_faucet");
+    for (const [label, server] of [["stdio", buildServer()], ["gateway", buildReadOnlyServer()]] as const) {
+      expect((await listTools(server)).map((tool) => tool.name), label).not.toContain("moi_faucet");
+    }
+  });
+});
+
+describe("the hosted server's tool list without a faucet", () => {
+  /** tools/list names of a hosted app built over `deps`, asked over loopback like the pinned list. */
+  async function namesOf(deps: HostedDeps): Promise<string[]> {
+    const listener = createServer(buildHostedApp(deps));
+    await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+    try {
+      const baseUrl = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`;
+      const answer = await post(baseUrl, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
+      return answer.json.result.tools.map((tool: RawTool) => tool.name);
+    } finally {
+      await new Promise<void>((resolve) => listener.close(() => resolve()));
+    }
+  }
+
+  it("is the list with a faucet less moi_faucet: the tool is absent when it is not configured", async () => {
+    // Compared with a live server rather than the snapshot file, which a -u run rewrites only at the end of the run.
+    const without = await namesOf({ ...hostedDeps(), faucet: undefined });
+    const withFaucet = await namesOf(hostedDeps());
+    expect(without).not.toContain("moi_faucet");
+    expect(without).toHaveLength(36);
+    expect(withFaucet).toEqual([...without, "moi_faucet"]);
+  });
 });
 
 describe("the write tools are built in one place each and registered only by src/tools/register.ts", () => {
@@ -256,6 +295,7 @@ describe("the write tools are built in one place each and registered only by src
       moi_register_agent: "src/applications/registry/tools.ts",
       moi_set_agent_status: "src/applications/registry/tools.ts",
       moi_transfer_agent: "src/applications/registry/tools.ts",
+      moi_faucet: "src/applications/faucet/tools.ts",
     };
     for (const [name, file] of Object.entries(builtIn)) {
       expect(calling("defineTool", name), name).toEqual([file]);

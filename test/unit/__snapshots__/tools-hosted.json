@@ -3061,5 +3061,52 @@
       "additionalProperties": false,
       "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
+  },
+  {
+    "name": "moi_faucet",
+    "title": "Claim devnet test KMOI",
+    "description": "Ask the Voyage devnet faucet for free test KMOI for the person's paired wallet. Call it only when the person has asked for test KMOI: nothing asks them to confirm. Devnet only, and only on a server that has been given a faucet key; the KMOI has no real value. It takes no arguments and cannot name another address: it claims for the wallet that is paired, and nothing else. Needs a paired wallet (moi_connect_wallet). The faucet allows each account one claim in a fixed cooldown period, so do not call it again until that has passed, and this server limits each person to 3 claims an hour on top. Nothing is signed and nothing is sent on chain by this server: the faucet sends the funds, which can take a moment to arrive. Returns what the faucet said and the wallet's KMOI balance, read once right after the claim, which may not include the new funds yet; check again with moi_get_account a minute later (its isRegistered flag also shows whether the wallet exists on chain).",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "claimed": {
+          "type": "boolean",
+          "const": true
+        },
+        "address": {
+          "type": "string"
+        },
+        "faucetSays": {
+          "type": "string"
+        },
+        "balanceKmoi": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "claimed",
+        "address",
+        "note"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
   }
 ]

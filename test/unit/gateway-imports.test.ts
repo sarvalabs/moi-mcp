@@ -126,6 +126,13 @@ describe("the read gateway's module graph", () => {
     expect(importGraph("src/server.ts").files).toContain(configure);
     expect(stdio.files).toContain(configure);
     expect(importGraph("src/http.ts").files).not.toContain(configure);
+    // The devnet faucet is an application on the hosted server only. It is bundled into the stdio entry point too, because
+    // register.ts imports it for registerFaucetTools, but registerTools never registers it there (the pinned stdio list shows
+    // that), so nothing is asserted about src/index.ts. What the gateway must never reach is the file that holds the key.
+    for (const faucet of ["src/applications/faucet/tools.ts", "src/applications/faucet/client.ts"]) {
+      expect(importGraph("src/server.ts").files).toContain(faucet);
+      expect(importGraph("src/http.ts").files).not.toContain(faucet);
+    }
   });
 });
 

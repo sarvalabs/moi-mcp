@@ -55,6 +55,7 @@ describe("read-only HTTP server", () => {
     expect(registered).not.toContain("moi_transfer");
     expect(registered).not.toContain("moi_create_asset");
     expect(registered).not.toContain("moi_connect_wallet");
+    expect(registered).not.toContain("moi_faucet");
   });
 });
 
