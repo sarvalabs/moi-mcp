@@ -121,12 +121,18 @@ describe("the read gateway's module graph", () => {
     expect(importGraph("src/server.ts").files).toContain(enlist);
     expect(stdio.files).toContain(enlist);
     expect(importGraph("src/http.ts").files).not.toContain(enlist);
+    // Adding and revoking account keys is write code too: the signing servers reach it and the gateway never does.
+    const configure = "src/capabilities/accounts/configure.ts";
+    expect(importGraph("src/server.ts").files).toContain(configure);
+    expect(stdio.files).toContain(configure);
+    expect(importGraph("src/http.ts").files).not.toContain(configure);
   });
 });
 
 describe("the capabilities folder", () => {
   /** The capability files that build or run a write through the shared write core, so they reach src/tools. */
   const WRITE_SIDE = new Set([
+    "src/capabilities/accounts/configure.ts",
     "src/capabilities/accounts/create-participant.ts",
     "src/capabilities/assets/create.ts",
     "src/capabilities/assets/shortcuts.ts",

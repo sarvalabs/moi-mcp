@@ -83,6 +83,7 @@ const MAX_BODY_BYTES = 1_000_000;
 export const GATED = [
   "moi_transfer",
   "moi_create_account",
+  "moi_configure_account",
   "moi_create_asset",
   "moi_mint",
   "moi_call_logic",
@@ -119,6 +120,7 @@ export const GATED = [
 const REQUIRED_SCOPE: Record<(typeof GATED)[number], "moi:read" | "moi:write"> = {
   moi_transfer: "moi:write",
   moi_create_account: "moi:write",
+  moi_configure_account: "moi:write",
   moi_create_asset: "moi:write",
   moi_mint: "moi:write",
   moi_call_logic: "moi:write",

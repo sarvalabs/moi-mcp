@@ -25,7 +25,7 @@
  *            node methods (src/capabilities/reads/rpc-methods.ts), which only the gateway registers.
  *   stdio    buildServer from test/helpers/harness.ts, which mirrors src/index.ts
  *            except for ping: index.ts starts the server when imported, so a test
- *            cannot build it. Its ten write tools are the hosted ones
+ *            cannot build it. Its eleven write tools are the hosted ones
  *            (registerLocalWriteTools), so they are listed exactly as the hosted
  *            server lists them; a test below says so.
  *
@@ -64,7 +64,7 @@ type ListAnswer = { result?: { tools?: RawTool[] }; error?: { message?: string }
 const pinned = (tools: RawTool[]): string => `${JSON.stringify(tools, null, 2)}\n`;
 
 const WRITE_TOOLS = [
-  "moi_transfer", "moi_create_account", "moi_create_asset", "moi_mint", "moi_call_logic", "moi_deploy_logic", "moi_asset_invoke",
+  "moi_transfer", "moi_create_account", "moi_configure_account", "moi_create_asset", "moi_mint", "moi_call_logic", "moi_deploy_logic", "moi_asset_invoke",
   "moi_register_agent", "moi_set_agent_status", "moi_transfer_agent",
 ] as const;
 
@@ -198,7 +198,7 @@ describe("the hosted server's tool list", () => {
     expect(names(tools).slice(0, 9)).toEqual(gateway.slice(0, 9));
   });
 
-  it("lists the ten write tools exactly as the stdio server does", async () => {
+  it("lists the eleven write tools exactly as the stdio server does", async () => {
     const stdio = await listTools(buildServer());
     for (const name of WRITE_TOOLS) {
       const onStdio = stdio.find((tool) => tool.name === name);
@@ -248,6 +248,7 @@ describe("the write tools are built in one place each and registered only by src
       moi_transfer: "src/capabilities/assets/shortcuts.ts",
       moi_mint: "src/capabilities/assets/shortcuts.ts",
       moi_create_account: "src/capabilities/accounts/create-participant.ts",
+      moi_configure_account: "src/capabilities/accounts/configure.ts",
       moi_create_asset: "src/capabilities/assets/create.ts",
       moi_call_logic: "src/capabilities/logics/invoke.ts",
       moi_deploy_logic: "src/capabilities/logics/deploy.ts",

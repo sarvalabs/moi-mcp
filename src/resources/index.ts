@@ -37,8 +37,9 @@ Reads need no wallet. Ask your agent:
 
 \`moi_connect_wallet\` returns a QR code. Scan it with MOI Wallet on your phone.
 Then \`moi_transfer\`, \`moi_create_asset\`, \`moi_mint\`, \`moi_call_logic\`,
-\`moi_asset_invoke\` and \`moi_deploy_logic\` build an interaction here and send it
-to your phone for approval. Nothing moves until you tap Send.
+\`moi_asset_invoke\`, \`moi_deploy_logic\` and \`moi_configure_account\` build an
+interaction here and send it to your phone for approval. Nothing moves until you
+tap Send.
 
 \`moi_asset_invoke\` calls a routine of an asset by name, from its manifest (a
 burn, an approval, a MAS1 token transfer). A routine that only reads answers at
@@ -53,6 +54,13 @@ its storage, and nothing here can take that back or remove the logic; the previe
 says so, with the fuel. It returns the new logic's id when the receipt shows it,
 and says where to look otherwise. It has not been run against a node yet, so try
 it on devnet first.
+
+\`moi_configure_account\` adds keys to your account or revokes keys. A key you add
+can sign for your account, so the preview shows every public key in full: read
+them before you say yes. One call adds keys or revokes keys, never both. It reads
+your account's keys first and refuses a change that would leave nothing able to
+sign, and a key you revoked earlier. It takes the same two calls, and it has not
+been run against a node yet, so try it on devnet first.
 
 ## 4. Agents on the MOI Agent Launchpad (hosted server only)
 

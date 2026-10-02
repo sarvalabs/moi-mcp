@@ -17,6 +17,7 @@ import { dappTools, type DappDeps } from "../applications/dapp/tools.js";
 import { launchpadTools, type LaunchpadDeps } from "../applications/launchpad/tools.js";
 import { registryWriteTools, type RegistryWriteOptions } from "../applications/registry/tools.js";
 import type { AuthInfo } from "../auth/types.js";
+import { configureAccountTool } from "../capabilities/accounts/configure.js";
 import { createAccountTool } from "../capabilities/accounts/create-participant.js";
 import { createAssetTool } from "../capabilities/assets/create.js";
 import { assetInvokeTool } from "../capabilities/assets/execute.js";
@@ -64,6 +65,7 @@ export function registerHostedWrites(
   install(server, [
     transferTool(deps, auth),
     createAccountTool(deps, auth),
+    configureAccountTool(deps, auth),
     createAssetTool(deps, auth),
     mintTool(deps, auth),
     callLogicTool(deps, auth),
@@ -83,7 +85,7 @@ export function registerRegistryWrites(
 }
 
 /**
- * The ten write tools on the stdio server: the hosted tools, run with the local user and the adapters of
+ * The eleven write tools on the stdio server: the hosted tools, run with the local user and the adapters of
  * src/tools/local-writes.ts.
  *
  * registryWaitMs and deployWaitMs are 0 because a write that waits for the phone already uses most of the MCP client's

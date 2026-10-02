@@ -407,6 +407,37 @@ export const CreateAccountInput = z.object({
     ),
   });
 
+/** Keys one moi_configure_account call may add, or revoke. No document gives a limit: the preview shows every key in full, and this keeps it readable. */
+export const MAX_KEY_CHANGES = 5;
+
+/** The key format MOI Wallet shows and moi_create_account takes: a compressed secp256k1 public key, 33 bytes, which starts 02 or 03. */
+export const CompressedPublicKey = z
+  .string()
+  .regex(/^0x0[23][0-9a-fA-F]{64}$/, "expected a compressed public key: 0x, then 02 or 03, then 64 hex characters (33 bytes in all)");
+
+/**
+ * Adding keys to, or revoking keys on, the paired wallet's own account (src/capabilities/accounts/configure.ts). There is no
+ * field for the account, for a key's weight or for the signature algorithm: the account is always the paired one, every key is
+ * added at weight 1000 (the one weight every source accepts, see the header of configure.ts) and the SDK accepts algorithm 0
+ * only. One call adds keys or revokes keys, never both (the protocol docs say an AccountConfigure operation does one or the
+ * other), and that is checked in code, with a message that says what to do, and not here.
+ */
+export const ConfigureAccountInput = z.object({
+  add: z
+    .array(CompressedPublicKey)
+    .max(MAX_KEY_CHANGES, `At most ${MAX_KEY_CHANGES} keys can be added in one call.`)
+    .optional()
+    .describe(
+      "Compressed public keys to add: 0x plus 66 hex characters each. Whoever holds a key's private key can sign for the account. " +
+        "Give this or revoke, not both: the protocol docs say one operation does an add or a revoke, never both.",
+    ),
+  revoke: z
+    .array(z.number().int("a key id is a whole number").min(0, "a key id is not negative"))
+    .max(MAX_KEY_CHANGES, `At most ${MAX_KEY_CHANGES} keys can be revoked in one call.`)
+    .optional()
+    .describe("Ids of the keys to revoke, as the account lists them (the first key is 0). Give this or add, not both."),
+});
+
 export const CreateAssetInput = z.object({
   symbol: z.string().min(1).max(12),
   supply: WireAmount,
@@ -870,6 +901,7 @@ export const TOOLS = {
   moi_list_agents:       { input: ListAgentsInput,       write: false },
   moi_transfer:          { input: TransferInput,         write: true  },
   moi_create_account:    { input: CreateAccountInput,    write: true  },
+  moi_configure_account: { input: ConfigureAccountInput, write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
   moi_deploy_logic:      { input: DeployLogicInput,      write: true  },

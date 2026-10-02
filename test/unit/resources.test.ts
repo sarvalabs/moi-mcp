@@ -79,6 +79,7 @@ describe("resources", () => {
       "moi_call_logic",
       "moi_asset_invoke",
       "moi_deploy_logic",
+      "moi_configure_account",
     ]) {
       expect(item.text).toContain(tool);
     }

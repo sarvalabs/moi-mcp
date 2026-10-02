@@ -181,6 +181,7 @@ describe("nothing under src/capabilities imports from src/applications", () => {
     // A walk over nothing proves nothing.
     expect(files).toEqual(
       expect.arrayContaining([
+        "src/capabilities/accounts/configure.ts",
         "src/capabilities/accounts/create-participant.ts",
         "src/capabilities/assets/create.ts",
         "src/capabilities/assets/shortcuts.ts",

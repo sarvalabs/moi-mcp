@@ -74,6 +74,7 @@ export const previewsOf = (d: WriteDeps): PreviewRegistry => d.previews ?? defau
 export type WriteKind =
   | "transfer"
   | "create_account"
+  | "configure_account"
   | "create_asset"
   | "mint"
   | "call_logic"
