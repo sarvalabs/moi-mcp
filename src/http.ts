@@ -3,8 +3,8 @@
  * Read-only HTTP transport.
  *
  * This is the hostable half of the server: stateless, no wallet, no session,
- * no keys. It exposes the same read tools and resources as the stdio server
- * and none of the write tools.
+ * no keys. It exposes the read tools and resources the stdio server has, plus
+ * the node's own methods as moi_rpc_ tools, and none of the write tools.
  *
  * Why the split. A WalletConnect session is a persistent relay socket and a
  * pending approval waits up to five minutes for a phone tap; neither survives

@@ -3,7 +3,9 @@
  *
  *   1. Only src/tools/register.ts registers a tool that can change something. Every other file that calls registerTool
  *      registers a read-only tool. A tool that is not read-only is built with defineTool (src/tools/define.ts) in the
- *      capability or application that owns it, and register.ts hands it to the server.
+ *      capability or application that owns it, and register.ts hands it to the server. The one other file that registers by
+ *      a computed name is src/capabilities/reads/rpc-tools.ts, which registers the node methods in a loop over its table; a
+ *      test of its own checks that everything it can register is read-only in the pinned gateway list.
  *   2. Nothing under src/capabilities reaches src/applications, directly or through any chain of imports.
  *
  * Both fail the moment a file breaks the rule, whatever the pinned tool lists say.
@@ -16,11 +18,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { RPC_METHODS } from "../../src/capabilities/reads/rpc-methods.js";
 import { registerTools } from "../../src/tools/register.js";
 import { importGraph } from "../helpers/import-graph.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const REGISTER = "src/tools/register.ts";
+/** The one other file that registers a tool by a computed name: it registers the node methods in a loop over the table in rpc-methods.ts. */
+const RPC_TOOLS = "src/capabilities/reads/rpc-tools.ts";
 
 /** Every .ts file under a repo-relative directory, repo-relative with forward slashes. */
 function sourceFiles(dir: string): string[] {
@@ -81,6 +86,8 @@ function violations(files: Record<string, string>, readOnly: ReadonlySet<string>
   for (const [file, source] of Object.entries(files)) {
     if (file === REGISTER) continue;
     for (const { line, name } of registrationsIn(source)) {
+      // The generator takes its names from its table, so the test after "holds for every file under src" checks what it can register.
+      if (name === undefined && file === RPC_TOOLS) continue;
       if (name === undefined) found.push(`${file}:${line} uses registerTool without a string literal for the tool name`);
       else if (!readOnly.has(name)) found.push(`${file}:${line} registers ${name}, which is not a read-only tool in the pinned lists`);
     }
@@ -108,6 +115,26 @@ describe("a tool that can change something is registered only in src/tools/regis
     // register.ts is the one place: a single call, which takes each name from the definition it is handed.
     expect(files[REGISTER], `${REGISTER} must exist`).toBeDefined();
     expect(registrationsIn(files[REGISTER] as string)).toHaveLength(1);
+  });
+
+  it("lets the node-method generator register by a computed name, because every name it can register is read-only", () => {
+    // One registration, in a loop, with its name taken from the table.
+    const uses = registrationsIn(files[RPC_TOOLS] as string);
+    expect(uses).toHaveLength(1);
+    expect(uses[0]?.name).toBeUndefined();
+    expect(files[RPC_TOOLS]).not.toMatch(/readOnlyHint:\s*false/);
+    // What it can register is the table's rows with status tool, and the pinned gateway list holds each one as read-only.
+    const gateway = JSON.parse(readFileSync(`${ROOT}test/unit/__snapshots__/tools-gateway.json`, "utf8")) as Array<{
+      name: string;
+      annotations?: { readOnlyHint?: boolean };
+    }>;
+    const registrable = RPC_METHODS.flatMap((row) => (row.status === "tool" ? [row.tool] : []));
+    expect(registrable).toHaveLength(34);
+    for (const name of registrable) {
+      const listed = gateway.find((tool) => tool.name === name);
+      expect(listed, `${name} is not in the pinned gateway list`).toBeDefined();
+      expect(listed?.annotations?.readOnlyHint, `${name} must be read-only`).toBe(true);
+    }
   });
 
   it("flags a write registered anywhere else, and every way of registering that hides the name", () => {

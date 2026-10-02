@@ -44,7 +44,7 @@ async function run<T>(fn: () => Promise<T>): Promise<{
   }
 }
 
-function providerOptions() {
+export function providerOptions() {
   const cfg = getConfig();
   return { network: cfg.MOI_NETWORK, rpcUrl: cfg.MOI_RPC_URL };
 }

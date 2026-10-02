@@ -91,7 +91,13 @@ describe("the read gateway's module graph", () => {
       ]),
     );
     expect(importGraph("src/http.ts").files).toEqual(
-      expect.arrayContaining(["src/tools/register-gateway.ts", "src/capabilities/reads/tools.ts", "src/capabilities/reads/registry.ts"]),
+      expect.arrayContaining([
+        "src/tools/register-gateway.ts",
+        "src/capabilities/reads/tools.ts",
+        "src/capabilities/reads/registry.ts",
+        "src/capabilities/reads/rpc-methods.ts",
+        "src/capabilities/reads/rpc-tools.ts",
+      ]),
     );
     expect(importGraph("src/http.ts").files).not.toContain("src/tools/register.ts");
     // The hosted and read-only entry points start themselves when loaded. Bundled into the stdio entry point they

@@ -28,7 +28,7 @@ import type { ToolDef } from "./define.js";
 import type { HostedWriteDeps, WriteDeps } from "./hosted-writes.js";
 import { LOCAL_AUTH, localWriteDeps } from "./local-writes.js";
 import { registerStdioPing } from "./ping.js";
-import { registerGatewayTools } from "./register-gateway.js";
+import { registerSharedReadTools } from "./register-gateway.js";
 import { walletTools } from "./wallet.js";
 import { hostedWalletTools, type HostedWalletDeps } from "./wallet-hosted.js";
 
@@ -118,7 +118,7 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
     return;
   }
   const { deps, auth } = ctx;
-  registerGatewayTools(server);
+  registerSharedReadTools(server);
   install(server, hostedWalletTools(deps, auth));
   registerHostedWrites(server, deps, auth);
   registerRegistryWrites(server, deps, auth);

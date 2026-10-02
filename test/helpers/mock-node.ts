@@ -83,6 +83,15 @@ export const LOGIC = "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb
 export const OTHER = "0x0000000007070707070707070707070707070707070707070707070700000000";
 export const SENT_HASH = "0xabc0000000000000000000000000000000000000000000000000000000000abc";
 
+/** One interaction as the pool and a tesseract list it. */
+export const POOLED_IX = {
+  hash: IX_HASH,
+  sender: { id: ACCOUNT, sequence: 5, key_id: 0 },
+  fuel_price: "0x32",
+  fuel_limit: "0x1c1",
+  ix_operations: [{ type: 5, payload: { asset_id: KMOI, callsite: "Transfer" } }],
+};
+
 const ID_RE = /^0x[0-9a-fA-F]{64}$/;
 
 /** Manifest in the node's JSON encoding; the SDK marks routines as "callable". */
@@ -255,6 +264,104 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
       }
       return SENT_HASH;
     },
+    // The node's own methods, which the moi_rpc_ tools expose (src/capabilities/reads/rpc-methods.ts). Raw answers, as the
+    // node sends them, so the SDK's conversions run for real: hex quantities, and pool answers keyed by account and nonce.
+    "moi.AccountKeys": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [{ id: 0, publicKey: "0x04aa", weight: 1000, signature_algorithm: 0, revoked: false, sequence_id: 5 }];
+    },
+    "moi.Balance": (p) => {
+      requireId(p["id"]);
+      requireId(p["asset_id"]);
+      requireOptions(p);
+      return hex(state.kmoiBalance);
+    },
+    "moi.SubAccountCount": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return hex(0);
+    },
+    "moi.Deeds": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [{ asset_id: KMOI, asset_info: { symbol: "KMOI", decimals: "0x9" } }];
+    },
+    "moi.ContextInfo": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return { behaviour_nodes: ["node-a"], random_nodes: [], storage_nodes: ["node-b"] };
+    },
+    "moi.Syncing": () => ({
+      acc_sync_status: { current_height: "0x27", expected_height: "0x27", is_primary_sync_done: true },
+      node_sync_status: null,
+    }),
+    "moi.StorageMetric": (p) => {
+      requireId(p["target_account"]);
+      requireId(p["user_account"]);
+      requireOptions(p);
+      return { storage_granted: "0x10", storage_consumed: "0x8", tokens_deposited: "0x5" };
+    },
+    "moi.StoragePricing": () => ({ storage_price_per_byte: "0xf4240", storage_multiplier: "0x1", anu_per_byte: "0xf4240" }),
+    "moi.LogicIDs": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [LOGIC];
+    },
+    "moi.LogicStorage": (p) => {
+      requireId(p["logic_id"]);
+      requireOptions(p);
+      return "0x0e1f";
+    },
+    "moi.InteractionByTesseract": (p) => {
+      requireOptions(p);
+      return POOLED_IX;
+    },
+    "moi.Tesseract": (p) => {
+      requireOptions(p);
+      return { participants: [{ id: ACCOUNT, height: "0x27" }], hash: IX_HASH, time_stamp: "0x1", ixns: [POOLED_IX] };
+    },
+    "moi.AccessPolicy": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return {
+        resource_type: p["resource_type"],
+        resource_id: p["resource_id"],
+        action_type: ["read"],
+        caller_constraint: { kind: 0, set: [] },
+        origin_constraint: { kind: 0, set: [] },
+      };
+    },
+    "moi.AccessPolicies": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [];
+    },
+    "moi.GetLogs": (p) => {
+      requireId(p["id"]);
+      return [{ id: p["id"], topics: ["0x01"], data: "0x", ix_hash: IX_HASH, ts_hash: "0x02", participants: [] }];
+    },
+    "ixpool.Content": () => ({
+      pending: { [ACCOUNT]: { "0x5": POOLED_IX, "0x6": POOLED_IX } },
+      queued: { [ACCOUNT]: { "0x9": POOLED_IX } },
+    }),
+    "ixpool.ContentFrom": (p) => {
+      requireId(p["id"]);
+      return { pending: { "0x5": POOLED_IX }, queued: {} };
+    },
+    "ixpool.Status": () => ({ pending: "0x2", queued: "0x1" }),
+    "ixpool.Inspect": () => ({
+      pending: { [ACCOUNT]: { "5": "transfer" } },
+      queued: {},
+      wait_time: { [ACCOUNT]: { expired: false, time: "0x3c" } },
+    }),
+    "ixpool.WaitTime": (p) => {
+      requireId(p["id"]);
+      return { expired: true, time: "0x0" };
+    },
+    "net.Peers": () => ["peer-a", "peer-b"],
+    "net.Version": () => "0.13.0",
+    "net.Info": () => ({ krama_id: "krama-1" }),
   };
 }
 
@@ -272,7 +379,7 @@ export async function startMockNode(overrides: Partial<NodeState> = {}): Promise
   const server: Server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
+    req.on("end", async () => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
         id: number;
         method: string;
@@ -301,7 +408,8 @@ export async function startMockNode(overrides: Partial<NodeState> = {}): Promise
         return;
       }
       try {
-        reply({ result: handler(call.params, call) });
+        // A handler may return a promise, which is how a test makes the node slow.
+        reply({ result: await handler(call.params, call) });
       } catch (err) {
         const failure = err instanceof RpcFailure ? err : new RpcFailure(String(err));
         reply({ error: { code: failure.code, message: failure.message } });

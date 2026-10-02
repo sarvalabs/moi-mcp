@@ -21,7 +21,8 @@
  *   hosted   buildHostedApp (src/server.ts) with the Launchpad and dapp tools on.
  *            Asked over loopback HTTP, because the server is rebuilt per request
  *            inside the handler and is not reachable any other way.
- *   gateway  buildReadOnlyServer (src/http.ts).
+ *   gateway  buildReadOnlyServer (src/http.ts). Its list is the eight tools the hosted server also lists, then the 34 moi_rpc_
+ *            node methods (src/capabilities/reads/rpc-methods.ts), which only the gateway registers.
  *   stdio    buildServer from test/helpers/harness.ts, which mirrors src/index.ts
  *            except for ping: index.ts starts the server when imported, so a test
  *            cannot build it. Its nine write tools are the hosted ones
@@ -41,6 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { RPC_METHODS } from "../../src/capabilities/reads/rpc-methods.js";
 import { buildReadOnlyServer } from "../../src/http.js";
 import { withModernSchemaDialect } from "../../src/json-schema-dialect.js";
 import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
@@ -180,6 +182,20 @@ describe("the hosted server's tool list", () => {
 
   it("is pinned", async () => {
     await expect(pinned(tools)).toMatchFileSnapshot("./__snapshots__/tools-hosted.json");
+  });
+
+  it("lists none of the node-method tools, which only the read gateway registers", async () => {
+    const names = (list: RawTool[]): string[] => list.map((tool) => tool.name);
+    const gateway = names(await listTools(buildReadOnlyServer()));
+    const stdio = names(await listTools(buildServer()));
+    const nodeTools = RPC_METHODS.flatMap((row) => (row.status === "tool" ? [row.tool] : []));
+    expect(nodeTools).toHaveLength(34);
+    // The gateway lists every row with status tool, in the table's order, and nothing else of that name.
+    expect(gateway.filter((name) => name.startsWith("moi_rpc_"))).toEqual(nodeTools);
+    expect(names(tools).filter((name) => name.startsWith("moi_rpc_")), "hosted").toEqual([]);
+    expect(stdio.filter((name) => name.startsWith("moi_rpc_")), "stdio").toEqual([]);
+    // What the hosted server lists first is what the gateway lists first.
+    expect(names(tools).slice(0, 8)).toEqual(gateway.slice(0, 8));
   });
 
   it("lists the nine write tools exactly as the stdio server does", async () => {

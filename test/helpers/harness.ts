@@ -143,12 +143,13 @@ export function journalLines(home: string): Array<Record<string, unknown>> {
 
 export async function startHarness(
   rpcUrl: string,
-  options: { home?: string; env?: Record<string, string> } = {},
+  options: { home?: string; env?: Record<string, string>; build?: () => McpServer } = {},
 ): Promise<Harness> {
   const home = options.home ?? tempHome();
   applyEnv(rpcUrl, home, options.env);
 
-  const server = buildServer();
+  // The stdio server's tools unless the test says which server it wants, such as the read gateway.
+  const server = (options.build ?? buildServer)();
   const client = new Client({ name: "harness", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   // Wrap exactly as src/index.ts and src/http.ts do, so tests exercise the

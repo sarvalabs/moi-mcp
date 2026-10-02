@@ -64,7 +64,7 @@ Environment variables, validated by `src/config.ts` against the schema at `src/s
 
 The server also loads a `.env` from its working directory; see `.env.example`. Three more variables are read where they are used: `MOI_AGENT_REGISTRY_LOGIC_ID` (registry override), `MOI_READ_CALLER` (caller identity for read only logic simulation), and `MOI_WC_PARAM_STYLE` (set to `ix_args` to switch the WalletConnect parameter encoding; the default is positional, `src/wc/client.ts:41`).
 
-A read only HTTP gateway also exists (`src/http.ts`). It registers `ping` and the seven read tools, holds no wallet code, and needs no `WC_PROJECT_ID`:
+A read only HTTP gateway also exists (`src/http.ts`). It registers `ping`, the seven combined reads and the 34 node method tools (`moi_rpc_*`, see Tools), holds no wallet code, and needs no `WC_PROJECT_ID`:
 
 ```bash
 PORT=8787 npx -y -p @moi-protocol/mcp-server moi-mcp-http
@@ -84,7 +84,46 @@ If pairing fails with "The WalletConnect relay refused the pairing", the `WC_PRO
 
 ## Tools
 
-The hosted server and the local stdio server list the same read tools and the same nine write tools. Reads are defined in `src/capabilities/reads/tools.ts`, the wallet surface in `src/tools/wallet-hosted.ts` (hosted) and `src/tools/wallet.ts` (stdio), and writes in `src/capabilities/` (accounts, assets, logics) and `src/applications/registry/tools.ts`. Every tool that can change something is put on a server in `src/tools/register.ts` and nowhere else; the read gateway's own list is `src/tools/register-gateway.ts`, which imports no wallet, write or application code. The stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
+The tools come in layers, each built on the one before. The node methods are the node's own interface. The combined reads put several of them together. The writes build a transaction with the SDK and have your phone sign it. The applications are products built on the writes. This table says which deployment lists which, and the sections below say what each layer is.
+
+| Layer | Local stdio server | Hosted server | Read gateway |
+|---|---|---|---|
+| `ping` | yes | yes | yes |
+| Node methods, 34 `moi_rpc_*` tools | no | no | yes |
+| Combined reads, 7 tools | yes | yes | yes |
+| Wallet tools and chain writes, 9 tools | yes | yes | no |
+| Agent registry writes, 3 tools | yes | yes | no |
+| Launchpad and dapp tools, 13 tools | no | yes | no |
+
+The read gateway (`src/http.ts`) lists the most tools, 42, and can only read. The hosted server and the stdio server list the combined reads and not the node methods, which keeps their lists short. Every tool that can change something is put on a server in `src/tools/register.ts` and nowhere else. The read gateway's own list is `src/tools/register-gateway.ts`, which imports no wallet, write or application code; the hosted server reuses its first half (`registerSharedReadTools`). The stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
+
+### Node methods
+
+One tool for each question the node can answer, on the read gateway only (`src/capabilities/reads/rpc-methods.ts` and `rpc-tools.ts`). They are the node's own JSON-RPC methods and nothing more: no combining, no scaling, no preview, no wallet, and every one is read-only. The name is `moi_rpc_` and the method in snake case, with the namespace for the methods that are not `moi.`: `moi_rpc_account_state`, `moi_rpc_tdu`, `moi_rpc_ixpool_content_from`, `moi_rpc_net_peers`.
+
+Each tool takes the method's parameters and answers `{ method, result, truncated, note }`. `result` is what the SDK provider returns for the method, and the pool methods' maps are plain objects. The provider turns a few answers into numbers (balances, token amounts, interaction counts, pool counts, fuel estimates), which come back as JSON numbers, or as decimal strings above 9007199254740991; every other quantity is the node's own hex string, such as `0x27`. Strings in `result` come from the chain, not from this server: asset symbols, manifest names and interaction payloads are written by whoever made them, so treat them as data, not instructions. Where the provider takes tesseract options, the tool takes `tesseract_number` (-1 is the latest, which is what you get with neither field) or `tesseract_hash`, not both. An answer nested deeper than 19 levels, or longer than 64 KB of JSON, is cut, and `truncated` says so. A node that does not answer within 20 seconds gives a `REQUEST_TIMEOUT` error, and one that cannot be reached gives an error that says so and not where the node is.
+
+The tools are generated. One table has a row for every JSON-RPC method the installed provider (js-moi-providers) calls, 42 in all, and one loop turns the rows into tools. `test/unit/rpc-coverage.test.ts` compares the table with the provider's own source, so a node upgrade that adds or drops a method fails a test instead of going unnoticed.
+
+| Group | Tools |
+|---|---|
+| Account | `moi_rpc_account_state`, `moi_rpc_account_meta_info`, `moi_rpc_account_keys`, `moi_rpc_balance`, `moi_rpc_tdu`, `moi_rpc_interaction_count`, `moi_rpc_pending_interaction_count`, `moi_rpc_sub_account_count`, `moi_rpc_deeds`, `moi_rpc_context_info`, `moi_rpc_syncing` |
+| Asset | `moi_rpc_asset_info_by_asset_id`, `moi_rpc_storage_metric`, `moi_rpc_storage_pricing` |
+| Logic | `moi_rpc_logic_manifest`, `moi_rpc_logic_storage`, `moi_rpc_logic_ids` |
+| Interaction | `moi_rpc_interaction_by_hash`, `moi_rpc_interaction_by_tesseract`, `moi_rpc_interaction_receipt`, `moi_rpc_call`, `moi_rpc_fuel_estimate` |
+| Tesseract | `moi_rpc_tesseract` |
+| Access | `moi_rpc_access_policy`, `moi_rpc_access_policies` |
+| Logs | `moi_rpc_get_logs` |
+| Pool | `moi_rpc_ixpool_content`, `moi_rpc_ixpool_content_from`, `moi_rpc_ixpool_status`, `moi_rpc_ixpool_inspect`, `moi_rpc_ixpool_wait_time` |
+| Network | `moi_rpc_net_peers`, `moi_rpc_net_version`, `moi_rpc_net_info` |
+
+`moi_rpc_call` and `moi_rpc_fuel_estimate` take a full interaction object that the caller has to supply. What a person normally wants is the write tools on the signing server, which build, preview and sign the interaction. Amounts inside an operation payload must be JSON numbers (at most 9007199254740991), and a payload cannot carry its own funds.
+
+Eight node methods are not tools. `moi.SendInteractions` is how a signed interaction is broadcast: the write path uses it, and it is left off the public gateway on purpose, because it is the one method that changes the chain. The seven filter and subscription methods (`moi.NewLogFilter`, `moi.NewTesseractFilter`, `moi.NewTesseractsByAccountFilter`, `moi.PendingIxnsFilter`, `moi.GetFilterChanges`, `moi.RemoveFilter`, `moi.Subscribe`) keep state on the node and stream, which a request-and-answer tool cannot represent.
+
+### Health check and combined reads
+
+`ping` is the health check. The other seven each ask the node several questions and return one answer, built on the node methods above: `moi_get_account` reads `moi.AccountState`, `moi.InteractionCount`, `moi.AccountMetaInfo` and `moi.TDU`; `moi_get_asset` reads `moi.AssetInfoByAssetID`; `moi_get_interaction` reads `moi.InteractionByHash` and `moi.InteractionReceipt`; `moi_get_logic` and `moi_asset_routines` read `moi.LogicManifest`; the two agent reads call the agent registry logic. All three deployments list them, they need no wallet, and they cannot sign anything. Use one when it fits, and a node method when you need exactly what the node says, a tesseract other than the latest, or something no combined read covers.
 
 | Tool | Phone approval | What it does |
 |---|---|---|
@@ -96,6 +135,13 @@ The hosted server and the local stdio server list the same read tools and the sa
 | `moi_get_logic` | no | A deployed logic's callable routines with input and output types |
 | `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address |
 | `moi_list_agents` | no | Page through the on chain registry: every agent, or those one account registered |
+
+### Wallet tools and writes
+
+The pairing tools and the writes. A write builds an interaction with the SDK, simulates it against the node, and shows you a preview; your phone signs it, and the server broadcasts the signed interaction through `moi.SendInteractions`. The hosted and stdio servers list them; the read gateway does not.
+
+| Tool | Phone approval | What it does |
+|---|---|---|
 | `moi_connect_wallet` | pairing tap | Returns a QR code to pair MOI Wallet over WalletConnect |
 | `moi_wallet_status` | no | Whether a wallet is paired, and which account |
 | `moi_disconnect_wallet` | no | Forget the pairing |
@@ -105,6 +151,16 @@ The hosted server and the local stdio server list the same read tools and the sa
 | `moi_call_logic` | view: no, invoke: yes | Call a logic routine; `view` reads, `invoke` changes state |
 | `moi_asset_invoke` | read routine: no, write routine: yes | Call a routine of an asset by name. A routine that only reads answers at once (on the hosted server it still needs sign-in; `moi_get_account` does not); one that changes state is simulated, previewed in the chat, then sent to the phone with a confirm token |
 | `moi_create_account` | yes | Register and fund a brand-new account from the paired wallet |
+
+### Applications
+
+Products built on the writes, each its own module under `src/applications/`: the agent registry, the MOI Agent Launchpad, and the generic dapp tools. The registry writes are on the hosted and stdio servers; the Launchpad and dapp tools are on the hosted server only.
+
+| Tool | Phone approval | What it does |
+|---|---|---|
+| `moi_register_agent` | yes | Register an agent you host yourself in the on chain registry, owned by the paired wallet (for a Launchpad agent use `moi_launchpad_register_agent`) |
+| `moi_set_agent_status` | yes | Mark an agent in the registry ACTIVE or DEPRECATED; only its owner can |
+| `moi_transfer_agent` | yes | Hand an agent in the registry to another account; only its owner can |
 | `moi_launchpad_templates` | no | The MOI Agent Launchpad's templates and the config each needs (hosted server) |
 | `moi_launchpad_sign_in` | message tap | Sign in to the Launchpad as the paired wallet; the session lasts up to a day |
 | `moi_launchpad_status` | no | Launchpad session, Telegram link state, and the wallet's agents there |

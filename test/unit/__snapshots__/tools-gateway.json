@@ -688,5 +688,2210 @@
       "additionalProperties": false,
       "$schema": "https://json-schema.org/draft/2020-12/schema"
     }
+  },
+  {
+    "name": "moi_rpc_account_state",
+    "title": "Node method moi.AccountState",
+    "description": "Raw node method moi.AccountState: returns the account's state record at a tesseract: its type and the roots and hashes of what it holds. For balances use moi_get_account.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_account_meta_info",
+    "title": "Node method moi.AccountMetaInfo",
+    "description": "Raw node method moi.AccountMetaInfo: returns the account's meta record: its type, its latest tesseract height and hash, and whether its lattice and state exist.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_account_keys",
+    "title": "Node method moi.AccountKeys",
+    "description": "Raw node method moi.AccountKeys: returns the account's keys, each with its id, public key, weight, signature algorithm and whether it is revoked.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_balance",
+    "title": "Node method moi.Balance",
+    "description": "Raw node method moi.Balance: returns the account's balance of one asset, as a whole number in base units. It takes no token id; moi_rpc_tdu lists every asset and token id the account holds.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "asset_id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id",
+        "asset_id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_tdu",
+    "title": "Node method moi.TDU",
+    "description": "Raw node method moi.TDU: returns the account's holdings, one entry per asset id and token id with its amount. moi_get_account sums them per asset.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_interaction_count",
+    "title": "Node method moi.InteractionCount",
+    "description": "Raw node method moi.InteractionCount: returns how many interactions the account has sent with one of its keys, which is that key's nonce.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "key_id": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Which of the account's keys, by index. 0 is the first."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_pending_interaction_count",
+    "title": "Node method moi.PendingInteractionCount",
+    "description": "Raw node method moi.PendingInteractionCount: returns that count again with the interactions still waiting in the pool included.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "key_id": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Which of the account's keys, by index. 0 is the first."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_sub_account_count",
+    "title": "Node method moi.SubAccountCount",
+    "description": "Raw node method moi.SubAccountCount: returns how many sub accounts the account has.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_deeds",
+    "title": "Node method moi.Deeds",
+    "description": "Raw node method moi.Deeds: returns the account's deeds: a list of registry entries, each an asset id with that asset's info.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_context_info",
+    "title": "Node method moi.ContextInfo",
+    "description": "Raw node method moi.ContextInfo: returns the account's context: the nodes that serve it at a tesseract.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_syncing",
+    "title": "Node method moi.Syncing",
+    "description": "Raw node method moi.Syncing: returns the node's sync status, or one account's when id is given: current and expected height, and whether the sync is done.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "An account id (0x…). Leave out for the node's own sync status."
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_asset_info_by_asset_id",
+    "title": "Node method moi.AssetInfoByAssetID",
+    "description": "Raw node method moi.AssetInfoByAssetID: returns an asset's info record: symbol, dimension, decimals, creator, manager and supplies. moi_get_asset adds the standard and scales the supply.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The asset id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "asset_id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_storage_metric",
+    "title": "Node method moi.StorageMetric",
+    "description": "Raw node method moi.StorageMetric: returns one participant's storage allowance on a logic or asset account: storage granted and consumed, and tokens deposited.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "target_account": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The logic or asset account the allowance is on (0x…)."
+        },
+        "user_account": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The participant whose allowance to look up (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "target_account",
+        "user_account"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_storage_pricing",
+    "title": "Node method moi.StoragePricing",
+    "description": "Raw node method moi.StoragePricing: returns the network's storage pricing: price per byte, multiplier and anu per byte.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_logic_manifest",
+    "title": "Node method moi.LogicManifest",
+    "description": "Raw node method moi.LogicManifest: returns a logic's manifest, or an asset's, as parsed JSON, or as POLO hex when encoding is POLO. moi_get_logic and moi_asset_routines turn it into routines.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logic_id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "A logic id, or an asset id: an asset has a manifest too."
+        },
+        "encoding": {
+          "type": "string",
+          "enum": [
+            "JSON",
+            "POLO"
+          ],
+          "default": "JSON",
+          "description": "JSON gives the parsed manifest; POLO gives it encoded, as hex."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "logic_id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_logic_storage",
+    "title": "Node method moi.LogicStorage",
+    "description": "Raw node method moi.LogicStorage: returns one value from a logic's storage, by key, as the node's hex string.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "logic_id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The logic id (0x…)."
+        },
+        "storage_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The storage key, as the node expects it."
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account the storage key relates to, when it has one (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "logic_id",
+        "storage_key"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_logic_ids",
+    "title": "Node method moi.LogicIDs",
+    "description": "Raw node method moi.LogicIDs: returns the ids of the logics associated with the account.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_call",
+    "title": "Node method moi.Call",
+    "description": "Raw node method moi.Call: returns the receipt of simulating a full interaction object, with nothing signed or sent. The caller must supply the whole interaction object (sender, fuel, operations and their payloads). What a person normally wants is the signing server's write tools, which build, preview and sign the interaction.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "interaction": {
+          "type": "object",
+          "properties": {
+            "sender": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]+$"
+                },
+                "sequence": {
+                  "type": "number"
+                },
+                "key_id": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "key_id"
+              ],
+              "additionalProperties": false
+            },
+            "payer": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]+$"
+            },
+            "fuel_price": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "fuel_limit": {
+              "type": "number"
+            },
+            "funds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "asset_id": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]+$"
+                  },
+                  "amount": {
+                    "type": [
+                      "string",
+                      "number"
+                    ]
+                  }
+                },
+                "required": [
+                  "asset_id",
+                  "amount"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "ix_operations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "number"
+                  },
+                  "payload": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "type",
+                  "payload"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "participants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]+$"
+                  },
+                  "lock_type": {
+                    "type": "number"
+                  },
+                  "notary": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "lock_type"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "preferences": {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            "perception": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]+$"
+            }
+          },
+          "required": [
+            "sender",
+            "fuel_price",
+            "fuel_limit",
+            "ix_operations"
+          ],
+          "additionalProperties": false,
+          "description": "The full interaction object, as the SDK's InteractionObject: sender (id, sequence, key_id), fuel_price, fuel_limit, ix_operations (each a type number and its payload), and funds, participants, preferences or perception if used. fuel_price and the amounts in funds may be decimal strings. Amounts inside an operation payload must be JSON numbers (at most 9007199254740991), and a payload cannot carry its own funds."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "tesseract_number": {
+                "type": "integer",
+                "minimum": -1
+              },
+              "tesseract_hash": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Optional. The SDK's CallorEstimateOptions: a map from an account id to {tesseract_number} or {tesseract_hash}. Leave it out for the latest state."
+        }
+      },
+      "required": [
+        "interaction"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_fuel_estimate",
+    "title": "Node method moi.FuelEstimate",
+    "description": "Raw node method moi.FuelEstimate: returns the fuel the node estimates a full interaction object would use. The caller must supply the whole interaction object, as for moi_rpc_call. What a person normally wants is the signing server's write tools, which estimate the fuel themselves.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "interaction": {
+          "type": "object",
+          "properties": {
+            "sender": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]+$"
+                },
+                "sequence": {
+                  "type": "number"
+                },
+                "key_id": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "key_id"
+              ],
+              "additionalProperties": false
+            },
+            "payer": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]+$"
+            },
+            "fuel_price": {
+              "type": [
+                "number",
+                "string"
+              ]
+            },
+            "fuel_limit": {
+              "type": "number"
+            },
+            "funds": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "asset_id": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]+$"
+                  },
+                  "amount": {
+                    "type": [
+                      "string",
+                      "number"
+                    ]
+                  }
+                },
+                "required": [
+                  "asset_id",
+                  "amount"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "ix_operations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "number"
+                  },
+                  "payload": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "type",
+                  "payload"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "participants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]+$"
+                  },
+                  "lock_type": {
+                    "type": "number"
+                  },
+                  "notary": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "lock_type"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "preferences": {
+              "type": "object",
+              "additionalProperties": {}
+            },
+            "perception": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]+$"
+            }
+          },
+          "required": [
+            "sender",
+            "fuel_price",
+            "fuel_limit",
+            "ix_operations"
+          ],
+          "additionalProperties": false,
+          "description": "The full interaction object, as the SDK's InteractionObject: sender (id, sequence, key_id), fuel_price, fuel_limit, ix_operations (each a type number and its payload), and funds, participants, preferences or perception if used. fuel_price and the amounts in funds may be decimal strings. Amounts inside an operation payload must be JSON numbers (at most 9007199254740991), and a payload cannot carry its own funds."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "tesseract_number": {
+                "type": "integer",
+                "minimum": -1
+              },
+              "tesseract_hash": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Optional. The SDK's CallorEstimateOptions: a map from an account id to {tesseract_number} or {tesseract_hash}. Leave it out for the latest state."
+        }
+      },
+      "required": [
+        "interaction"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_interaction_by_hash",
+    "title": "Node method moi.InteractionByHash",
+    "description": "Raw node method moi.InteractionByHash: returns an interaction by its hash: sender, fuel, operations, signature and its tesseract hash. moi_get_interaction adds its status.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The interaction hash (0x…)."
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_interaction_by_tesseract",
+    "title": "Node method moi.InteractionByTesseract",
+    "description": "Raw node method moi.InteractionByTesseract: returns one interaction of a tesseract, by its index in that tesseract.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account whose tesseract it is (0x…). Leave out to find the tesseract by tesseract_hash alone."
+        },
+        "ix_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Which interaction of the tesseract. Required: the SDK would send 1 if it were left out, and whether the node counts from 0 or 1 is not confirmed."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "ix_index"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_interaction_receipt",
+    "title": "Node method moi.InteractionReceipt",
+    "description": "Raw node method moi.InteractionReceipt: returns an interaction's receipt: its status, the fuel it used and what each operation did.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The interaction hash (0x…)."
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_tesseract",
+    "title": "Node method moi.Tesseract",
+    "description": "Raw node method moi.Tesseract: returns a tesseract (MOI's block) of one account, by height or hash: its participants with their heights, its time stamp, fuel and hash, and with with_interactions the interactions at that height.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account whose tesseract it is (0x…). Leave out to find the tesseract by tesseract_hash alone."
+        },
+        "with_interactions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include the interactions at that height."
+        },
+        "with_commit_info": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include the consensus commit information."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_access_policy",
+    "title": "Node method moi.AccessPolicy",
+    "description": "Raw node method moi.AccessPolicy: returns one access policy an account has set on a resource: the actions it covers and who may call or originate them.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account that owns the policy (0x…)."
+        },
+        "resource_type": {
+          "type": "string",
+          "enum": [
+            "storage",
+            "asset",
+            "logic",
+            "key"
+          ],
+          "description": "What the policy governs. The node implements storage only today and rejects the other three."
+        },
+        "resource_id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The id of the resource the policy governs (0x…)."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id",
+        "resource_type",
+        "resource_id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_access_policies",
+    "title": "Node method moi.AccessPolicies",
+    "description": "Raw node method moi.AccessPolicies: returns every access policy an account has set on resources of one type.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account that owns the policies (0x…)."
+        },
+        "resource_type": {
+          "type": "string",
+          "enum": [
+            "storage",
+            "asset",
+            "logic",
+            "key"
+          ],
+          "description": "What the policy governs. The node implements storage only today and rejects the other three."
+        },
+        "tesseract_number": {
+          "type": "integer",
+          "minimum": -1,
+          "description": "Read at this tesseract height; -1, the default, is the latest."
+        },
+        "tesseract_hash": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "Read at the tesseract with this hash. Not together with tesseract_number."
+        }
+      },
+      "required": [
+        "id",
+        "resource_type"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_get_logs",
+    "title": "Node method moi.GetLogs",
+    "description": "Raw node method moi.GetLogs: returns the logs an account's tesseracts emitted within a height range, each with its topics, data and interaction hash.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account whose tesseracts' logs to read (0x…)."
+        },
+        "start_height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The first tesseract height. The SDK notes the start is inclusive."
+        },
+        "end_height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The end of the range. The SDK notes it is exclusive and that the node refuses a range wider than 10."
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Optional topic filter: a list of lists of topic names, which the SDK hashes. A log must match every list, and a list matches on any one of its names."
+        }
+      },
+      "required": [
+        "id",
+        "start_height",
+        "end_height"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_ixpool_content",
+    "title": "Node method ixpool.Content",
+    "description": "Raw node method ixpool.Content: returns every interaction waiting in the node's pool, pending and queued, by account and nonce.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_ixpool_content_from",
+    "title": "Node method ixpool.ContentFrom",
+    "description": "Raw node method ixpool.ContentFrom: returns the pending and queued interactions in the pool from one account, by nonce.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_ixpool_status",
+    "title": "Node method ixpool.Status",
+    "description": "Raw node method ixpool.Status: returns how many interactions are pending and how many are queued in the pool.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_ixpool_inspect",
+    "title": "Node method ixpool.Inspect",
+    "description": "Raw node method ixpool.Inspect: returns the pool in summary: pending and queued interactions per account, and each account's wait time.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_ixpool_wait_time",
+    "title": "Node method ixpool.WaitTime",
+    "description": "Raw node method ixpool.WaitTime: returns how long an account's interactions have waited in the pool: whether the wait has expired, and the time.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^0x[0-9a-fA-F]+$",
+          "description": "The account's id (0x…)."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_net_peers",
+    "title": "Node method net.Peers",
+    "description": "Raw node method net.Peers: returns the peers this node is connected to.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_net_version",
+    "title": "Node method net.Version",
+    "description": "Raw node method net.Version: returns the node's version.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  },
+  {
+    "name": "moi_rpc_net_info",
+    "title": "Node method net.Info",
+    "description": "Raw node method net.Info: returns the node's info, which is its krama id.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {}
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "result": {
+          "description": "The node's answer. Strings in it come from the chain, not from this server."
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when result was cut; note says how."
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
   }
 ]
