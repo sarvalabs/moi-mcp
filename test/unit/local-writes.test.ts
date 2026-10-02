@@ -187,7 +187,7 @@ describe("the journal adapter", () => {
 });
 
 describe("registration", () => {
-  it("is lazy: a bad config, no wallet client and no journal at registration, and still all nine tools", () => {
+  it("is lazy: a bad config, no wallet client and no journal at registration, and still all ten tools", () => {
     applyEnv("http://127.0.0.1:1", home, { WC_PROJECT_ID: "replace_me" }); // getConfig() now throws
     installWallet(home, wallet); // applyEnv drops the installed client
 
@@ -203,6 +203,7 @@ describe("registration", () => {
       "moi_create_asset",
       "moi_mint",
       "moi_call_logic",
+      "moi_deploy_logic",
       "moi_asset_invoke",
       "moi_register_agent",
       "moi_set_agent_status",

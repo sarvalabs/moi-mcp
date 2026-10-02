@@ -186,6 +186,7 @@ describe("nothing under src/capabilities imports from src/applications", () => {
         "src/capabilities/assets/shortcuts.ts",
         "src/capabilities/assets/execute.ts",
         "src/capabilities/assets/routines.ts",
+        "src/capabilities/logics/deploy.ts",
         "src/capabilities/logics/invoke.ts",
         "src/capabilities/logics/view.ts",
         "src/capabilities/reads/tools.ts",

@@ -55,7 +55,8 @@ export const MAX_ROUTINES = 100;
 /** Inputs or outputs of one routine; real asset routines take at most 4. */
 export const MAX_FIELDS = 16;
 
-const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+/** Also the shape src/capabilities/logics/deploy-manifest.ts accepts for a routine's name. */
+export const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const LABEL_RE = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/;
 const TYPE_RE = /^[A-Za-z0-9_.[\]]{1,60}$/;
 
@@ -74,8 +75,8 @@ export function noManifest(asset: AssetRef, detail?: string): MoiError {
   );
 }
 
-/** A field list this server can use, or undefined. An absent list is an empty one. */
-function usableFields(list: unknown): Field[] | undefined {
+/** A field list this server can use, or undefined. An absent list is an empty one. Also read by src/capabilities/logics/deploy-manifest.ts, for a deploy routine. */
+export function usableFields(list: unknown): Field[] | undefined {
   if (list === undefined) return [];
   if (!Array.isArray(list) || list.length > MAX_FIELDS) return undefined;
   const slots = new Set<number>();

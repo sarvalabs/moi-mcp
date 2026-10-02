@@ -111,6 +111,11 @@ describe("the read gateway's module graph", () => {
     expect(importGraph("src/server.ts").files).toContain("src/capabilities/assets/execute.ts");
     // moi_asset_invoke is write code: the read gateway must not reach the file that runs it.
     expect(importGraph("src/http.ts").files).not.toContain("src/capabilities/assets/execute.ts");
+    // So is moi_deploy_logic, and the files that read its manifest and its receipt are only reached through it.
+    const deployFiles = ["deploy.ts", "deploy-manifest.ts", "deploy-receipt.ts"].map((f) => `src/capabilities/logics/${f}`);
+    expect(importGraph("src/server.ts").files).toEqual(expect.arrayContaining(deployFiles));
+    expect(stdio.files).toEqual(expect.arrayContaining(deployFiles));
+    for (const file of deployFiles) expect(importGraph("src/http.ts").files).not.toContain(file);
   });
 });
 
@@ -121,6 +126,7 @@ describe("the capabilities folder", () => {
     "src/capabilities/assets/create.ts",
     "src/capabilities/assets/shortcuts.ts",
     "src/capabilities/assets/execute.ts",
+    "src/capabilities/logics/deploy.ts",
     "src/capabilities/logics/invoke.ts",
     "src/capabilities/logics/view.ts",
   ]);

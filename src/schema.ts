@@ -488,6 +488,49 @@ export const CallLogicViewOutput = z.object({
   outputs: z.record(z.string(), z.unknown()),
 });
 
+/**
+ * Deploying a logic (src/capabilities/logics/deploy.ts). `manifest` is the JSON object the Coco compiler writes; its
+ * shape is checked in code, with messages a person can act on, and not here, where a failure would be an opaque schema
+ * error. `manifest` and `args` are separate z.record instances on purpose: a shared instance makes the JSON Schema
+ * generator emit a $ref, which the dialect rewrite then has to inline. There is no field for the KMOI that funds the new
+ * logic: it is always the SDK's default, and zod strips an unknown field silently, so a caller that passes one gets the
+ * default and the preview says so.
+ */
+export const DeployLogicInput = z.object({
+  manifest: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "The compiled logic manifest, as the JSON object `coco compile` writes: syntax, engine, kind \"logic\" and elements. " +
+        "Pass exactly the one the user gave you, as an object and never as a string.",
+    ),
+  routine: z
+    .string()
+    .min(1)
+    .max(64)
+    .optional()
+    .describe(
+      "The manifest's deploy routine to run once, at deployment, by name. Leave it out when the manifest has exactly one " +
+        "deploy routine (it is used); name one when it has several. A manifest with none is refused.",
+    ),
+  args: z
+    .record(z.string(), z.unknown())
+    .default({})
+    .describe(
+      "The deploy routine's inputs keyed by the labels in the manifest, for example {\"initial_value\": 0}. Integers are whole " +
+        "numbers, as a number or a decimal string, never a fraction. Identifiers are 0x plus 64 hex characters. Leave it out for a " +
+        "routine that takes no inputs.",
+    ),
+  participants: z
+    .array(LogicParticipant)
+    .max(16)
+    .optional()
+    .describe(
+      "Other accounts and assets the deploy routine moves value for, besides you: the new code may move these. Leave it out " +
+        "unless the user said the routine needs them. Never list the new logic, which does not exist yet, or KMOI, which the " +
+        "funding transfer declares.",
+    ),
+});
+
 // ---------------------------------------------------------------------------
 // Asset routines (manifest-driven; src/capabilities/assets)
 // ---------------------------------------------------------------------------
@@ -829,6 +872,7 @@ export const TOOLS = {
   moi_create_account:    { input: CreateAccountInput,    write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
+  moi_deploy_logic:      { input: DeployLogicInput,      write: true  },
   moi_asset_invoke:      { input: AssetInvokeInput,      write: true  },
   moi_register_agent:    { input: RegisterAgentInput,    write: true  },
   moi_set_agent_status:  { input: SetAgentStatusInput,   write: true  },

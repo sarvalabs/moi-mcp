@@ -36,14 +36,23 @@ Reads need no wallet. Ask your agent:
 ## 3. Pair, then write
 
 \`moi_connect_wallet\` returns a QR code. Scan it with MOI Wallet on your phone.
-Then \`moi_transfer\`, \`moi_create_asset\`, \`moi_mint\`, \`moi_call_logic\` and
-\`moi_asset_invoke\` build an interaction here and send it to your phone for
-approval. Nothing moves until you tap Send.
+Then \`moi_transfer\`, \`moi_create_asset\`, \`moi_mint\`, \`moi_call_logic\`,
+\`moi_asset_invoke\` and \`moi_deploy_logic\` build an interaction here and send it
+to your phone for approval. Nothing moves until you tap Send.
 
 \`moi_asset_invoke\` calls a routine of an asset by name, from its manifest (a
 burn, an approval, a MAS1 token transfer). A routine that only reads answers at
 once; one that changes state takes the same two calls, a preview and then the
 confirm.
+
+\`moi_deploy_logic\` deploys a new logic from a compiled manifest you give it (the
+JSON that \`coco compile\` writes) and runs one of its deploy routines. It takes the
+same two calls. This server cannot show what the logic's code does, so deploy only
+a manifest you trust. 10 KMOI moves into the new logic's own account to pay for
+its storage, and nothing here can take that back or remove the logic; the preview
+says so, with the fuel. It returns the new logic's id when the receipt shows it,
+and says where to look otherwise. It has not been run against a node yet, so try
+it on devnet first.
 
 ## 4. Agents on the MOI Agent Launchpad (hosted server only)
 

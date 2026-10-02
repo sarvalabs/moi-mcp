@@ -21,6 +21,7 @@ import { createAccountTool } from "../capabilities/accounts/create-participant.j
 import { createAssetTool } from "../capabilities/assets/create.js";
 import { assetInvokeTool } from "../capabilities/assets/execute.js";
 import { mintTool, transferTool } from "../capabilities/assets/shortcuts.js";
+import { deployLogicTool } from "../capabilities/logics/deploy.js";
 import { callLogicTool } from "../capabilities/logics/invoke.js";
 import { registerReadTools } from "../capabilities/reads/tools.js";
 import { registerResources } from "../resources/index.js";
@@ -42,6 +43,11 @@ export function registerWalletTools(server: McpServer): void {
   install(server, walletTools());
 }
 
+export interface HostedWriteOptions {
+  /** How long moi_deploy_logic watches for the receipt of a deploy it has broadcast, to report the new logic's id. 0 does not look. */
+  deployWaitMs?: number;
+}
+
 /**
  * Register hosted write tools on the given server.
  *
@@ -49,13 +55,19 @@ export function registerWalletTools(server: McpServer): void {
  * them looked safer but was worse: an unlisted tool is never called, so the 401 that prompts sign-in never fires, and the
  * user is told this server is read-only. Calls are still gated: see requireAuth in src/tools/hosted-writes.ts.
  */
-export function registerHostedWrites(server: McpServer, deps: WriteDeps, auth: AuthInfo | null): void {
+export function registerHostedWrites(
+  server: McpServer,
+  deps: WriteDeps,
+  auth: AuthInfo | null,
+  options: HostedWriteOptions = {},
+): void {
   install(server, [
     transferTool(deps, auth),
     createAccountTool(deps, auth),
     createAssetTool(deps, auth),
     mintTool(deps, auth),
     callLogicTool(deps, auth),
+    deployLogicTool(deps, auth, { receiptWaitMs: options.deployWaitMs }),
     assetInvokeTool(deps, auth),
   ]);
 }
@@ -71,18 +83,19 @@ export function registerRegistryWrites(
 }
 
 /**
- * The nine write tools on the stdio server: the hosted tools, run with the local user and the adapters of
+ * The ten write tools on the stdio server: the hosted tools, run with the local user and the adapters of
  * src/tools/local-writes.ts.
  *
- * registryWaitMs is 0 because a write that waits for the phone already uses most of the MCP client's 60 second
- * budget, and polling the registry afterwards for up to 30 more could lose the hash of a transaction that landed.
- * The result still carries the registry id if one look finds it, and says where to look otherwise.
+ * registryWaitMs and deployWaitMs are 0 because a write that waits for the phone already uses most of the MCP client's
+ * 60 second budget, and polling afterwards for up to 30 more could lose the hash of a transaction that landed. The
+ * registry result still carries the agent's id if one look finds it and says where to look otherwise; a deploy does not
+ * look at all, since a receipt right after a broadcast is rarely there, and says how to read the new logic's id.
  *
  * The journal is not reconciled at boot: several MCP clients start one stdio process each against the same
  * MOI_MCP_HOME, and a second process would mark the first one's live write orphaned.
  */
 export function registerLocalWriteTools(server: McpServer, deps: WriteDeps = localWriteDeps()): void {
-  registerHostedWrites(server, deps, LOCAL_AUTH);
+  registerHostedWrites(server, deps, LOCAL_AUTH, { deployWaitMs: 0 });
   registerRegistryWrites(server, deps, LOCAL_AUTH, { registryWaitMs: 0 });
 }
 

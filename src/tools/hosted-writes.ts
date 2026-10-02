@@ -77,6 +77,7 @@ export type WriteKind =
   | "create_asset"
   | "mint"
   | "call_logic"
+  | "deploy_logic"
   | "asset_invoke"
   | "register_agent"
   | "set_agent_status"

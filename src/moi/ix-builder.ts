@@ -26,6 +26,7 @@ import {
   bytesToHex,
   buildTransferPayload,
   deriveAssetId,
+  deriveLogicId,
   KMOI_ASSET_ID,
   ixObjectSchema,
   LockType,
@@ -496,6 +497,81 @@ export function buildAssetInvoke(
       {
         type: OpType.ASSET_INVOKE,
         payload: { asset_id: params.assetId, callsite: params.callsite, ...(calldata ? { calldata } : {}) },
+      },
+    ],
+    ...(declared.size > 0 ? { participants: [...declared.values()] } : {}),
+  };
+}
+
+/**
+ * The id a logic deployed by this sender at this sequence will get. deriveLogicId mirrors the chain's own derivation, and
+ * the id depends on the exact sequence, so it changes if another interaction from the sender lands first.
+ */
+export function predictLogicId(sender: SenderInfo): string {
+  return deriveLogicId({
+    id: sender.id as `0x${string}`,
+    sequence: sender.sequence,
+    key_id: sender.keyId ?? 0,
+  }).toHex();
+}
+
+/**
+ * Deploy a logic: one LOGIC_DEPLOY operation and, bundled with it, a KMOI transfer of the SDK's default storage fund
+ * (10 KMOI) to the logic's own account.
+ *
+ * A new logic pays for its own account-creation storage the moment it is created and a freshly derived logic account holds
+ * no KMOI, so a bare LOGIC_DEPLOY reverts. The SDK's LogicFactory.deploy bundles the same funding operation
+ * (node_modules/js-moi-logic, logic-base.ts, createIxObject) and this builder is checked against it byte for byte
+ * (test/unit/ix-builder-deploy.test.ts). The funding names the id the deploy will produce, derived by predictLogicId: a
+ * wrong prediction sends the funds to an account that never exists. The amount is not a parameter: a deploy always funds
+ * the default, so no caller can move more of the person's KMOI into code the caller wrote.
+ *
+ * `manifest` is the POLO hex ManifestCoder.encodeManifest returns, 0x prefix included, and `calldata` is the encoded
+ * input of the deploy routine, left out for a routine that takes none; both go into the payload as they are, as the SDK's
+ * LogicFactory puts them. `callsite` is the deploy routine's name. The new logic is never declared as a participant: it
+ * does not exist yet, and declaring an account that does not exist fails with "account not found". KMOI is declared by the
+ * funding operation (the SDK's processParticipants adds it). Participants the caller names are kept as they are named: the
+ * same id twice keeps its first spelling and the strongest lock, as buildAssetInvoke does.
+ */
+export function buildLogicDeploy(
+  sender: SenderInfo,
+  params: {
+    manifest: string;
+    callsite: string;
+    calldata?: string;
+    participants?: Array<{ id: string; lock: "mutate" | "read" | "none" }>;
+  },
+  options: BuildOptions = {},
+): UnsignedInteraction {
+  const funding = buildTransferPayload(
+    KMOI_ASSET_ID as `0x${string}`,
+    predictLogicId(sender) as `0x${string}`,
+    DEFAULT_STORAGE_FUND <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(DEFAULT_STORAGE_FUND) : DEFAULT_STORAGE_FUND,
+  ) as unknown as Record<string, unknown>;
+
+  const declared = new Map<string, { id: string; lock_type: number }>();
+  for (const p of params.participants ?? []) {
+    const key = p.id.toLowerCase();
+    const lock = LOCK_BY_NAME[p.lock];
+    const seen = declared.get(key);
+    if (!seen) declared.set(key, { id: p.id, lock_type: lock });
+    else if (lock < seen.lock_type) seen.lock_type = lock; // MUTATE 0 < READ 1 < NO_LOCK 2: the strongest wins
+  }
+
+  return {
+    ...base(sender, options),
+    ix_operations: [
+      {
+        type: OpType.LOGIC_DEPLOY,
+        payload: {
+          manifest: params.manifest,
+          callsite: params.callsite,
+          ...(params.calldata ? { calldata: params.calldata } : {}),
+        },
+      },
+      {
+        type: OpType.ASSET_INVOKE,
+        payload: { ...funding, calldata: String(funding["calldata"] ?? "").replace(/^0x/, "") },
       },
     ],
     ...(declared.size > 0 ? { participants: [...declared.values()] } : {}),

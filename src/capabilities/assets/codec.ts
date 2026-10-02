@@ -12,7 +12,8 @@
  * same negative number, and the coder's own message for 2^64 ("byte array longer than desired length") tells a model
  * nothing.
  *
- * This file knows no standard and no routine name. It imports nothing from src/tools, src/wc or the journal.
+ * This file knows no standard and no routine name. It imports nothing from src/tools, src/wc or the journal. It is also
+ * what encodes the inputs of a logic's deploy routine (src/capabilities/logics/deploy.ts), with decimals 0.
  */
 
 import { bytesToHex, type ManifestCoder } from "js-moi-sdk";

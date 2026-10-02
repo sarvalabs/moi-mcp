@@ -50,6 +50,7 @@ describe("read-only HTTP server", () => {
     expect(registered).toContain("moi_rpc_account_state");
     expect(registered).not.toContain("moi_rpc_send_interactions");
     expect(registered).not.toContain("moi_asset_invoke");
+    expect(registered).not.toContain("moi_deploy_logic");
     expect(registered).not.toContain("moi_transfer");
     expect(registered).not.toContain("moi_create_asset");
     expect(registered).not.toContain("moi_connect_wallet");

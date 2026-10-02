@@ -14,7 +14,7 @@ import { deriveKey } from "../../src/auth/crypto.js";
 import type { AuthInfo } from "../../src/auth/types.js";
 import { DAPP_SESSION_KEY_LABEL } from "../../src/applications/dapp/store.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
-import { registerHostedWrites } from "../../src/tools/register.js";
+import { registerHostedWrites, type HostedWriteOptions } from "../../src/tools/register.js";
 import type { PreviewRegistry } from "../../src/tools/preview.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
 import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";
@@ -111,10 +111,13 @@ export function deps(
   return { store, hub, journal, previews } as unknown as HostedWriteDeps;
 }
 
-/** Wire a real McpServer with the hosted writes and hand back a connected client. */
-export async function connect(d: HostedWriteDeps, who: AuthInfo = authFor(USER)): Promise<Client> {
+/**
+ * Wire a real McpServer with the hosted writes and hand back a connected client. `options` is what registerHostedWrites
+ * takes: a test of moi_deploy_logic passes a short deployWaitMs, because the hosted default watches for the receipt for 30 seconds.
+ */
+export async function connect(d: HostedWriteDeps, who: AuthInfo = authFor(USER), options: HostedWriteOptions = {}): Promise<Client> {
   const server = new McpServer({ name: "t", version: "0" });
-  registerHostedWrites(server, d, who);
+  registerHostedWrites(server, d, who, options);
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: "t", version: "0" });
