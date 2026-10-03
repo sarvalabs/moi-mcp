@@ -28,7 +28,7 @@ import { getReadOnlySigner, NETWORKS } from "../../moi/provider.js";
 import { findAgentByWallet } from "../../capabilities/reads/registry.js";
 import { ErrorCode } from "../../schema.js";
 import { defineTool, type ToolDef } from "../../tools/define.js";
-import { ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "../../tools/hosted-writes.js";
+import { awaitPhone, ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "../../tools/hosted-writes.js";
 import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "../../tools/preview.js";
 import { prepareRegisterAgent } from "../registry/core.js";
 import { asWriteResult, ok } from "../../tools/write-core.js";
@@ -177,13 +177,15 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
       outputSchema: S.LaunchpadSignInOutput.shape,
       annotations: ACT,
     },
-    async () =>
+    async (_args, extra) =>
       run(async () => {
         const who = requireAuth(auth);
         const cfg = getConfig();
         const wallet = await loadSession(deps.writes, who, NETWORKS[cfg.MOI_NETWORK].caip2);
         const { message } = await deps.client.nonce(wallet.address);
-        const { signature } = await deps.writes.hub.signMessageFor(wallet.topic, wallet.address, message);
+        const { signature } = await awaitPhone(extra, "sign-in", () =>
+          deps.writes.hub.signMessageFor(wallet.topic, wallet.address, message),
+        );
         const session = await deps.client.verify({ address: wallet.address, message, signature });
         await deps.sessions.set({
           version: 1,
@@ -354,7 +356,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
       },
       annotations: { ...ACT, destructiveHint: true },
     },
-    async ({ agentId, confirm }) => {
+    async ({ agentId, confirm }, extra) => {
       const write = deps.write ?? runWrite;
       let launch: StoredDappSession;
       let agent: AgentRecord;
@@ -429,7 +431,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
               `this registration waits behind them${intent.blocked.underfunded ? " and your balance is too low to clear them" : ""}.`,
           },
         };
-      });
+      }, extra);
 
       const sent = result.structuredContent as
         | { status?: string; hash?: string; explorerUrl?: string; summary?: string }

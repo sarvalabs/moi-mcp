@@ -145,6 +145,26 @@ describe("moi_set_agent_status and moi_transfer_agent", () => {
     expect(calls[1]!.details).toMatchObject({ Operation: "Transfer agent", "Current owner": ACCOUNT, "New owner": other });
   });
 
+  // The in-memory tests of runWrite do not reach these three handlers, so this is what guards that each one hands its
+  // request's second argument on; without it a client that asked for progress would hear nothing from them.
+  it("hand the request's extra to the write path, all three registry writes", async () => {
+    const { write } = fakeWrite();
+    const client = await connect(write);
+    const other = "0x0000000007070707070707070707070707070707070707070707070700000000";
+
+    await client.callTool({
+      name: "moi_register_agent",
+      arguments: { url: "https://agents.example/pricefeed", cardUri: "https://agents.example/pricefeed/card.json", agentWallet: AGENT_WALLET },
+    });
+    await client.callTool({ name: "moi_set_agent_status", arguments: { agentId: "agent_7", status: "deprecated" } });
+    await client.callTool({ name: "moi_transfer_agent", arguments: { agentId: "agent_7", newOwner: other } });
+
+    expect(write).toHaveBeenCalledTimes(3);
+    for (const i of [0, 1, 2]) {
+      expect(vi.mocked(write).mock.calls[i]?.[6]).toMatchObject({ sendNotification: expect.any(Function) });
+    }
+  });
+
   it("refuse an id that is not the registry's agent_<n> form", async () => {
     const { write } = fakeWrite();
     const client = await connect(write);

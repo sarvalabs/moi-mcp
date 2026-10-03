@@ -84,6 +84,36 @@ export function fakeHub(): FakeHub {
   };
 }
 
+/**
+ * A phone that has not answered yet. Both signing calls on `hub` stay pending until tap(), then answer as the hub did
+ * before. fail(err) makes them reject instead (the person refused, or the wait timed out). `asked` resolves the moment
+ * either call is made, so a test knows the wait is open before it moves the clock.
+ */
+export function slowPhone(hub: FakeHub): { asked: Promise<void>; tap: () => void; fail: (err: unknown) => void } {
+  let ask!: () => void;
+  const asked = new Promise<void>((resolve) => (ask = resolve));
+  let tap!: () => void;
+  let fail!: (err: unknown) => void;
+  const settled = new Promise<void>((resolve, reject) => {
+    tap = resolve;
+    fail = reject;
+  });
+  settled.catch(() => {}); // a test that never reaches the hub must not leave an unhandled rejection
+  const answerInteraction = hub.signInteractionFor.getMockImplementation()!;
+  const answerMessage = hub.signMessageFor.getMockImplementation()!;
+  hub.signInteractionFor.mockImplementation(async (...args: unknown[]) => {
+    ask();
+    await settled;
+    return answerInteraction(...args);
+  });
+  hub.signMessageFor.mockImplementation(async (...args: unknown[]) => {
+    ask();
+    await settled;
+    return answerMessage(...args);
+  });
+  return { asked, tap, fail };
+}
+
 export interface FakeJournal {
   append: Mock;
   update: Mock;

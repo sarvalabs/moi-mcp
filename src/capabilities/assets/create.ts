@@ -79,9 +79,15 @@ export function createAssetTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "create_asset", args, confirm, async (s) =>
-        prepareCreateAsset(s.address, { ...args, balance: await kmoiBalance(s.address) }),
+    async ({ confirm, ...args }, extra) =>
+      runWrite(
+        deps,
+        auth,
+        "create_asset",
+        args,
+        confirm,
+        async (s) => prepareCreateAsset(s.address, { ...args, balance: await kmoiBalance(s.address) }),
+        extra,
       ),
   );
 }

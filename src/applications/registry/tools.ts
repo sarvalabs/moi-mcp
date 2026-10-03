@@ -44,12 +44,12 @@ export function registryWriteTools(
       inputSchema: { ...RegisterAgentInput.shape, confirm: ConfirmArg },
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) => {
+    async ({ confirm, ...args }, extra) => {
       let owner = "";
       const result = await write(deps, auth, "register_agent", args, confirm, (session) => {
         owner = session.address;
         return prepareRegisterAgent(session.address, args);
-      });
+      }, extra);
       const sent = result.structuredContent as { status?: string; hash?: string } | undefined;
       if (sent?.status !== "sent" || !sent.hash || !owner) return result;
 
@@ -86,8 +86,8 @@ export function registryWriteTools(
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      write(deps, auth, "set_agent_status", args, confirm, (session) => prepareSetAgentStatus(session.address, args)),
+    async ({ confirm, ...args }, extra) =>
+      write(deps, auth, "set_agent_status", args, confirm, (session) => prepareSetAgentStatus(session.address, args), extra),
   ));
 
   tools.push(defineTool(
@@ -102,8 +102,8 @@ export function registryWriteTools(
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      write(deps, auth, "transfer_agent", args, confirm, (session) => prepareTransferAgent(session.address, args)),
+    async ({ confirm, ...args }, extra) =>
+      write(deps, auth, "transfer_agent", args, confirm, (session) => prepareTransferAgent(session.address, args), extra),
   ));
 
   return tools;

@@ -6,17 +6,18 @@
 
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthInfo } from "../../src/auth/index.js";
 import { HOSTED_INSTRUCTIONS } from "../../src/instructions.js";
 import { WriteJournal } from "../../src/journal.js";
 import { TOOLS } from "../../src/schema.js";
 import { buildHostedApp, GATED, type HostedDeps } from "../../src/server.js";
+import { PROGRESS_EVERY_MS } from "../../src/tools/hosted-writes.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
 import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
-import { ACCOUNT, startMockNode, type MockNode } from "../helpers/mock-node.js";
+import { ACCOUNT, KMOI, OTHER, startMockNode, type MockNode } from "../helpers/mock-node.js";
 
 const VALID_TOKEN = "test-token";
 const READ_ONLY_TOKEN = "read-only-token";
@@ -93,6 +94,19 @@ class FakeHub implements WalletConnectHubLike {
     return () => {};
   }
   async close(): Promise<void> {}
+}
+
+/** A hub whose phone answers only when told to, so a call stays open. */
+class HeldHub extends FakeHub {
+  private ask!: () => void;
+  readonly asked = new Promise<void>((resolve) => (this.ask = resolve));
+  tap!: () => void;
+  private readonly held = new Promise<void>((resolve) => (this.tap = resolve));
+  override async signInteractionFor(): Promise<{ ix_args: string; signatures: string }> {
+    this.ask();
+    await this.held;
+    return { ix_args: "0x" + "1".repeat(64), signatures: "0x" + "2".repeat(128) };
+  }
 }
 
 function makeDeps(store: WalletSessionStore): HostedDeps {
@@ -299,6 +313,94 @@ describe("hosted transport", () => {
     };
     const { json } = await rpc(baseUrl, body, auth);
     expect(json.result.structuredContent.mode).toBe("once");
+  });
+
+  // The in-memory transports the tool tests use ignore which stream a notification goes out on, so this is the one place
+  // that shows the notice reaches the confirm call's own response stream, the only one a stateless request has.
+  it("puts the notice on the confirm call's own stream while the phone is pending", async () => {
+    const auth = { authorization: `Bearer ${VALID_TOKEN}` };
+    await store.set({
+      version: 1,
+      userId: AUTH_INFO.userId,
+      topic: "topic-1",
+      caip2: "moi:custom",
+      address: ACCOUNT,
+      sessionData: {},
+      createdAt: new Date().toISOString(),
+    });
+    // Its own app, because the one above has a hub that is never asked.
+    const hub = new HeldHub();
+    const held = createServer(buildHostedApp({ ...makeDeps(store), hub }));
+    await new Promise<void>((resolve) => held.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(held.address() as AddressInfo).port}`;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const args = { to: OTHER, assetId: KMOI, amount: "1" };
+      const preview = await rpc(url, toolCall(1, "moi_transfer", args), auth);
+      const confirm = preview.json.result.structuredContent.confirm as string;
+      expect(confirm).toBeTruthy();
+
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      // Not awaited: the response headers may not leave until the first frame does.
+      const pending = fetch(`${url}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...auth },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "moi_transfer", arguments: { ...args, confirm }, _meta: { progressToken: "tok-1" } },
+        }),
+      });
+      await hub.asked;
+      await vi.advanceTimersByTimeAsync(PROGRESS_EVERY_MS);
+
+      const res = await pending;
+      expect(res.status).toBe(200);
+      reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      // Whole events only, and only their data lines: the SDK also writes a keep-alive comment on the same 15 second beat.
+      const frames = () =>
+        text
+          .split("\n\n")
+          .slice(0, -1)
+          .flatMap((event) =>
+            event
+              .split("\n")
+              .filter((line) => line.startsWith("data: "))
+              .map((line) => JSON.parse(line.slice("data: ".length))),
+          );
+      const readUntil = async (done: () => boolean) => {
+        while (!done()) {
+          const chunk = await reader!.read();
+          if (chunk.done) break;
+          text += decoder.decode(chunk.value, { stream: true });
+        }
+      };
+
+      await readUntil(() => frames().some((f) => f.method === "notifications/progress"));
+      expect(frames().find((f) => f.method === "notifications/progress")).toEqual({
+        jsonrpc: "2.0",
+        method: "notifications/progress",
+        params: {
+          progressToken: "tok-1",
+          progress: 15,
+          message: "Still waiting for your approval in MOI Wallet (15 s). Nothing is sent until you approve.",
+        },
+      });
+      // The phone has not answered, so nothing but the notice has come back yet.
+      expect(frames().some((f) => f.id === 2)).toBe(false);
+
+      hub.tap();
+      await readUntil(() => frames().some((f) => f.id === 2));
+      expect(frames().find((f) => f.id === 2).result.structuredContent.status).toBe("sent");
+    } finally {
+      vi.useRealTimers();
+      await reader?.cancel().catch(() => {});
+      held.closeAllConnections();
+      await new Promise<void>((resolve) => held.close(() => resolve()));
+    }
   });
 
   it("GATED covers every wallet tool and every write tool in the schema's TOOLS manifest", () => {

@@ -106,7 +106,7 @@ export function callLogicTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
       inputSchema: { ...CallLogicInput.shape, confirm: ConfirmArg },
       annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
     },
-    async ({ confirm, kind, ...call }) => {
+    async ({ confirm, kind, ...call }, extra) => {
       // A view runs against the node directly — no wallet, no approval, no
       // signed interaction, and so nothing for the journal to track.
       if (kind === "view") {
@@ -120,7 +120,7 @@ export function callLogicTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
           return ok(asWriteResult(err));
         }
       }
-      return runWrite(deps, auth, "call_logic", call, confirm, (s) => prepareLogicCall(s.address, call));
+      return runWrite(deps, auth, "call_logic", call, confirm, (s) => prepareLogicCall(s.address, call), extra);
     },
   );
 }

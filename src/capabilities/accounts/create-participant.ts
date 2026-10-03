@@ -182,7 +182,7 @@ export function createAccountTool(deps: WriteDeps, auth: AuthInfo | null): ToolD
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "create_account", args, confirm, (s) => prepareCreateAccount(s.address, args)),
+    async ({ confirm, ...args }, extra) =>
+      runWrite(deps, auth, "create_account", args, confirm, (s) => prepareCreateAccount(s.address, args), extra),
   );
 }

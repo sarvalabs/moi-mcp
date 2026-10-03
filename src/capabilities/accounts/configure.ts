@@ -483,7 +483,7 @@ export function configureAccountTool(deps: WriteDeps, auth: AuthInfo | null): To
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "configure_account", args, confirm, (s) => prepareConfigureAccount(s.address, args)),
+    async ({ confirm, ...args }, extra) =>
+      runWrite(deps, auth, "configure_account", args, confirm, (s) => prepareConfigureAccount(s.address, args), extra),
   );
 }

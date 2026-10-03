@@ -175,8 +175,8 @@ export function transferTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "transfer", args, confirm, (s) => prepareTransfer(s.address, args)),
+    async ({ confirm, ...args }, extra) =>
+      runWrite(deps, auth, "transfer", args, confirm, (s) => prepareTransfer(s.address, args), extra),
   );
 }
 
@@ -193,7 +193,7 @@ export function mintTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
       outputSchema: WriteOutputShape,
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "mint", args, confirm, (s) => prepareMint(s.address, args)),
+    async ({ confirm, ...args }, extra) =>
+      runWrite(deps, auth, "mint", args, confirm, (s) => prepareMint(s.address, args), extra),
   );
 }

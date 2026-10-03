@@ -22,7 +22,7 @@ import { MoiError } from "../../moi-error.js";
 import { NETWORKS } from "../../moi/provider.js";
 import { ErrorCode } from "../../schema.js";
 import { defineTool, type ToolDef } from "../../tools/define.js";
-import { ConfirmArg, loadSession, previewsOf, type HostedWriteDeps } from "../../tools/hosted-writes.js";
+import { awaitPhone, ConfirmArg, loadSession, previewsOf, type HostedWriteDeps } from "../../tools/hosted-writes.js";
 import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "../../tools/preview.js";
 
 export interface DappDeps {
@@ -133,7 +133,7 @@ export function dappTools(deps: DappDeps, auth: AuthInfo | null): ToolDef[] {
       outputSchema: { dapp: z.string(), signedIn: z.literal(true), wallet: z.string(), expiresAt: z.string() },
       annotations: ACT,
     },
-    async ({ url }) =>
+    async ({ url }, extra) =>
       run(async () => {
         const who = requireAuth(auth);
         const dapp = origin(url);
@@ -141,7 +141,9 @@ export function dappTools(deps: DappDeps, auth: AuthInfo | null): ToolDef[] {
         const wallet = await loadSession(deps.writes, who, NETWORKS[cfg.MOI_NETWORK].caip2);
         const client = clientFor(dapp);
         const { message } = await client.nonce(wallet.address);
-        const { signature } = await deps.writes.hub.signMessageFor(wallet.topic, wallet.address, message);
+        const { signature } = await awaitPhone(extra, "sign-in", () =>
+          deps.writes.hub.signMessageFor(wallet.topic, wallet.address, message),
+        );
         const session = await client.verify({ address: wallet.address, message, signature });
         await deps.sessions.set({
           version: 1,

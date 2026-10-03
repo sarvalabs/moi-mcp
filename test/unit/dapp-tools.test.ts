@@ -8,11 +8,12 @@ import { createServer, type ServerResponse } from "node:http";
 import { createServer as createNetServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { Progress } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
 import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver } from "../../src/applications/dapp/origin.js";
@@ -32,6 +33,7 @@ import { FileDappSessionStore } from "../../src/applications/dapp/store.js";
 import { MoiError } from "../../src/moi-error.js";
 import { ErrorCode } from "../../src/schema.js";
 import type { DappDeps } from "../../src/applications/dapp/tools.js";
+import { PROGRESS_EVERY_MS } from "../../src/tools/hosted-writes.js";
 import { registerDappTools } from "../../src/tools/register.js";
 import { PREVIEW_TTL_MS, PreviewRegistry } from "../../src/tools/preview.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
@@ -44,6 +46,7 @@ import {
   fakeStore,
   send,
   session,
+  slowPhone,
   structured,
   USER,
   type FakeHub,
@@ -441,6 +444,38 @@ describe("moi_dapp_sign_in", () => {
     // Exact, so a new input of any name has to be added here on purpose.
     expect(names).toEqual(["url"]);
     expect(names.filter((n) => /message|text|payload|msg|challenge|statement/i.test(n))).toEqual([]);
+  });
+
+  describe("while the phone has not answered", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("tells a client that asked for progress that the sign-in is waiting for the phone", async () => {
+      const writes = wallet();
+      const phone = slowPhone(writes.hub as FakeHub);
+      const { client } = await connect({ writes });
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+
+      const seen: Progress[] = [];
+      const call = client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } }, undefined, {
+        onprogress: (p) => seen.push(p),
+      });
+      await phone.asked;
+      await vi.advanceTimersByTimeAsync(PROGRESS_EVERY_MS);
+      expect(seen).toEqual([
+        {
+          progress: 15,
+          message: "Still waiting for you to approve the sign-in message in MOI Wallet (15 s). Nothing is sent on chain.",
+        },
+      ]);
+
+      phone.tap();
+      expect(structured(await call)).toMatchObject({ signedIn: true });
+      await vi.advanceTimersByTimeAsync(4 * PROGRESS_EVERY_MS);
+      expect(seen).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 });
 

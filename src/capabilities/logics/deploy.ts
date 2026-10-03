@@ -326,7 +326,7 @@ export function deployLogicTool(deps: WriteDeps, auth: AuthInfo | null, options:
       inputSchema: { ...DeployLogicInput.shape, confirm: ConfirmArg },
       annotations: WRITE_ANNOTATIONS,
     },
-    async ({ confirm, ...call }) => {
+    async ({ confirm, ...call }, extra) => {
       // Planning needs no node and no wallet, so a manifest that cannot be deployed is refused before the person is asked anything.
       let plan: LogicDeployPlan;
       try {
@@ -341,7 +341,7 @@ export function deployLogicTool(deps: WriteDeps, auth: AuthInfo | null, options:
         const prepared = await prepareLogicDeploy(s.address, plan);
         funded = prepared.logicId;
         return prepared;
-      });
+      }, extra);
       const sent = result.structuredContent as { status?: string; hash?: string } | undefined;
       if (sent?.status !== "sent" || !sent.hash) return result;
 

@@ -175,7 +175,7 @@ export function assetInvokeTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef
       inputSchema: { ...AssetInvokeInput.shape, confirm: ConfirmArg },
       annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
     },
-    async ({ confirm, ...call }) => {
+    async ({ confirm, ...call }, extra) => {
       // Whether this is a read or a write is the manifest's word, so the manifest is read first. A read needs no
       // wallet, preview or journal entry (like moi_call_logic kind=view); a write goes the one write path. So the node
       // is asked for the asset and its manifest before the wallet check: an unpaired write still ends as
@@ -193,7 +193,7 @@ export function assetInvokeTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef
           return ok(asWriteResult(err));
         }
       }
-      return runWrite(deps, auth, "asset_invoke", call, confirm, (s) => prepareAssetInvoke(s.address, target, call));
+      return runWrite(deps, auth, "asset_invoke", call, confirm, (s) => prepareAssetInvoke(s.address, target, call), extra);
     },
   );
 }

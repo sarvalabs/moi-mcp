@@ -22,6 +22,8 @@
  */
 
 import { randomUUID } from "node:crypto";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { getConfig, log } from "../config.js";
@@ -235,6 +237,85 @@ function previewOf(
 }
 
 /**
+ * How often a client that asked for progress hears that the phone has not answered yet. It is also how often the SDK's
+ * HTTP transport writes a keep-alive comment. The first notice comes at this mark and not at once, so a wait the hub
+ * refuses straight away (the pairing is gone) ends before anything claims to be waiting.
+ */
+export const PROGRESS_EVERY_MS = 15_000;
+
+/**
+ * The two members of a tool handler's second argument that a wait needs. The whole argument satisfies it, and a test can
+ * hand over a plain object.
+ */
+export type ToolExtra = Pick<RequestHandlerExtra<ServerRequest, ServerNotification>, "_meta" | "sendNotification">;
+
+/**
+ * The words a person may see while the phone has not answered. Fixed text and one number: nothing from the chain, a dapp
+ * or the arguments goes into a notice, because the client shows it as it is.
+ */
+const WAIT_NOTICE = {
+  approval: (seconds: number) =>
+    `Still waiting for your approval in MOI Wallet (${seconds} s). Nothing is sent until you approve.`,
+  "sign-in": (seconds: number) =>
+    `Still waiting for you to approve the sign-in message in MOI Wallet (${seconds} s). Nothing is sent on chain.`,
+} as const;
+
+/**
+ * Wait for the phone, and say so every PROGRESS_EVERY_MS if the client asked to hear it.
+ *
+ * A write or a sign-in can wait minutes for a tap, in silence. A client that put a progress token on its request
+ * (extra._meta.progressToken) gets a notifications/progress on each tick: progress is the seconds waited and there is no
+ * total, because how long the wait may last belongs to the hub and differs by server. A client that sent no token gets
+ * nothing and no timer is armed. The notice goes out on the response stream of the request being served (the SDK sets
+ * relatedRequestId), the only stream the stateless hosted transport has. It does not lengthen any client's own request
+ * timeout; only a client that resets its timeout on progress does that.
+ *
+ * `wait` is the call to the phone, passed in so this knows nothing about the hub and the two sign-in tools stay the only
+ * callers of message signing (test/unit/wc-hub.test.ts counts them). A notice that cannot be sent is dropped, since it
+ * must never fail a write. The timer is cleared whatever the wait ends in: a tap, a refusal, a timeout or an error.
+ *
+ * One info line per wait says whether a token came. That is how a real call shows whether a client asks for progress at
+ * all; the token's value is never logged.
+ */
+export async function awaitPhone<T>(
+  extra: ToolExtra | undefined,
+  what: keyof typeof WAIT_NOTICE,
+  wait: () => Promise<T>,
+): Promise<T> {
+  const token = extra?._meta?.progressToken;
+  log(
+    "info",
+    `waiting for the phone (${what}): the client sent ` +
+      (token === undefined
+        ? "no progress token, so no notices"
+        : `a progress token, so a notice every ${PROGRESS_EVERY_MS / 1000} s`),
+  );
+  if (!extra || token === undefined) return wait();
+
+  let ticks = 0;
+  const timer = setInterval(() => {
+    ticks += 1;
+    const seconds = (ticks * PROGRESS_EVERY_MS) / 1000;
+    // Through a promise so that a send that throws at once, or a fake that returns nothing, is caught like one that rejects.
+    void Promise.resolve()
+      .then(() =>
+        extra.sendNotification({
+          method: "notifications/progress",
+          params: { progressToken: token, progress: seconds, message: WAIT_NOTICE[what](seconds) },
+        }),
+      )
+      .catch(() => {});
+  }, PROGRESS_EVERY_MS);
+  // Like the SDK's own keep-alive timer: never the reason a process stays up.
+  timer.unref?.();
+  try {
+    return await wait();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+/**
  * The one write path. Loads the caller's session, builds and simulates the
  * interaction, and then either previews it or, given a confirm token that
  * matches this user, this tool, these arguments and these numbers, sends it
@@ -242,7 +323,8 @@ function previewOf(
  *
  * The preview does the full build and simulation on purpose: a balance
  * shortfall or a reverting call is reported before the user is asked for a
- * yes, not after.
+ * yes, not after. The wait for the phone goes through awaitPhone, so a client
+ * that asked for progress hears that it is still waiting.
  */
 export async function runWrite(
   deps: WriteDeps,
@@ -251,6 +333,8 @@ export async function runWrite(
   args: unknown,
   confirm: string | undefined,
   prepare: (session: StoredWalletSession) => Promise<PreparedWrite>,
+  /** The tool handler's second argument, for progress notices while the phone is asked. undefined sends none. */
+  extra: ToolExtra | undefined,
 ) {
   const previews = previewsOf(deps);
   const id = randomUUID();
@@ -277,9 +361,9 @@ export async function runWrite(
     await deps.journal.append({ id, userId: who.userId, kind, state: "proposed" });
     proposed = true;
 
-    const { ix_args, signatures } = await deps.hub.signInteractionFor(session.topic, prepared.ix, {
-      description: prepared.description,
-    });
+    const { ix_args, signatures } = await awaitPhone(extra, "approval", () =>
+      deps.hub.signInteractionFor(session.topic, prepared.ix, { description: prepared.description }),
+    );
     // The phone HAS signed, whatever happens next. Setting the flag after
     // the journal write meant a failed write demoted a live signature to
     // "failed"; it must land as "orphaned" so someone looks at it.

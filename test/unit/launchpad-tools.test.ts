@@ -7,13 +7,27 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Progress } from "@modelcontextprotocol/sdk/types.js";
 
 import { LaunchpadClient, type FetchLike } from "../../src/applications/launchpad/client.js";
 import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";
 import { ErrorCode } from "../../src/schema.js";
-import type { runWrite } from "../../src/tools/hosted-writes.js";
+import { PROGRESS_EVERY_MS, type runWrite } from "../../src/tools/hosted-writes.js";
 import { PreviewRegistry } from "../../src/tools/preview.js";
-import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, send, session, structured, TOPIC, USER } from "../helpers/hosted.js";
+import {
+  authFor,
+  deps as writeDeps,
+  fakeHub,
+  fakeJournal,
+  fakeStore,
+  send,
+  session,
+  slowPhone,
+  structured,
+  TOPIC,
+  USER,
+  type FakeHub,
+} from "../helpers/hosted.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {
   AGENT_WALLET,
@@ -164,6 +178,39 @@ describe("moi_launchpad_sign_in", () => {
     const names = Object.keys(tools.find((t) => t.name === "moi_launchpad_sign_in")!.inputSchema.properties ?? {});
     // Exact, so a new input of any name has to be added here on purpose.
     expect(names).toEqual([]);
+  });
+
+  describe("while the phone has not answered", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // The tool's input schema is the empty shape, which is where an SDK handler could lose its second argument.
+    it("tells a client that asked for progress that the sign-in is waiting for the phone", async () => {
+      const writes = wallet();
+      const phone = slowPhone(writes.hub as FakeHub);
+      const client = await connectLaunchpad(launchpadDeps(fake, writes, fakeSessions()));
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+
+      const seen: Progress[] = [];
+      const call = client.callTool({ name: "moi_launchpad_sign_in", arguments: {} }, undefined, {
+        onprogress: (p) => seen.push(p),
+      });
+      await phone.asked;
+      await vi.advanceTimersByTimeAsync(PROGRESS_EVERY_MS);
+      expect(seen).toEqual([
+        {
+          progress: 15,
+          message: "Still waiting for you to approve the sign-in message in MOI Wallet (15 s). Nothing is sent on chain.",
+        },
+      ]);
+
+      phone.tap();
+      expect(structured(await call)).toMatchObject({ signedIn: true });
+      await vi.advanceTimersByTimeAsync(4 * PROGRESS_EVERY_MS);
+      expect(seen).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 });
 
@@ -389,6 +436,8 @@ describe("moi_launchpad_register_agent", () => {
     expect(preview.status).toBe("preview");
     expect(fake.requests.some((r) => r.path.endsWith("/register-intent"))).toBe(true);
     expect(fake.requests.some((r) => r.path.endsWith("/register-confirm"))).toBe(false);
+    // The handler's second argument is what lets the write path tell a client that the phone is still being waited on.
+    expect(vi.mocked(write).mock.calls[0]?.[6]).toMatchObject({ sendNotification: expect.any(Function) });
 
     const sent = structured<{ status: string; hash: string; registryAgentId?: string; launchpadStatus: string; note?: string }>(
       await callTool(client, "moi_launchpad_register_agent", { agentId: RECORD_ID, confirm: preview.confirm }),
