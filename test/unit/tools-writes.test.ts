@@ -17,8 +17,11 @@ import { DEFAULT_FUEL_PRICE } from "../../src/moi/ix-builder.js";
 import { isMoiError } from "../../src/moi-error.js";
 import { WriteResult } from "../../src/schema.js";
 import { assertStandardSupported } from "../../src/capabilities/assets/shortcuts.js";
+import { kmoiBalance } from "../../src/tools/write-core.js";
 import {
   ACCOUNT,
+  assetNumbered,
+  dustRows,
   KMOI,
   MAS0_ASSET,
   MAS1_ASSET,
@@ -966,5 +969,42 @@ describe("assertStandardSupported", () => {
         /native asset/,
       );
     }
+  });
+});
+
+describe("moi_transfer on an account that holds more than a page of assets", () => {
+  // 150 assets of one unit each, one of them (number 120) holding 5, and KMOI last in the node's own order. The account
+  // read the tool shows is paged and sorted; the balance check before a transfer must not be.
+  const WANTED = assetNumbered(120);
+  beforeEach(() => {
+    seedSession(h.home);
+    const rows = dustRows(150).map((row) => (row.asset_id === WANTED ? { ...row, amount: "0x5" } : row));
+    node.on("moi.TDU", () => [...rows, { asset_id: KMOI, token_id: "0x0", amount: "0x174876e800" }]);
+  });
+
+  it("checks the balance against every row, including one that no page of moi_get_account shows by default", async () => {
+    const account = await h.call("moi_get_account", { address: ACCOUNT });
+    const page = account.structuredContent as { balances: Array<{ assetId: string }>; total?: number };
+    expect(page.balances).toHaveLength(50);
+    expect(page.total).toBe(151);
+    expect(page.balances.map((b) => b.assetId)).not.toContain(WANTED);
+
+    const result = await h.call("moi_transfer", { to: OTHER, assetId: WANTED, amount: "5" });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent?.["status"]).toBe("preview");
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  it("compares the amount with the row it found, instead of finding none and reporting a zero balance", async () => {
+    const result = await h.call("moi_transfer", { to: OTHER, assetId: WANTED, amount: "6" });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/^\[INSUFFICIENT_BALANCE\] /);
+    // The mock answers the symbol KMOI and decimals 0 for every asset id.
+    expect(result.text).toMatch(/holds 5 of KMOI .* needs 6/);
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  it("reads the KMOI balance the same way", async () => {
+    expect(await kmoiBalance(ACCOUNT)).toBe(100_000_000_000n);
   });
 });

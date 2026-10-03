@@ -193,7 +193,7 @@ export async function getAssetRoutines(
   const view = await loadAssetManifest(provider, ref);
 
   const file = standardFileFor(asset.standard);
-  // The cut comes after the filtering: getLogic cuts first, which drops routines that were never callable anyway.
+  // The cut comes after the filtering, as it does in getLogic.
   const routines = [...view.callables.values()].slice(0, MAX_ROUTINES).map((callable) => ({
     name: callable.name,
     access: callable.access,

@@ -68,6 +68,20 @@ export const MASX_ASSET = assetWithStandard(0xffff);
 /** A standard code the SDK has no name for: assetStandardName reports it as UNKNOWN(9). */
 export const UNKNOWN_STANDARD_ASSET = assetWithStandard(9);
 
+/**
+ * A MAS0 asset id that differs from MAS0_ASSET only in four bytes taken from `n` (up to 0xffffffff), for tests that need
+ * many distinct ordinary assets. assetWithStandard changes the standard, so only one of its ids is MAS0. Checked: the SDK
+ * reads these as MAS0 and the mock's id check accepts them.
+ */
+export function assetNumbered(n: number): string {
+  return MAS0_ASSET.slice(0, 10) + n.toString(16).padStart(8, "0") + MAS0_ASSET.slice(18);
+}
+
+/** `count` moi.TDU rows for assetNumbered(first) onward, one unit each, as the node lists them. */
+export function dustRows(count: number, first = 1): Array<{ asset_id: string; token_id: string; amount: string }> {
+  return Array.from({ length: count }, (_, i) => ({ asset_id: assetNumbered(first + i), token_id: "0x0", amount: "0x1" }));
+}
+
 /** What moi.LogicManifest answers for the asset ids tests use; any other id still gets the PingLogic manifest, as before. */
 const ASSET_MANIFESTS = new Map<string, unknown>([
   [PIXEL, MAS0_MANIFEST],

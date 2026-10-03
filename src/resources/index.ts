@@ -24,7 +24,7 @@ Wallet over WalletConnect.
 
 Reads need no wallet. Ask your agent:
 
-- "what's in MOI account 0x…" → \`moi_get_account\`
+- "what's in MOI account 0x…" → \`moi_get_account\` (a page of balances; pass \`assetId\` for one asset's balance)
 - "what did MOI account 0x… do recently" → \`moi_get_history\`
 - "what asset is 0x…" → \`moi_get_asset\`
 - "what can asset 0x… do" → \`moi_asset_routines\`

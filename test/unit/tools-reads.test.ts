@@ -6,14 +6,31 @@
  */
 
 import type { JsonRpcProvider } from "js-moi-sdk";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_DEPTH, MAX_TEXT_CHARS } from "../../src/bounds.js";
+import { DEFAULT_REGISTRY_LOGIC_ID, primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";
+import { run } from "../../src/capabilities/reads/tools.js";
+import { MoiError } from "../../src/moi-error.js";
 import { getProvider } from "../../src/moi/provider.js";
-import { getAccount, getInteraction, MAX_DEEDS } from "../../src/moi/reads.js";
+import {
+  getAccount,
+  getInteraction,
+  MAX_DEEDS,
+  MAX_LEAF_CHARS,
+  MAX_LOGIC_FIELDS,
+  MAX_LOGIC_ROUTINES,
+  MAX_OPS,
+  MAX_PAYLOAD_CHARS,
+  MAX_RECEIPT_CHARS,
+} from "../../src/moi/reads.js";
+import { ErrorCode } from "../../src/schema.js";
 import { kmoiBalance } from "../../src/tools/write-core.js";
 import {
   ACCOUNT,
+  assetNumbered,
   assetWithStandard,
+  dustRows,
   IX_HASH,
   ixHashAt,
   KMOI,
@@ -25,6 +42,10 @@ import {
   type MockNode,
 } from "../helpers/mock-node.js";
 import { startHarness, type Harness } from "../helpers/harness.js";
+import { callable, logicManifest, serveLogic } from "../helpers/logic-fixtures.js";
+
+/** The most characters of text any one read may hand back in the worst case this suite builds. The guard's own ceiling is far higher; this is what the caps are meant to keep each read under. */
+const REPLY_LIMIT = 64_000;
 
 let node: MockNode;
 let h: Harness;
@@ -216,10 +237,11 @@ describe("moi_get_account: token ids", () => {
     ]);
     const result = await h.call("moi_get_account", { address: ACCOUNT });
     expect(result.isError).toBeFalsy();
+    // The tool lists KMOI first, then by asset id and token id; the node's own order is what getAccount keeps.
     expect(result.structuredContent?.["balances"]).toEqual([
+      { assetId: KMOI, tokenId: "0", amount: "100" },
       { assetId: MAS1_ASSET, tokenId: "1", amount: "1" },
       { assetId: MAS1_ASSET, tokenId: "7", amount: "2" },
-      { assetId: KMOI, tokenId: "0", amount: "100" },
     ]);
   });
 
@@ -318,6 +340,11 @@ describe("the account read the write tools use", () => {
 
     const state = await getAccount(provider(), ACCOUNT);
     expect(state.balances).toHaveLength(121);
+    // No page: nothing was counted, flagged or sorted, and KMOI is still last, where the node listed it.
+    expect(state).not.toHaveProperty("total");
+    expect(state).not.toHaveProperty("truncated");
+    expect(state).not.toHaveProperty("nextOffset");
+    expect(state.balances.at(-1)?.assetId).toBe(KMOI);
     expect(state).not.toHaveProperty("deeds");
     expect(state).not.toHaveProperty("deedsError");
     expect(node.methods()).not.toContain("moi.Deeds");
@@ -527,5 +554,490 @@ describe("the descriptions say what the combined reads add", () => {
     // not_listed is not "dropped", and ahead is not a count of missing nonces: the description says both.
     expect(description("moi_get_interaction")).toMatch(/not_listed means they do not/);
     expect(description("moi_get_interaction")).toMatch(/not nonces the sender never sent/);
+  });
+});
+
+describe("moi_get_account: a page of balances", () => {
+  type Page = { balances: Array<{ assetId: string; tokenId: string; amount: string }>; total?: number; truncated?: boolean; nextOffset?: number; deeds?: unknown };
+  const ask = async (args: Record<string, unknown> = {}) => {
+    const result = await h.call("moi_get_account", { address: ACCOUNT, ...args });
+    expect(result.isError).toBeFalsy();
+    return result.structuredContent as unknown as Page;
+  };
+
+  beforeEach(() => {
+    // KMOI is last in the node's own order, so the first page can only start with it if the tool sorted.
+    node.on("moi.TDU", () => [...dustRows(250), { asset_id: KMOI, token_id: "0x0", amount: "0x64" }]);
+  });
+
+  it("returns 50 rows by default, KMOI first and then by asset id, with the total and where the next page starts", async () => {
+    const page = await ask();
+    expect(page.balances).toHaveLength(50);
+    expect(page.balances[0]).toEqual({ assetId: KMOI, tokenId: "0", amount: "100" });
+    expect(page.balances.slice(1).map((b) => b.assetId)).toEqual(Array.from({ length: 49 }, (_, i) => assetNumbered(i + 1)));
+    expect(page.total).toBe(251);
+    expect(page.truncated).toBe(true);
+    expect(page.nextOffset).toBe(50);
+    // The rest of the answer is untouched: the Deeds read still ran.
+    expect(page.deeds).toEqual([{ assetId: KMOI, symbol: "KMOI" }]);
+    expect(node.methods()).toContain("moi.Deeds");
+  });
+
+  it("visits every row exactly once when the next offset is passed back", async () => {
+    const seen: string[] = [];
+    const sizes: number[] = [];
+    let offset = 0;
+    let first: Page | undefined;
+    for (;;) {
+      const page = await ask({ limit: 100, offset });
+      first ??= page;
+      sizes.push(page.balances.length);
+      seen.push(...page.balances.map((b) => `${b.assetId}:${b.tokenId}`));
+      if (page.nextOffset === undefined) {
+        expect(page).not.toHaveProperty("truncated");
+        break;
+      }
+      offset = page.nextOffset;
+    }
+    expect(sizes).toEqual([100, 100, 51]);
+    expect(new Set(seen).size).toBe(251);
+    expect(first?.balances[0]?.assetId).toBe(KMOI);
+    const after = seen.slice(1).map((key) => key.split(":")[0]!);
+    expect([...after].sort()).toEqual(after);
+  });
+
+  it("returns just one asset's rows for assetId, wherever they would fall in the list", async () => {
+    node.on("moi.TDU", () => [
+      ...dustRows(250),
+      { asset_id: KMOI, token_id: "0x0", amount: "0x64" },
+      { asset_id: MAS1_ASSET, token_id: "0x7", amount: "0x1" },
+      { asset_id: MAS1_ASSET, token_id: "0x1", amount: "0x2" },
+      { asset_id: MAS1_ASSET, token_id: "0x3", amount: "0x3" },
+    ]);
+    // Past every default page.
+    const last = assetNumbered(250);
+    const one = await ask({ assetId: last });
+    expect(one.balances).toEqual([{ assetId: last, tokenId: "0", amount: "1" }]);
+    expect(one).not.toHaveProperty("total");
+    expect(one).not.toHaveProperty("truncated");
+    expect(one).not.toHaveProperty("nextOffset");
+
+    // The same id written with upper-case hex is the same asset.
+    const upper = await ask({ assetId: `0x${last.slice(2).toUpperCase()}` });
+    expect(upper.balances).toEqual(one.balances);
+
+    expect((await ask({ assetId: KMOI })).balances).toEqual([{ assetId: KMOI, tokenId: "0", amount: "100" }]);
+
+    // An asset the account does not hold is an empty list, not an error.
+    expect((await ask({ assetId: assetNumbered(9_999) })).balances).toEqual([]);
+
+    // Several token ids of one asset come in token id order, though the node listed 7, 1, 3.
+    expect((await ask({ assetId: MAS1_ASSET })).balances.map((b) => [b.tokenId, b.amount])).toEqual([
+      ["1", "2"],
+      ["3", "3"],
+      ["7", "1"],
+    ]);
+  });
+
+  it.each([{ limit: 0 }, { limit: 101 }, { offset: -1 }, { limit: 1.5 }, { assetId: "nope" }])("refuses %j before touching the node", async (args) => {
+    const result = await h.call("moi_get_account", { address: ACCOUNT, ...args });
+    expect(result.isError).toBe(true);
+    expect(node.calls).toHaveLength(0);
+  });
+
+  it("says in its description that it is a page and how to read one asset", async () => {
+    const { tools } = await h.client.listTools();
+    const description = tools.find((t) => t.name === "moi_get_account")?.description ?? "";
+    expect(description).toMatch(/assetId/);
+    expect(description).toMatch(/nextOffset/);
+    expect(description).toMatch(/truncated/);
+    // The older facts are still there.
+    expect(description).toMatch(/tokenId/);
+    expect(description).toMatch(/deedsError/);
+  });
+});
+
+describe("moi_get_interaction: bounded", () => {
+  const ixWith = (operations: unknown[]) => (p: Record<string, unknown>) => ({
+    hash: p["hash"],
+    sender: { id: ACCOUNT, sequence: 4, key_id: 0 },
+    fuel_price: "0x1",
+    fuel_limit: "0x1c1",
+    ix_operations: operations,
+  });
+  const receiptWith = (extra: Record<string, unknown>) => (p: Record<string, unknown>) => ({
+    ix_hash: p["hash"],
+    from: ACCOUNT,
+    status: 0,
+    fuel_used: "0x12b",
+    ix_operations: [{ tx_type: "0x5", status: 0, data: { error: "0x" } }],
+    ...extra,
+  });
+  const op = (payload: Record<string, unknown>) => ({ type: 5, payload });
+  const smallOp = op({ asset_id: KMOI, callsite: "Transfer" });
+  /** One participant as the SDK types it, with 66-character ids: about 660 characters of JSON. */
+  const participant = (i: number) => ({
+    address: ACCOUNT,
+    height: `0x${(0x1a2b + i).toString(16)}`,
+    transitive_link: IX_HASH,
+    prev_context: IX_HASH,
+    latest_context: IX_HASH,
+    context_delta: { role: 0, behavioural_nodes: [IX_HASH, IX_HASH], random_nodes: null, replaced_nodes: null },
+    state_hash: IX_HASH,
+  });
+  /** The deploy operation first, carrying data.logic_id, then the funding transfer; `n` participants. */
+  const deployReceipt = (n: number) => (p: Record<string, unknown>) => ({
+    ix_hash: p["hash"],
+    from: ACCOUNT,
+    status: 0,
+    fuel_used: "0x12b",
+    ix_index: "0x0",
+    ts_hash: IX_HASH,
+    ix_operations: [
+      { tx_type: "0xb", status: 0, data: { logic_id: LOGIC, error: "0x" } },
+      { tx_type: "0x5", status: 0, data: { error: "0x" } },
+    ],
+    participants: Array.from({ length: n }, (_, i) => participant(i)),
+  });
+  type Reply = {
+    status: string;
+    sender: string;
+    fuelUsed?: number;
+    operations: Array<{ type: string; payload: Record<string, unknown> }>;
+    receipt?: Record<string, any>;
+    truncated?: boolean;
+    operationCount?: number;
+    note?: string;
+  };
+  const ask = async () => {
+    const result = await h.call("moi_get_interaction", { hash: IX_HASH });
+    expect(result.isError).toBeFalsy();
+    return { result, out: result.structuredContent as unknown as Reply };
+  };
+
+  it("lists at most 20 operations, says how many there are, and links the whole interaction", async () => {
+    node.on("moi.InteractionByHash", ixWith(Array.from({ length: 61 }, () => smallOp)));
+    const { out } = await ask();
+    expect(out.operations).toHaveLength(MAX_OPS);
+    expect(out.truncated).toBe(true);
+    expect(out.operationCount).toBe(61);
+    expect(out.note).toMatch(/Showing 20 of 61 operations/);
+    expect(out.note?.endsWith(`https://voyage.moi.technology/interaction/?${IX_HASH}`)).toBe(true);
+  });
+
+  it("shortens a long text in a payload and leaves the other operations and the other fields as they were", async () => {
+    const calldata = "ab".repeat(50_000);
+    const middle = { asset_id: KMOI, callsite: "Transfer", calldata };
+    node.on("moi.InteractionByHash", ixWith([smallOp, op(middle), smallOp]));
+    const { out } = await ask();
+    expect(out.operations[0]?.payload).toEqual(smallOp.payload);
+    expect(out.operations[2]?.payload).toEqual(smallOp.payload);
+    const cut = out.operations[1]?.payload ?? {};
+    expect(cut["asset_id"]).toBe(KMOI);
+    expect(cut["callsite"]).toBe("Transfer");
+    expect(String(cut["calldata"])).toHaveLength(MAX_LEAF_CHARS + 1);
+    expect(String(cut["calldata"]).endsWith("\u2026")).toBe(true);
+    expect(out.truncated).toBe(true);
+    expect(out).not.toHaveProperty("operationCount");
+    expect(out.note).toMatch(/1 operation payload was cut short/);
+  });
+
+  it("replaces a payload that shortening cannot save by its length and a preview, without failing the call", async () => {
+    const wide = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`key${i}`, "v".repeat(100)]));
+    node.on("moi.InteractionByHash", ixWith([op(wide)]));
+    const { out } = await ask();
+    const payload = out.operations[0]?.payload as { truncated?: boolean; chars?: number; preview?: string };
+    expect(payload.truncated).toBe(true);
+    expect(payload.chars).toBe(JSON.stringify(wide).length);
+    expect((payload.preview ?? "").length).toBeLessThanOrEqual(MAX_PAYLOAD_CHARS);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("shortens the long text in a receipt, and still reads status, sender and fuel from the whole receipt", async () => {
+    const outputs = "cd".repeat(50_000);
+    node.on("moi.InteractionReceipt", receiptWith({ ix_operations: [{ tx_type: "0x5", status: 0, data: { outputs, error: "0x" } }] }));
+    const { out } = await ask();
+    const shown = out.receipt?.["ix_operations"]?.[0]?.data?.outputs as string;
+    expect(shown).toHaveLength(MAX_LEAF_CHARS + 1);
+    expect(out.receipt?.["ix_operations"]?.[0]?.data?.error).toBe("0x");
+    expect(out.receipt?.["from"]).toBe(ACCOUNT);
+    expect(out.status).toBe("success");
+    expect(out.sender).toBe(ACCOUNT);
+    expect(out.fuelUsed).toBe(299);
+    expect(out.truncated).toBe(true);
+    expect(out.note).toMatch(/receipt was cut short/);
+  });
+
+  it("keeps the deploy operation's logic id when a long receipt drops its participants, and says how many there were", async () => {
+    node.on("moi.InteractionReceipt", deployReceipt(4));
+    const { out } = await ask();
+    expect(out.receipt).not.toHaveProperty("participants");
+    expect(out.receipt?.["participantsOmitted"]).toBe(4);
+    expect(out.receipt?.["ix_operations"]?.[0]?.data?.logic_id).toBe(LOGIC);
+    expect(out.status).toBe("success");
+    expect(out.truncated).toBe(true);
+    expect(out.note).toMatch(/receipt was cut short/);
+  });
+
+  it("gives a receipt of one participant whole, with nothing flagged", async () => {
+    node.on("moi.InteractionReceipt", deployReceipt(1));
+    const { out } = await ask();
+    expect(out.receipt).toEqual(deployReceipt(1)({ hash: IX_HASH }));
+    expect(out.receipt).toHaveProperty("participants");
+    expect(out).not.toHaveProperty("truncated");
+    expect(out).not.toHaveProperty("note");
+    expect(out.receipt).not.toHaveProperty("participantsOmitted");
+  });
+
+  it("replaces a receipt whose operations alone are too long by its preview, and still reads the status", async () => {
+    const operations = Array.from({ length: 300 }, () => ({ tx_type: "0x5", status: 0, data: { error: "0x" } }));
+    node.on("moi.InteractionReceipt", receiptWith({ ix_operations: operations }));
+    const { out } = await ask();
+    const receipt = out.receipt as { truncated?: boolean; chars?: number; preview?: string };
+    expect(receipt.truncated).toBe(true);
+    expect((receipt.preview ?? "").length).toBeLessThanOrEqual(MAX_RECEIPT_CHARS);
+    expect(out.status).toBe("success");
+  });
+
+  it("stays under the reply limit when every payload and the receipt are quote-heavy and replaced", async () => {
+    const quotes = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`key${i}`, '"'.repeat(150)]));
+    node.on("moi.InteractionByHash", ixWith(Array.from({ length: MAX_OPS }, () => op(quotes))));
+    node.on(
+      "moi.InteractionReceipt",
+      receiptWith({ ix_operations: Array.from({ length: 300 }, () => ({ tx_type: "0x5", status: 0, data: { error: '"'.repeat(100) } })) }),
+    );
+    const { result, out } = await ask();
+    expect(out.truncated).toBe(true);
+    expect(result.text.length).toBeLessThan(REPLY_LIMIT);
+  });
+
+  it("adds nothing to an ordinary interaction and gives its payload as the node served it", async () => {
+    const { out } = await ask();
+    expect(out).not.toHaveProperty("truncated");
+    expect(out).not.toHaveProperty("operationCount");
+    expect(out).not.toHaveProperty("note");
+    expect(out.operations).toEqual([{ type: "ASSET_INVOKE", payload: { asset_id: KMOI, callsite: "Transfer", calldata: "0e" } }]);
+  });
+
+  it("cuts a payload nested a hundred thousand deep instead of overflowing the stack", async () => {
+    // The mock node cannot send it (its own JSON.stringify overflows), so the provider is faked.
+    const deep = JSON.parse('{"a":'.repeat(100_000) + "1" + "}".repeat(100_000));
+    const fake = {
+      getInteractionByHash: async () => ({ hash: IX_HASH, sender: { id: ACCOUNT, sequence: 4, key_id: 0 }, ix_operations: [{ type: 5, payload: deep }] }),
+      getInteractionReceipt: async () => ({ status: 0, from: ACCOUNT, fuel_used: "0x1", ix_operations: [] }),
+    } as unknown as JsonRpcProvider;
+    const out = await getInteraction(fake, IX_HASH);
+    expect(out.truncated).toBe(true);
+    expect(out.note).toMatch(/cut short/);
+    expect(JSON.stringify(out.operations[0]?.payload)).toContain("nested more than 20 levels deep");
+    expect(() => JSON.stringify(out)).not.toThrow();
+  });
+
+  it("states the limits it enforces in its output schema and its description", async () => {
+    const { tools } = await h.client.listTools();
+    const tool = tools.find((t) => t.name === "moi_get_interaction");
+    const properties = (tool?.outputSchema as { properties: Record<string, any> }).properties;
+    const payload: string = properties["operations"].items.properties.payload.description;
+    const receipt: string = properties["receipt"].description;
+    expect(payload).toContain(String(MAX_PAYLOAD_CHARS));
+    expect(payload).toContain(String(MAX_LEAF_CHARS));
+    expect(receipt).toContain(String(MAX_RECEIPT_CHARS));
+    expect(receipt).toContain(String(MAX_LEAF_CHARS));
+    expect(receipt).toContain("participants");
+    expect(tool?.description).toContain(String(MAX_OPS));
+  });
+});
+
+describe("moi_get_logic: bounded", () => {
+  type Reply = { name?: string; routines: Array<{ name: string; kind: string; inputs: Array<{ name: string; type: string }>; outputs: Array<{ name: string; type: string }>; truncated?: boolean }>; truncated?: boolean; routineCount?: number };
+  const read = async (elements: Array<Record<string, unknown>>, extra: Record<string, unknown> = {}) => {
+    serveLogic(node, logicManifest(elements, extra));
+    const result = await h.call("moi_get_logic", { logicId: LOGIC });
+    expect(result.isError).toBeFalsy();
+    return { result, out: result.structuredContent as unknown as Reply };
+  };
+  const filler = (n: number) => Array.from({ length: n }, (_, i) => ({ ptr: i, deps: [], kind: "constant", data: {} }));
+
+  // REGRESSION: the manifest used to be cut at 200 elements BEFORE it was filtered to callable routines, so a logic whose
+  // routines come after its first 200 elements listed none. Putting the cut before the filter again must fail here.
+  it("lists a routine that comes after more than 200 elements that are not callable", async () => {
+    const { out } = await read([...filler(250), callable(250, "Late", "dynamic", [["a", "u64"]])]);
+    expect(out.routines).toEqual([{ name: "Late", kind: "invoke", inputs: [{ name: "a", type: "u64" }], outputs: [] }]);
+    expect(out).not.toHaveProperty("truncated");
+    expect(out).not.toHaveProperty("routineCount");
+  });
+
+  it("lists at most MAX_LOGIC_ROUTINES, in manifest order, and says how many there are", async () => {
+    const { out } = await read(Array.from({ length: 150 }, (_, i) => callable(i, `R${String(i).padStart(3, "0")}`, "dynamic", [])));
+    expect(out.routines).toHaveLength(MAX_LOGIC_ROUTINES);
+    expect(out.routines[0]?.name).toBe("R000");
+    expect(out.truncated).toBe(true);
+    expect(out.routineCount).toBe(150);
+  });
+
+  it("cuts earlier when the routines' own names and types are long, and stays under the reply limit", async () => {
+    const inputs = Array.from({ length: MAX_LOGIC_FIELDS }, () => ["L".repeat(60), "t".repeat(100)] as [string, string]);
+    const { result, out } = await read(Array.from({ length: 60 }, (_, i) => callable(i, `Big${i}`, "dynamic", inputs)));
+    expect(out.routines.length).toBeGreaterThanOrEqual(1);
+    expect(out.routines.length).toBeLessThan(10);
+    expect(out.truncated).toBe(true);
+    expect(out.routineCount).toBe(60);
+    expect(result.text.length).toBeLessThan(REPLY_LIMIT);
+  });
+
+  it("cuts the inputs and outputs of one routine, and says so on the routine and at the top", async () => {
+    const field = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => [`${prefix}${i}`, "u64"] as [string, string]);
+    const { out } = await read([callable(0, "Wide", "dynamic", field("in", 40), field("out", 30))]);
+    expect(out.routines[0]?.inputs).toHaveLength(MAX_LOGIC_FIELDS);
+    expect(out.routines[0]?.outputs).toHaveLength(MAX_LOGIC_FIELDS);
+    expect(out.routines[0]?.truncated).toBe(true);
+    expect(out.truncated).toBe(true);
+    expect(out).not.toHaveProperty("routineCount");
+  });
+
+  it("cleans and cuts the logic name, a field type and a field label like the routine names", async () => {
+    const { out } = await read([callable(0, "Ok", "dynamic", [["la\nbel", "t".repeat(400)]])], { name: `Name\u0000\n${"n".repeat(500)}` });
+    expect(out.name?.length).toBeLessThanOrEqual(65);
+    expect(out.name).not.toMatch(/[\u0000-\u001f]/);
+    const field = out.routines[0]?.inputs[0];
+    expect(field?.type.length).toBeLessThanOrEqual(129);
+    expect(field?.type.endsWith("\u2026")).toBe(true);
+    expect(field?.name).toBe("la bel");
+  });
+
+  it("does not throw on a manifest full of nulls and wrong types", async () => {
+    const hostile = [
+      null,
+      5,
+      "x",
+      { kind: "callable", data: null },
+      { kind: "callable", data: { name: "Ok", accepts: [null, 5], returns: "x" } },
+    ] as unknown as Array<Record<string, unknown>>;
+    const { out } = await read(hostile);
+    expect(out.routines.map((r) => r.name)).toContain("Ok");
+  });
+
+  it("says in its description what to do with a cut list", async () => {
+    const { tools } = await h.client.listTools();
+    const description = tools.find((t) => t.name === "moi_get_logic")?.description ?? "";
+    expect(description).toMatch(/moi_call_logic/);
+    expect(description).toMatch(/by name/);
+    expect(description).toMatch(/routineCount/);
+  });
+});
+
+describe("moi_resolve_agent and moi_list_agents through the tools", () => {
+  type Routines = NonNullable<Parameters<typeof primeRegistryDriverForTests>[1]>["routines"];
+  const routine = (impl: (...args: unknown[]) => unknown): Routines[string] =>
+    vi.fn(async (...args: unknown[]) => ({ call: async () => ({ result: () => impl(...args) }) }));
+  const prime = (overrides: Record<string, Routines[string]>) => {
+    const routines: Routines = {
+      GetAllAgentIds: routine(() => ({ output: { ids: [], total: 0n }, error: null })),
+      GetAgentProfile: routine(() => ({ output: { profile: {}, found: false }, error: null })),
+      ...overrides,
+    };
+    primeRegistryDriverForTests(DEFAULT_REGISTRY_LOGIC_ID, { routines });
+    return routines;
+  };
+  /** A registry of ids agent_1 to agent_n whose profiles are all missing. */
+  const idsOnly = (n: number) =>
+    routine((offset, limit) => {
+      const all = Array.from({ length: n }, (_, i) => `agent_${i + 1}`);
+      return { output: { ids: all.slice(Number(offset), Number(offset) + Number(limit)), total: BigInt(n) }, error: null };
+    });
+
+  afterEach(() => resetRegistryCache());
+
+  it("refuses a query over 512 characters before reading anything, and accepts one of exactly 512", async () => {
+    prime({});
+    const refused = await h.call("moi_resolve_agent", { query: "x".repeat(513) });
+    expect(refused.isError).toBe(true);
+    expect(node.calls).toHaveLength(0);
+
+    const accepted = await h.call("moi_resolve_agent", { query: "x".repeat(512) });
+    expect(accepted.isError).toBeFalsy();
+    expect(accepted.structuredContent).toEqual({ found: false, capabilities: [] });
+    expect(accepted.structuredContent).not.toHaveProperty("truncated");
+  });
+
+  it("flags a not-found whose scan stopped before the end of the registry, and says where it stopped", async () => {
+    prime({ GetAllAgentIds: idsOnly(260) });
+    const result = await h.call("moi_resolve_agent", { query: "nobody" });
+    // The new fields pass output validation on both sides: the call is not an error.
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent?.["found"]).toBe(false);
+    expect(result.structuredContent?.["truncated"]).toBe(true);
+    expect(String(result.structuredContent?.["note"])).toMatch(/Searched 200 of 260/);
+    expect(String(result.structuredContent?.["note"])).toMatch(/agent id/);
+  });
+
+  it("gives a plain not-found, with no scan, for an agent_<n> id that has no profile", async () => {
+    const routines = prime({ GetAllAgentIds: idsOnly(260) });
+    const result = await h.call("moi_resolve_agent", { query: "agent_999" });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({ found: false, capabilities: [] });
+    expect(routines["GetAllAgentIds"]).not.toHaveBeenCalled();
+  });
+
+  it("leaves out a registered url that is not a URL instead of failing the whole answer", async () => {
+    prime({
+      GetAgentProfile: routine(() => ({
+        output: { profile: { agent_id: "agent_7", agent_wallet: ACCOUNT, status: "ACTIVE", url: "https://a b" }, found: true },
+        error: null,
+      })),
+    });
+    const result = await h.call("moi_resolve_agent", { query: "agent_7" });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent?.["found"]).toBe(true);
+    expect(result.structuredContent).not.toHaveProperty("endpoint");
+    expect(result.structuredContent?.["truncated"]).toBe(true);
+  });
+
+  it("cuts the url and card uri an agent's owner wrote when it lists agents", async () => {
+    const long = `https://example.com/${"a".repeat(10_000)}`;
+    prime({
+      GetAllAgentIds: routine(() => ({ output: { ids: ["agent_1"], total: 1n }, error: null })),
+      GetAgentProfile: routine(() => ({
+        output: { profile: { agent_id: "agent_1", owner: ACCOUNT, status: "ACTIVE", url: long, card_uri: long }, found: true },
+        error: null,
+      })),
+    });
+    const result = await h.call("moi_list_agents", {});
+    expect(result.isError).toBeFalsy();
+    const agent = (result.structuredContent?.["agents"] as Array<{ url: string; cardUri: string; found: boolean }>)[0]!;
+    expect(agent.found).toBe(true);
+    expect(agent.url.length).toBeLessThanOrEqual(257);
+    expect(agent.cardUri.length).toBeLessThanOrEqual(257);
+  });
+
+  it("says the limits in the descriptions", async () => {
+    const { tools } = await h.client.listTools();
+    const description = (name: string): string => tools.find((t) => t.name === name)?.description ?? "";
+    expect(description("moi_resolve_agent")).toMatch(/truncated/);
+    expect(description("moi_resolve_agent")).toMatch(/512/);
+    expect(description("moi_list_agents")).toMatch(/256/);
+  });
+});
+
+describe("the read wrappers return through the guard in src/bounds.ts", () => {
+  const depthOf = (v: unknown): number => {
+    let depth = 0;
+    for (let cur = v; cur !== null && typeof cur === "object"; cur = Object.values(cur)[0]) depth++;
+    return depth;
+  };
+
+  it("cuts a result that nests too deep and a text block that is too long", async () => {
+    const out = await run(async () => ({
+      deep: JSON.parse('{"a":'.repeat(30) + "1" + "}".repeat(30)),
+      big: "x".repeat(MAX_TEXT_CHARS + 10),
+    }));
+    const text = out.content[0]?.text ?? "";
+    expect(text).toMatch(/\[Output cut: /);
+    expect(text.length).toBeLessThan(MAX_TEXT_CHARS + 300);
+    expect(depthOf(out.structuredContent)).toBeLessThanOrEqual(MAX_DEPTH);
+  });
+
+  it("still turns a thrown error into a tool error with its code", async () => {
+    await expect(run(async () => { throw new MoiError(ErrorCode.INVALID_ARGS, "no"); })).rejects.toThrow(/\[INVALID_ARGS\] no/);
   });
 });

@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { limitDepth, readWhole } from "../../bounds.js";
 import { MoiError, asRpcError } from "../../moi-error.js";
+import { capRecord, clampChainText } from "../../moi/reads.js";
 import { ErrorCode, type ResolveAgentOutput } from "../../schema.js";
 import type { ReadOnlySigner } from "../../moi/provider.js";
 
@@ -47,6 +48,8 @@ export function isEmptyRegistryError(err: unknown): boolean {
 /** How many registry entries a name/handle lookup will scan before giving up. */
 export const MAX_SCAN = 200;
 const PAGE = 50;
+/** The most time a name or url lookup spends scanning the registry before it stops and says so. */
+export const SCAN_BUDGET_MS = 20_000;
 
 interface RoutineRequest {
   call: () => Promise<{ result: () => unknown }>;
@@ -193,9 +196,58 @@ export function jsonSafe(value: unknown): unknown {
   return value;
 }
 
+/** How much of an agent's own text is kept: a name or capability, the longest text in the record or card, a key, and the entries of a list or an object. */
+const MAX_NAME_CHARS = 64;
+const MAX_FIELD_CHARS = 512;
+const MAX_KEY_CHARS = 64;
+const MAX_ENTRIES = 50;
+/** The most capabilities listed, the longest endpoint returned, and the most characters of JSON the card keeps in metadata. */
+const MAX_CAPABILITIES = 20;
+const MAX_URL_CHARS = 2_048;
+export const MAX_CARD_CHARS = 8_000;
+/** The longest url or cardUri moi_list_agents lists, and status. */
+const MAX_LISTED_URL_CHARS = 256;
+const MAX_LISTED_STATUS_CHARS = 32;
+const CUT_NOTE =
+  "Some text from this agent's record or card was cut to a fixed length, or left out because it was too long; the registry holds the full record.";
+
+/** `value` cleaned and cut like other chain text. `seen.cut` is set when characters were cut off (cleaning alone is not a cut). */
+function tidy(value: unknown, max: number, seen: { cut: boolean }): string {
+  const whole = clampChainText(value, Number.POSITIVE_INFINITY);
+  if (whole.length > max) seen.cut = true;
+  return clampChainText(whole, max);
+}
+
+/** Every text in a JSON value cleaned and cut, lists and objects cut at MAX_ENTRIES. The value is already JSON-safe and at most MAX_DEPTH deep (fetchCard cuts the card; jsonSafe made the profile plain). */
+function cleanTree(value: unknown, seen: { cut: boolean }): unknown {
+  if (typeof value === "string") return tidy(value, MAX_FIELD_CHARS, seen);
+  if (Array.isArray(value)) {
+    if (value.length > MAX_ENTRIES) seen.cut = true;
+    return value.slice(0, MAX_ENTRIES).map((v) => cleanTree(v, seen));
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length > MAX_ENTRIES) seen.cut = true;
+    return Object.fromEntries(entries.slice(0, MAX_ENTRIES).map(([k, v]) => [tidy(k, MAX_KEY_CHARS, seen), cleanTree(v, seen)]));
+  }
+  return value;
+}
+
+const isUrl = (s: string): boolean => {
+  try {
+    new URL(s);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 function toOutput(raw: RawProfile, agentId: string, card?: Record<string, unknown>): z.infer<typeof ResolveAgentOutput> {
+  const seen = { cut: false };
   const address = str(raw.agent_wallet) ?? str(raw.owner);
-  const name = typeof card?.["name"] === "string" ? (card["name"] as string) : undefined;
+  // The card comes from a URL the agent's owner controls, so every text in it is cleaned and cut like other chain text.
+  const rawName = card?.["name"];
+  const name = typeof rawName === "string" ? tidy(rawName, MAX_NAME_CHARS, seen) : "";
   const url = str(raw.url);
 
   const capabilities: string[] = [];
@@ -203,9 +255,29 @@ function toOutput(raw: RawProfile, agentId: string, card?: Record<string, unknow
   if (Array.isArray(skills)) {
     for (const s of skills) {
       const id = (s as Record<string, unknown>)?.["id"] ?? (s as Record<string, unknown>)?.["name"];
-      if (typeof id === "string") capabilities.push(id);
+      if (typeof id !== "string") continue;
+      if (capabilities.length >= MAX_CAPABILITIES) {
+        seen.cut = true;
+        break;
+      }
+      const shown = tidy(id, MAX_NAME_CHARS, seen);
+      if (shown) capabilities.push(shown);
     }
   }
+
+  // The output schema wants a URL. One that does not parse would fail the whole answer, and a clamped one would be wrong, so
+  // an endpoint that is not a plain URL of reasonable length is left out, and the answer says so.
+  let endpoint: string | undefined;
+  if (url && /^https?:\/\//.test(url)) {
+    if (url.length <= MAX_URL_CHARS && isUrl(url)) endpoint = url;
+    else seen.cut = true;
+  }
+
+  // metadata: the registry's own record with its text cleaned, and the card, held to MAX_CARD_CHARS. Only the card can be
+  // replaced by { truncated, chars, preview }, so a hostile card cannot make the record's own fields disappear.
+  const profile = cleanTree(jsonSafe(raw), seen) as Record<string, unknown>;
+  const shownCard = card ? capRecord(cleanTree(card, seen), MAX_CARD_CHARS) : undefined;
+  if (shownCard?.truncated) seen.cut = true;
 
   return {
     found: true,
@@ -213,12 +285,16 @@ function toOutput(raw: RawProfile, agentId: string, card?: Record<string, unknow
     ...(address ? { address } : {}),
     ...(name ? { name } : {}),
     capabilities,
-    ...(url && /^https?:\/\//.test(url) ? { endpoint: url } : {}),
-    metadata: jsonSafe({ ...raw, ...(card ? { card } : {}) }) as Record<string, unknown>,
+    ...(endpoint ? { endpoint } : {}),
+    metadata: { ...profile, ...(shownCard ? { card: shownCard.value } : {}) },
+    ...(seen.cut ? { truncated: true, note: CUT_NOTE } : {}),
   };
 }
 
 const NOT_FOUND: z.infer<typeof ResolveAgentOutput> = { found: false, capabilities: [] };
+
+/** A not-found from a search that did not cover the registry: found false is not the last word. A fresh object each time (NOT_FOUND is shared). */
+const notFoundYet = (note: string): z.infer<typeof ResolveAgentOutput> => ({ found: false, capabilities: [], truncated: true, note });
 
 /** A card is one agent owner's text, and a name lookup can read up to MAX_SCAN of them, so the cap is small. */
 const MAX_CARD_BYTES = 64 * 1024;
@@ -256,13 +332,14 @@ async function profileFor(driver: RegistryDriver, agentId: string): Promise<RawP
 /**
  * Resolve an agent by id, wallet address, url, or card name.
  *
- * Returns `{found:false}` rather than throwing on a miss — an agent that is
- * simply not registered is a normal answer, not an error.
+ * Returns `{found:false}` rather than throwing on a miss — an agent that is simply not registered is a normal answer, not an
+ * error. A miss from a scan that stopped before it covered the registry is marked `truncated`, with a note, because it does
+ * not say the agent is not registered.
  */
 export async function resolveAgent(
   signer: ReadOnlySigner,
   query: string,
-  options: { logicId?: string; maxScan?: number; fetchCards?: boolean } = {},
+  options: { logicId?: string; maxScan?: number; fetchCards?: boolean; budgetMs?: number } = {},
 ): Promise<z.infer<typeof ResolveAgentOutput>> {
   const driver = await getRegistryDriver(signer, options.logicId ?? registryLogicId());
   const needle = query.trim();
@@ -278,32 +355,49 @@ export async function resolveAgent(
       if (!isEmptyRegistryError(err)) throw err;
       return NOT_FOUND;
     }
+    // The registry writes its ids agent_<n>, so a direct read of one, spelled that way, that finds no profile is a complete
+    // answer; scanning for it could only end as a miss that says it ran out of time. A mixed-case spelling or a hex id may be
+    // another spelling of an id, a wallet or a name, so those go on to the scan.
+    if (/^agent_\d+$/.test(needle)) return NOT_FOUND;
   }
 
-  // Slow path: scan the registry. Bounded — the registry is unindexed.
+  // Slow path: scan the registry. Bounded in entries (MAX_SCAN) and in time, and it says so when it stops short: a miss
+  // from a scan that did not cover the registry does not mean the agent is not registered. The time is checked between
+  // entries, so one card fetch (5 seconds at most) can run past it.
   const limit = options.maxScan ?? MAX_SCAN;
+  const deadline = Date.now() + (options.budgetMs ?? SCAN_BUDGET_MS);
   const lowered = needle.toLowerCase();
-  let scanned = 0;
+  // A card is read during the scan only to match its NAME. A query shaped like a hex id or a url cannot be a name, so no card
+  // is read for it, and an address lookup does not spend its time on card fetches.
+  const nameQuery = !/^0x[0-9a-f]+$/i.test(needle) && !/^https?:\/\//i.test(needle);
+  let scanned = 0; // profiles read
+  let start = 0; // where the page being read starts in the registry's list; counts every id a page held
+  let total: number | undefined;
+  let exhausted = false; // the registry has no entry after the ones read
+  let outOfTime = false;
 
   while (scanned < limit) {
     let page: unknown;
     try {
-      page = await callRoutine(driver, "GetAllAgentIds", [scanned, PAGE]);
+      page = await callRoutine(driver, "GetAllAgentIds", [start, PAGE]);
     } catch (err) {
       // An unwritten registry is an empty registry.
       if (isEmptyRegistryError(err)) return NOT_FOUND;
       throw err;
     }
-    const typedPage = page as
-      | { ids?: unknown[]; total?: unknown }
-      | unknown[]
-      | undefined;
-    const ids = (Array.isArray(typedPage) ? typedPage : (typedPage?.ids ?? [])) as unknown[];
-    if (ids.length === 0) break;
+    const listed = idsOf(page);
+    total ??= listed.total;
+    if (listed.held === 0) {
+      exhausted = true;
+      break;
+    }
 
-    for (const rawId of ids) {
-      const agentId = str(rawId);
-      if (!agentId) continue;
+    const room = limit - scanned;
+    for (const agentId of listed.ids.slice(0, room)) {
+      if (Date.now() >= deadline) {
+        outOfTime = true;
+        break;
+      }
       scanned += 1;
 
       let raw: RawProfile | undefined;
@@ -322,7 +416,7 @@ export async function resolveAgent(
         return toOutput(raw, agentId, await fetchCard(str(raw.card_uri)));
       }
 
-      if (options.fetchCards !== false) {
+      if (options.fetchCards !== false && nameQuery) {
         const card = await fetchCard(str(raw.card_uri));
         const name = typeof card?.["name"] === "string" ? (card["name"] as string).toLowerCase() : undefined;
         if (name && (name === lowered || name.includes(lowered))) {
@@ -330,11 +424,21 @@ export async function resolveAgent(
         }
       }
     }
-
-    if (ids.length < PAGE) break;
+    // Stopped in the middle of a page (out of time, or the limit fell inside it): the registry is not covered.
+    if (outOfTime || listed.ids.length > room) break;
+    start += listed.held;
+    // A short page is the last one; so is a page that ends at the registry's own total.
+    if (listed.held < PAGE || (total !== undefined && start >= total)) exhausted = true;
+    if (exhausted) break;
   }
 
-  return NOT_FOUND;
+  if (exhausted) return NOT_FOUND;
+  const why = outOfTime ? "ran out of time" : `reached its limit of ${limit} entries`;
+  return notFoundYet(
+    `Searched ${scanned} of ${total ?? "an unknown number of"} registry entries and then ${why}, so this agent may still be registered. ` +
+      "An agent id (agent_<n>) is read directly, and moi_list_agents with owner lists the agents one account registered; " +
+      "a card name or a service URL can be found only by this search.",
+  );
 }
 
 /** Total number of agents registered on this network. */
@@ -391,15 +495,16 @@ function summaryOf(agentId: string, raw: RawProfile | undefined): AgentSummary {
     found: true,
     ...(owner ? { owner } : {}),
     ...(address ? { address } : {}),
-    ...(status ? { status } : {}),
-    ...(url ? { url } : {}),
-    ...(cardUri ? { cardUri } : {}),
+    ...(status ? { status: clampChainText(status, MAX_LISTED_STATUS_CHARS) } : {}),
+    ...(url ? { url: clampChainText(url, MAX_LISTED_URL_CHARS) } : {}),
+    ...(cardUri ? { cardUri: clampChainText(cardUri, MAX_LISTED_URL_CHARS) } : {}),
     ...(score !== undefined ? { score } : {}),
     ...(createdAt !== undefined ? { createdAt } : {}),
   };
 }
 
-function idsOf(page: unknown): { ids: string[]; total?: number } {
+/** `held` is how many ids the page held, decodable or not: the next page starts that far on. */
+function idsOf(page: unknown): { ids: string[]; held: number; total?: number } {
   const typed = page as { ids?: unknown[]; total?: unknown } | unknown[] | undefined;
   const rawIds = Array.isArray(typed) ? typed : (typed?.ids ?? []);
   const ids = rawIds.map(str).filter((id): id is string => typeof id === "string" && id.length > 0);
@@ -408,7 +513,7 @@ function idsOf(page: unknown): { ids: string[]; total?: number } {
     typeof rawTotal === "bigint" || typeof rawTotal === "number" || typeof rawTotal === "string"
       ? Number(rawTotal)
       : undefined;
-  return { ids, ...(total !== undefined && Number.isFinite(total) ? { total } : {}) };
+  return { ids, held: rawIds.length, ...(total !== undefined && Number.isFinite(total) ? { total } : {}) };
 }
 
 /**

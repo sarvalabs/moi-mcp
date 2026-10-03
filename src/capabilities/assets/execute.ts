@@ -166,7 +166,7 @@ export function assetInvokeTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef
         "Call a routine of a MOI asset by name, as listed by moi_asset_routines. `args` is an object keyed by the routine's input labels; integers " +
         "(amounts, token ids, timestamps) are whole numbers in the asset's base units, and the preview also shows an amount in whole tokens. " +
         "A routine that only reads runs at once and returns its decoded outputs, with no preview or confirm; on the hosted server this tool still " +
-        "needs the user signed in for such a read, so for a plain balance use moi_get_account, which does not. " +
+        "needs the user signed in for such a read, so for a plain balance use moi_get_account with assetId, which does not. " +
         "A routine that changes state is simulated first and nothing happens until the user taps Send on their phone. " +
         "This server describes the routines of MAS0, MAS1, MAS2 and the native asset KMOI in the preview; for any other routine pass `participants` " +
         "(an empty list if it touches only the asset and the user's own account), and the preview then says plainly that this server cannot say what the " +

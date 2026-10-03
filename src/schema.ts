@@ -112,8 +112,23 @@ export const DisconnectWalletInput = z.object({
 // 2. Read tools (js-moi-providers, no wallet needed)
 // ---------------------------------------------------------------------------
 
+/** How many balance rows moi_get_account shows when it is not told how many, and the most it will show. */
+export const BALANCES_DEFAULT_LIMIT = 50;
+export const BALANCES_MAX_LIMIT = 100;
+
 export const GetAccountInput = z.object({
   address: HexId.describe("Account address (0x…). Required; ask moi_wallet_status for the paired wallet's address if the user means their own."),
+  assetId: AssetId.optional().describe(
+    "Only this asset's balance rows (0x…). Pass it when you need one balance: on an account that holds many assets, the asset you want may not be on the first page.",
+  ),
+  offset: z.number().int().min(0).default(0).describe("Where to start in the list of balances; pass back nextOffset from the previous page."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(BALANCES_MAX_LIMIT)
+    .default(BALANCES_DEFAULT_LIMIT)
+    .describe(`How many balance rows to return. At most ${BALANCES_MAX_LIMIT}.`),
 });
 
 /** A token's number within its asset, as a decimal string: token ids can pass what a JSON number holds exactly. */
@@ -132,6 +147,16 @@ export const GetAccountOutput = z.object({
       amount: Amount,
     })
   ),
+  total: z
+    .number()
+    .int()
+    .optional()
+    .describe("How many balance rows the account holds that match the request, before paging. Present only when balances does not hold them all."),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe("True when more balance rows follow this page; pass nextOffset back as offset. (deedsTruncated is about deeds.)"),
+  nextOffset: z.number().int().optional().describe("The offset of the next page of balances. Absent on the last page."),
   isRegistered: z.boolean(),
   deeds: z
     .array(z.object({ assetId: AssetId, symbol: z.string() }))
@@ -167,11 +192,23 @@ export const GetInteractionOutput = z.object({
   status: z.enum(["pending", "success", "failed", "unknown"]),
   sender: HexId,
   operations: z.array(
-    z.object({ type: z.string(), payload: z.record(z.string(), z.unknown()) })
+    z.object({
+      type: z.string(),
+      payload: z
+        .record(z.string(), z.unknown())
+        .describe(
+          "The operation's payload. One longer than 1000 characters of JSON has every text over 200 characters shortened (ending …); if it is still too long it is replaced by { truncated: true, chars, preview }: chars is its full length, preview its first characters.",
+        ),
+    }),
   ),
   fuelUsed: z.number().optional(),
   blockHeight: z.number().optional(),
-  receipt: z.record(z.string(), z.unknown()).optional(),
+  receipt: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "The receipt. One longer than 2000 characters of JSON has every text over 200 characters shortened (ending …); if it is still too long its participants list is left out (participantsOmitted says how many entries it had); if it is still too long it is replaced by { truncated: true, chars, preview }. status, sender and fuelUsed above are read from the whole receipt.",
+    ),
   pool: z
     .object({
       state: z
@@ -197,6 +234,12 @@ export const GetInteractionOutput = z.object({
     .string()
     .optional()
     .describe("Says the pool could not be read in full, or did not answer in time, so pool is missing or incomplete. The rest of the answer is not affected."),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe("True when something was cut: the operations list, an operation's payload or the receipt. note says what, and links the whole interaction."),
+  operationCount: z.number().int().optional().describe("How many operations the interaction really has. Present only when operations lists fewer."),
+  note: z.string().optional().describe("Says what was cut and where to read the whole interaction."),
 });
 
 export const GetLogicInput = z.object({ logicId: LogicId });
@@ -210,8 +253,11 @@ export const GetLogicOutput = z.object({
       kind: z.enum(["invoke", "deploy", "enlist", "view"]),
       inputs: z.array(z.object({ name: z.string(), type: z.string() })),
       outputs: z.array(z.object({ name: z.string(), type: z.string() })),
+      truncated: z.boolean().optional().describe("True when this routine has more inputs or outputs than are listed."),
     })
   ),
+  truncated: z.boolean().optional().describe("True when something was cut: routines past the limit, or the inputs or outputs of a routine."),
+  routineCount: z.number().int().optional().describe("How many callable routines the logic has. Present only when routines lists fewer."),
 });
 
 /** How many heights moi_get_history reads when it is not told how many. */
@@ -270,7 +316,7 @@ export const GetHistoryOutput = z.object({
 
 export const ResolveAgentInput = z.object({
   /** Agent registry handle, name, or address. */
-  query: z.string().min(1),
+  query: z.string().min(1).max(512).describe("An agent id (agent_<n>), wallet address, service URL or card name, at most 512 characters."),
 });
 
 export const ResolveAgentOutput = z.object({
@@ -281,6 +327,11 @@ export const ResolveAgentOutput = z.object({
   capabilities: z.array(z.string()).default([]),
   endpoint: z.string().url().optional(),   // x402 / service URL
   metadata: z.record(z.string(), z.unknown()).optional(),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe("With found false: the search stopped before it covered the registry, so the agent may still be registered. With found true: some text from the agent's record or card was cut."),
+  note: z.string().optional().describe("Says what truncated means for this answer."),
 });
 
 export const ListAgentsInput = z.object({
