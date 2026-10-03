@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { vi } from "vitest";
 
 import { resetConfigCache } from "../../src/config.js";
+import { STDIO_INSTRUCTIONS } from "../../src/instructions.js";
 import { resetProviderCache } from "../../src/moi/provider.js";
 import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/capabilities/reads/registry.js";
 import { registerResources } from "../../src/resources/index.js";
@@ -123,7 +124,7 @@ export function tempHome(): string {
  * own, so no token can outlive its test or be spent by another.
  */
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: "moi-mcp-test", version: "0.0.0" });
+  const server = new McpServer({ name: "moi-mcp-test", version: "0.0.0" }, { instructions: STDIO_INSTRUCTIONS });
   registerReadTools(server);
   registerWalletTools(server);
   registerLocalWriteTools(server, { ...localWriteDeps(), previews: new PreviewRegistry() });

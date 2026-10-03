@@ -37,6 +37,7 @@ import { deriveKey } from "./auth/crypto.js";
 import { mountAuth, type AuthHandle, type AuthInfo } from "./auth/index.js";
 import { getConfig, getHostedConfig, log } from "./config.js";
 import { messageOf } from "./errors.js";
+import { HOSTED_INSTRUCTIONS } from "./instructions.js";
 import { newHttpServer, MCP_PATH } from "./http.js";
 import { brandAsset, landingHtml } from "./branding.js";
 import { securityHeaders } from "./security-headers.js";
@@ -295,7 +296,7 @@ export function buildHostedApp(deps: HostedDeps): Application {
 
     // Stateless: a fresh server and transport per request, exactly like
     // src/http.ts, so concurrent callers can never observe each other's state.
-    const server = newHttpServer(deps.publicUrl);
+    const server = newHttpServer({ instructions: HOSTED_INSTRUCTIONS, publicUrl: deps.publicUrl });
     registerTools(server, { mode: "hosted", deps, auth: auth ?? null });
 
     const transport = withModernSchemaDialect(

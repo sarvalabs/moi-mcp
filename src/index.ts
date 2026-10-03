@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 
 import { getConfig, log, projectIdIssue } from "./config.js";
 import { messageOf } from "./errors.js";
+import { STDIO_INSTRUCTIONS } from "./instructions.js";
 import { withModernSchemaDialect } from "./json-schema-dialect.js";
 import { registerTools } from "./tools/register.js";
 
@@ -45,7 +46,8 @@ async function main(): Promise<void> {
     log("error", `starting with invalid config — ${messageOf(err)}`);
   }
 
-  const server = new McpServer({ name: pkg.name, version: pkg.version });
+  // What the client hands its model about this server: the write rules and the units, in src/instructions.ts.
+  const server = new McpServer({ name: pkg.name, version: pkg.version }, { instructions: STDIO_INSTRUCTIONS });
   registerTools(server, { mode: "stdio" });
 
   await server.connect(withModernSchemaDialect(new StdioServerTransport()));

@@ -9,6 +9,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuthInfo } from "../../src/auth/index.js";
+import { HOSTED_INSTRUCTIONS } from "../../src/instructions.js";
 import { WriteJournal } from "../../src/journal.js";
 import { TOOLS } from "../../src/schema.js";
 import { buildHostedApp, GATED, type HostedDeps } from "../../src/server.js";
@@ -177,6 +178,17 @@ describe("hosted transport", () => {
     expect(status).toBe(401);
     expect(headers.get("www-authenticate")).toContain("resource_metadata");
     expect(json).toEqual({ error: "authorization required" });
+  });
+
+  it("hands the model the hosted instructions at initialize, to a caller with no token", async () => {
+    const { status, json } = await rpc(baseUrl, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
+    });
+    expect(status).toBe(200);
+    expect(json.result.instructions).toBe(HOSTED_INSTRUCTIONS);
   });
 
   it("lets an unauthenticated caller use ping and moi_get_account", async () => {

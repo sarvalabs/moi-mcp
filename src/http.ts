@@ -31,6 +31,7 @@ import { clientAddress, SlidingWindow } from "./auth/rate-limit.js";
 // conversation, not enough to use the RPC node as a load generator.
 const readWindow = new SlidingWindow({ windowMs: 60_000, max: 240 });
 import { messageOf } from "./errors.js";
+import { GATEWAY_INSTRUCTIONS } from "./instructions.js";
 import { withModernSchemaDialect } from "./json-schema-dialect.js";
 import { NETWORKS } from "./moi/provider.js";
 import { registerGatewayTools } from "./tools/register-gateway.js";
@@ -41,14 +42,18 @@ const pkg = require("../package.json") as { name: string; version: string };
 export const MCP_PATH = "/mcp";
 const MAX_BODY_BYTES = 1_000_000;
 
-/** The server shell the two HTTP servers share: name, title, version and icons. The hosted server (src/server.ts) fills the same shell. */
-export function newHttpServer(publicUrl?: string): McpServer {
-  return new McpServer({
-    name: `${pkg.name}-http`,
-    title: "MOI",
-    version: pkg.version,
-    ...brandServerInfo(publicUrl),
-  });
+/** The server shell the two HTTP servers share: name, title, version, icons and the instructions each hands its model. The hosted server (src/server.ts) fills the same shell. */
+export function newHttpServer(opts: { instructions: string; publicUrl?: string }): McpServer {
+  return new McpServer(
+    {
+      name: `${pkg.name}-http`,
+      title: "MOI",
+      version: pkg.version,
+      ...brandServerInfo(opts.publicUrl),
+    },
+    // Sent to the client at initialize, for its model. The texts are in src/instructions.ts.
+    { instructions: opts.instructions },
+  );
 }
 
 /**
@@ -58,7 +63,7 @@ export function newHttpServer(publicUrl?: string): McpServer {
  * reaches none of it, so the write path is unreachable over HTTP by construction, not by configuration.
  */
 export function buildReadOnlyServer(opts: { publicUrl?: string } = {}): McpServer {
-  const server = newHttpServer(opts.publicUrl);
+  const server = newHttpServer({ instructions: GATEWAY_INSTRUCTIONS, publicUrl: opts.publicUrl });
   registerGatewayTools(server);
   return server;
 }
