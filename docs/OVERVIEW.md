@@ -43,7 +43,7 @@ One codebase builds three servers and one command-line helper. The `bin` field i
 | `moi-mcp-hosted` | src/server.ts | The hosted gateway on port 8788. This is what claude.ai connects to. It serves OAuth sign-in, per-user wallet pairings, and the write tools. It must run as exactly one process, because sign-in codes live in memory and the process holds one WalletConnect client. |
 | `moi-mcp` | src/cli.ts | A terminal helper for the local server: pair, status, disconnect, config. It starts no server. |
 
-Both HTTP gateways expose MCP at the path `/mcp`. The hosted gateway lists 36 tools, or 37 when the devnet faucet is configured: a `ping` health check, eight read tools, three wallet tools (connect, status, disconnect), eleven write tools (transfer, create account, configure account, create asset, mint, call a logic, deploy a logic, invoke an asset routine, and three agent registry writes), and the thirteen Launchpad and dapp tools. The read gateway lists 43: `ping`, the eight read tools and 34 node method tools. README.md, under Tools, has the table.
+Both HTTP gateways expose MCP at the path `/mcp`. The hosted gateway lists 34 tools, or 35 when the devnet faucet is configured: a `ping` health check, eight read tools, three wallet tools (connect, status, disconnect), eleven write tools (transfer, create account, configure account, create asset, mint, call a logic, deploy a logic, invoke an asset routine, and three agent registry writes), and the eleven Launchpad and dapp tools. The read gateway lists 43: `ping`, the eight read tools and 34 node method tools. README.md, under Tools, has the table.
 
 ## What using it looks like
 

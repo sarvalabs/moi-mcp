@@ -56,7 +56,7 @@ export interface WriteDeps {
 
 /**
  * Dependencies for the hosted write tools: the full store, hub and journal. The Launchpad and dapp tools need more
- * than the write path does (the hub signs their sign-in messages), so they take this.
+ * than the write path does (the hub signs the dapp tool's sign-in message), so they take this.
  */
 export interface HostedWriteDeps extends WriteDeps {
   store: WalletSessionStore;
@@ -270,8 +270,8 @@ const WAIT_NOTICE = {
  * relatedRequestId), the only stream the stateless hosted transport has. It does not lengthen any client's own request
  * timeout; only a client that resets its timeout on progress does that.
  *
- * `wait` is the call to the phone, passed in so this knows nothing about the hub and the two sign-in tools stay the only
- * callers of message signing (test/unit/wc-hub.test.ts counts them). A notice that cannot be sent is dropped, since it
+ * `wait` is the call to the phone, passed in so this knows nothing about the hub and the sign-in tool stays the only
+ * caller of message signing (test/unit/wc-hub.test.ts counts it). A notice that cannot be sent is dropped, since it
  * must never fail a write. The timer is cleared whatever the wait ends in: a tap, a refusal, a timeout or an error.
  *
  * One info line per wait says whether a token came. That is how a real call shows whether a client asks for progress at

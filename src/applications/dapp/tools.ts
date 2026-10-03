@@ -2,8 +2,9 @@
  * Any MOI dapp from the chat, without code per dapp: sign in with the paired
  * wallet (Sign-In With MOI), then call the operations the dapp publishes in
  * its OpenAPI document. See docs/dapp-conventions.md for what a dapp has to
- * offer for this to work. The Launchpad tools are the hand-written form of
- * the same idea.
+ * offer for this to work. The Launchpad is such a dapp: its own tools
+ * (src/applications/launchpad) cover what only it has, and signing in to it is
+ * this file's tool, given its URL.
  *
  * Sessions exist only for origins the person signed in to with a tap on the
  * phone, and a call only goes to an operation the dapp itself lists.

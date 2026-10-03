@@ -222,8 +222,8 @@ export class DappClient {
   async nonce(walletAddress: string): Promise<{ message: string }> {
     const res = await this.request("POST", SIWM_ROUTES.nonce, { body: { walletAddress } });
     const out = await this.parse(res, Nonce, SIWM_ROUTES.nonce, false);
-    // The one place the message is minted for both sign-in tools (LaunchpadClient
-    // overrides only verify), so a bad one can reach neither the phone nor /verify.
+    // The one place the message is minted for the sign-in tool, the Launchpad's included (LaunchpadClient overrides
+    // nothing here), so a bad one can reach neither the phone nor /verify.
     const verdict = checkSignInMessage(out.message, { origin: new URL(this.baseUrl).origin, wallet: walletAddress });
     if (!verdict.ok) {
       throw new MoiError(
@@ -394,7 +394,7 @@ export class DappClient {
     if (res.status === 401 && withSession) {
       throw new MoiError(
         ErrorCode.LAUNCHPAD_NOT_SIGNED_IN,
-        `${this.baseUrl} no longer recognises this session. Sign in again.`,
+        `${this.baseUrl} no longer recognises this session. Call moi_dapp_sign_in with url ${this.baseUrl} to sign in again.`,
       );
     }
     throw new MoiError(ErrorCode.LAUNCHPAD_ERROR, `${this.baseUrl}${path} refused: ${errorOf(body, res.status)}`, {

@@ -93,7 +93,7 @@ The tools come in layers, each built on the one before. The node methods are the
 | Combined reads, 8 tools | yes | yes | yes |
 | Wallet tools and chain writes, 11 tools | yes | yes | no |
 | Agent registry writes, 3 tools | yes | yes | no |
-| Launchpad and dapp tools, 13 tools | no | yes | no |
+| Launchpad and dapp tools, 11 tools | no | yes | no |
 
 The read gateway (`src/http.ts`) lists the most tools, 43, and can only read. The hosted server and the stdio server list the combined reads and not the node methods, which keeps their lists short. Every tool that can change something is put on a server in `src/tools/register.ts` and nowhere else. The read gateway's own list is `src/tools/register-gateway.ts`, which imports no wallet, write or application code; the hosted server reuses its first half (`registerSharedReadTools`). The stdio server supplies its own user, pairing store, signing hub and journal (`src/tools/local-writes.ts`).
 
@@ -165,18 +165,18 @@ Products built on the writes, each its own module under `src/applications/`: the
 | `moi_set_agent_status` | yes | Mark an agent in the registry ACTIVE or DEPRECATED; only its owner can |
 | `moi_transfer_agent` | yes | Hand an agent in the registry to another account; only its owner can |
 | `moi_launchpad_templates` | no | The MOI Agent Launchpad's templates and the config each needs (hosted server) |
-| `moi_launchpad_sign_in` | message tap | Sign in to the Launchpad as the paired wallet; the session lasts up to a day |
 | `moi_launchpad_status` | no | Launchpad session, Telegram link state, and the wallet's agents there |
 | `moi_launchpad_create_agent` | no | Create an agent from a template; previewed in the chat first, then created with a confirm token; it runs once registered |
 | `moi_launchpad_register_agent` | yes | Register the agent in the on chain registry and tell the Launchpad |
 | `moi_launchpad_telegram_link` | no | The bot link that connects Telegram to the Launchpad account |
 | `moi_launchpad_setup_script` | no | A one-time download link for the agent's setup script; the key never enters the chat |
-| `moi_launchpad_sign_out` | no | Forget the Launchpad session |
-| `moi_dapp_sign_in` | message tap | Sign in to any MOI dapp that follows the dapp conventions, as the paired wallet |
+| `moi_dapp_sign_in` | message tap | Sign in to any MOI dapp that follows the dapp conventions, as the paired wallet. This is also how you sign in to the Launchpad: pass its URL |
 | `moi_dapp_api` | no | The operations a dapp publishes in its OpenAPI document |
 | `moi_dapp_call` | no | Call one published operation as the signed-in person; a GET runs at once, anything else is previewed in the chat first and sent with a confirm token |
 | `moi_dapp_sessions` | no | The dapps signed in to |
-| `moi_dapp_sign_out` | no | Forget a dapp session |
+| `moi_dapp_sign_out` | no | Forget a dapp session, the Launchpad's included |
+
+The Launchpad has no sign-in or sign-out tool of its own. It is a dapp that follows the conventions, so you sign in with `moi_dapp_sign_in` and the Launchpad's URL (`https://launchpad.moi.technology`, or whatever `MOI_LAUNCHPAD_URL` is on that server), approving one message on the phone, and sign out with `moi_dapp_sign_out` and the same URL. That stores the session the `moi_launchpad_*` tools read, and each of them that needs one says how to get it, with the URL, when it is missing. The cost: `moi_dapp_sign_in` accepts only public https hosts, so a Launchpad running locally or over plain http can no longer be signed in to from the chat, and with no session only `moi_launchpad_templates` works against it.
 
 What a dapp offers for the generic `moi_dapp_*` tools to work is in [docs/dapp-conventions.md](docs/dapp-conventions.md).
 

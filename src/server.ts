@@ -95,12 +95,10 @@ export const GATED = [
   "moi_disconnect_wallet",
   "moi_wallet_status",
   "moi_launchpad_status",
-  "moi_launchpad_sign_in",
   "moi_launchpad_create_agent",
   "moi_launchpad_register_agent",
   "moi_launchpad_telegram_link",
   "moi_launchpad_setup_script",
-  "moi_launchpad_sign_out",
   "moi_register_agent",
   "moi_set_agent_status",
   "moi_transfer_agent",
@@ -133,12 +131,10 @@ const REQUIRED_SCOPE: Record<(typeof GATED)[number], "moi:read" | "moi:write"> =
   moi_disconnect_wallet: "moi:write",
   moi_wallet_status: "moi:read",
   moi_launchpad_status: "moi:read",
-  moi_launchpad_sign_in: "moi:write",
   moi_launchpad_create_agent: "moi:write",
   moi_launchpad_register_agent: "moi:write",
   moi_launchpad_telegram_link: "moi:write",
   moi_launchpad_setup_script: "moi:write",
-  moi_launchpad_sign_out: "moi:write",
   moi_register_agent: "moi:write",
   moi_set_agent_status: "moi:write",
   moi_transfer_agent: "moi:write",
@@ -538,7 +534,9 @@ async function main(): Promise<void> {
   mountPairing(app, { resolveUri: async (userId) => (await startPairing(userId)).uri });
 
   // The Launchpad: its session per user next to the wallet pairing, and the
-  // one-time page that hands an agent's setup script to a browser.
+  // one-time page that hands an agent's setup script to a browser. The Launchpad is signed in to with moi_dapp_sign_in,
+  // so the Launchpad tools and the dapp tools below are given the one dappSessions store: a session the generic tool
+  // files is the one these tools read.
   const launchpadClient = new LaunchpadClient(hosted.MOI_LAUNCHPAD_URL);
   const downloads = createDownloadModule();
   downloads.mountDownloads(app, {

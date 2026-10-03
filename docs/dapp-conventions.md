@@ -1,6 +1,6 @@
 # MOI dapp conventions
 
-What a dapp offers so the MOI MCP connector can act on it from a chat without code written for that dapp. The MOI Agent Launchpad is the reference; its hand-written tools (`moi_launchpad_*`) do what the generic tools (`moi_dapp_*`) do for any dapp that follows this.
+What a dapp offers so the MOI MCP connector can act on it from a chat without code written for that dapp. The MOI Agent Launchpad is the reference. Its hand-written tools (`moi_launchpad_*`) cover what only it has (agents, Telegram, the setup script); signing in and out is the generic tools' job (`moi_dapp_*`), given the Launchpad's URL, because the Launchpad follows this.
 
 ## 1. Sign-In With MOI
 

@@ -10,9 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Progress } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
@@ -34,7 +32,6 @@ import { MoiError } from "../../src/moi-error.js";
 import { ErrorCode } from "../../src/schema.js";
 import type { DappDeps } from "../../src/applications/dapp/tools.js";
 import { PROGRESS_EVERY_MS } from "../../src/tools/hosted-writes.js";
-import { registerDappTools } from "../../src/tools/register.js";
 import { PREVIEW_TTL_MS, PreviewRegistry } from "../../src/tools/preview.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {
@@ -48,12 +45,14 @@ import {
   session,
   slowPhone,
   structured,
+  TOPIC,
   USER,
   type FakeHub,
   type ToolResult,
 } from "../helpers/hosted.js";
 import {
   COOKIE,
+  connectDapp,
   fakeSessions,
   REFUSED_NONCE_MESSAGES,
   signedInRecord,
@@ -87,12 +86,7 @@ function wallet(paired = true, previews?: PreviewRegistry) {
 
 async function connect(deps: Partial<DappDeps> = {}, who: AuthInfo | null = authFor(USER)): Promise<{ client: Client; sessions: ReturnType<typeof fakeSessions> }> {
   const sessions = (deps.sessions as ReturnType<typeof fakeSessions>) ?? fakeSessions();
-  const server = new McpServer({ name: "t", version: "0" });
-  registerDappTools(server, { writes: wallet(), allowInsecure: true, ...deps, sessions }, who);
-  const [a, b] = InMemoryTransport.createLinkedPair();
-  await server.connect(a);
-  const client = new Client({ name: "t", version: "0" });
-  await client.connect(b);
+  const client = await connectDapp({ writes: wallet(), allowInsecure: true, ...deps, sessions }, who);
   return { client, sessions };
 }
 
@@ -352,14 +346,26 @@ describe("sessionCookieFrom", () => {
 
 describe("moi_dapp_sign_in", () => {
   it("signs the dapp's message on the phone and keeps the session for that origin", async () => {
-    const { client, sessions } = await connect();
+    const writes = wallet();
+    const { client, sessions } = await connect({ writes });
     const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: `${fake.url}/dashboard` } });
     expect(res.isError).toBeFalsy();
     expect(structured(res)).toMatchObject({ dapp: fake.url, signedIn: true, wallet: ACCOUNT });
     const rec = await sessions.get(USER, fake.url);
     expect(rec?.cookie).toBe(COOKIE);
+
+    // The phone signed exactly the dapp's text, as the paired account on the paired topic, and verify got that same text.
+    // This is the only test that pins it, now that the Launchpad has no sign-in tool of its own: a change to what is
+    // signed, or to which account or topic signs it, or to what verify is sent, fails here.
+    const hub = writes.hub as FakeHub;
+    expect(hub.signMessageFor).toHaveBeenCalledTimes(1);
+    const [topic, account, message] = hub.signMessageFor.mock.calls[0] as [string, string, string];
+    expect(topic).toBe(TOPIC);
+    expect(account).toBe(ACCOUNT);
+    expect(message).toContain(`Wallet: ${ACCOUNT}`);
+    expect(message).toContain("Nonce: n1");
     const verify = fake.requests.find((r) => r.path === "/api/auth/verify")!;
-    expect(verify.body).toMatchObject({ address: ACCOUNT, signature: "0xfeed" });
+    expect(verify.body).toEqual({ address: ACCOUNT, message, signature: "0xfeed" });
   });
 
   // The fake dapp offers a week (Max-Age=604800); this server keeps a day at most,
@@ -409,6 +415,15 @@ describe("moi_dapp_sign_in", () => {
     const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } });
     expect(res.isError).toBe(true);
     expect(JSON.stringify(res.content)).toMatch(/No wallet paired/);
+  });
+
+  it("surfaces a refused signature without storing anything", async () => {
+    fake.state.verifyOk = false;
+    const { client, sessions } = await connect();
+    const res = await client.callTool({ name: "moi_dapp_sign_in", arguments: { url: fake.url } });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toMatch(/invalid_signature/);
+    expect(sessions.records.size).toBe(0);
   });
 
   // The phone must never be asked, and nothing may reach the dapp's verify

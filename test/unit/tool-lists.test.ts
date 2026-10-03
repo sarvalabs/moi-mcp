@@ -251,7 +251,7 @@ describe("the hosted server's tool list", () => {
   });
 });
 
-describe("the hosted server's tool list without a faucet", () => {
+describe("the hosted server's tool list when an optional module is left out", () => {
   /** tools/list names of a hosted app built over `deps`, asked over loopback like the pinned list. */
   async function namesOf(deps: HostedDeps): Promise<string[]> {
     const listener = createServer(buildHostedApp(deps));
@@ -270,8 +270,17 @@ describe("the hosted server's tool list without a faucet", () => {
     const without = await namesOf({ ...hostedDeps(), faucet: undefined });
     const withFaucet = await namesOf(hostedDeps());
     expect(without).not.toContain("moi_faucet");
-    expect(without).toHaveLength(36);
+    expect(without).toHaveLength(34);
     expect(withFaucet).toEqual([...without, "moi_faucet"]);
+  });
+
+  // The Launchpad has no sign-in tool of its own: its messages and descriptions send a person to moi_dapp_sign_in, and the
+  // tool that ends the session is moi_dapp_sign_out. A server that lists the Launchpad tools must list those two, whether or
+  // not whoever built it passed dapp deps (src/tools/register.ts).
+  it("lists moi_dapp_sign_in and moi_dapp_sign_out whenever it lists the Launchpad tools, even given no dapp deps", async () => {
+    const names = await namesOf({ ...hostedDeps(), dapp: undefined });
+    expect(names).toContain("moi_launchpad_create_agent");
+    expect(names).toEqual(expect.arrayContaining(["moi_dapp_sign_in", "moi_dapp_sign_out"]));
   });
 });
 

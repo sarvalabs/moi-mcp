@@ -16,8 +16,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { AuthInfo } from "../../src/auth/types.js";
 import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
 import type { DappSessionStore, StoredDappSession } from "../../src/applications/dapp/store.js";
+import type { DappDeps } from "../../src/applications/dapp/tools.js";
 import type { LaunchpadDeps } from "../../src/applications/launchpad/tools.js";
-import { registerLaunchpadTools } from "../../src/tools/register.js";
+import { registerDappTools, registerLaunchpadTools } from "../../src/tools/register.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
 import { authFor, USER } from "./hosted.js";
 
@@ -45,8 +46,8 @@ export function siwmMessage(v: { wallet: string; origin: string; name?: string; 
 
 /**
  * Messages a dapp must never get signed, as nonce-route bodies for the fake.
- * Shared by both tool-level test files; each is long enough to pass the
- * client's own min-length check, so each reaches the sign-in check itself.
+ * Each is long enough to pass the client's own min-length check, so each
+ * reaches the sign-in check itself.
  */
 export const REFUSED_NONCE_MESSAGES: Array<[string, (wallet: string, origin: string) => string]> = [
   ["a relayed message for another site", (wallet) => siwmMessage({ wallet, origin: "https://launchpad.moi.technology" })],
@@ -313,6 +314,17 @@ export function launchpadDeps(
 export async function connectLaunchpad(deps: LaunchpadDeps, who: AuthInfo | null = authFor(USER)): Promise<Client> {
   const server = new McpServer({ name: "t", version: "0" });
   registerLaunchpadTools(server, deps, who);
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  const client = new Client({ name: "t", version: "0" });
+  await client.connect(b);
+  return client;
+}
+
+/** A real McpServer with only the generic dapp tools, over an in-memory transport: how a person signs in to the Launchpad. */
+export async function connectDapp(deps: DappDeps, who: AuthInfo | null = authFor(USER)): Promise<Client> {
+  const server = new McpServer({ name: "t", version: "0" });
+  registerDappTools(server, deps, who);
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: "t", version: "0" });

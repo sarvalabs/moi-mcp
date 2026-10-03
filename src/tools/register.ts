@@ -145,6 +145,9 @@ export function registerTools(server: McpServer, ctx: ToolContext): void {
   registerHostedWrites(server, deps, auth);
   registerRegistryWrites(server, deps, auth);
   if (deps.launchpad) registerLaunchpadTools(server, deps.launchpad, auth);
-  if (deps.dapp) registerDappTools(server, deps.dapp, auth);
+  // The Launchpad has no sign-in tool of its own: its messages and descriptions send a person to moi_dapp_sign_in. A server
+  // that lists the Launchpad tools therefore lists the dapp tools too, over the same sessions, even if its caller passed none.
+  const dapp = deps.dapp ?? (deps.launchpad && { sessions: deps.launchpad.sessions, writes: deps.launchpad.writes });
+  if (dapp) registerDappTools(server, dapp, auth);
   if (deps.faucet) registerFaucetTools(server, deps.faucet, auth);
 }

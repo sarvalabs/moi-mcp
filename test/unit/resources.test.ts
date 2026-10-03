@@ -85,6 +85,14 @@ describe("resources", () => {
     }
   });
 
+  it("moi://docs/quickstart signs in to the Launchpad with the generic dapp tool, and gives its address", async () => {
+    const { contents } = await h.client.readResource({ uri: "moi://docs/quickstart" });
+    const text = (contents[0] as { text?: string }).text ?? "";
+    expect(text).toContain("moi_dapp_sign_in");
+    expect(text).toContain("https://launchpad.moi.technology");
+    expect(text).not.toMatch(/moi_launchpad_sign_(in|out)/);
+  });
+
   it("an unknown resource is an error, not an empty answer", async () => {
     await expect(h.client.readResource({ uri: "moi://nope" })).rejects.toThrow();
   });

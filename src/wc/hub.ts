@@ -9,8 +9,8 @@
  * - One WalletConnectHub per process, created by main()
  * - One SignClient per process, owned exclusively by this hub
  * - Signing is only available via signInteractionFor / signMessageFor(topic, ...)
- * - Message text comes only from DappClient.nonce, through moi_dapp_sign_in and
- *   moi_launchpad_sign_in; test/unit/wc-hub.test.ts pins those two call sites
+ * - Message text comes only from DappClient.nonce, through moi_dapp_sign_in, the one
+ *   sign-in tool (the Launchpad's included); test/unit/wc-hub.test.ts pins that call site
  * - Topic is never accepted from tool parameters; only from StoredWalletSession
  * - Identity reasoning (userId -> topic) is caller's job (hosted-writes.ts)
  */

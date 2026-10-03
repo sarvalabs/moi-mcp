@@ -862,10 +862,10 @@ describe("signing derives the chain from a real-shaped session", () => {
 // A tripwire on structure, not a security boundary: a computed property name
 // or a string built at run time would slip past a text scan. It exists so that
 // a new caller of the hub's message signing, or a second route to `moi.sign`,
-// fails a test and has to be argued for in review. A third legitimate sign-in
-// tool, or a shared helper that replaces the two handlers, is meant to edit the
-// expected tables here on purpose.
-describe("message signing is reachable only from the two sign-in tools", () => {
+// fails a test and has to be argued for in review. A second sign-in tool, or a
+// shared helper that replaces the handler, is meant to edit the expected table
+// here on purpose.
+describe("message signing is reachable only from the sign-in tool", () => {
   const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
 
   /** Every .ts file under src/, keyed by its path below src/, with whole-line comments removed. */
@@ -891,27 +891,23 @@ describe("message signing is reachable only from the two sign-in tools", () => {
     return out;
   }
 
-  it("names signMessageFor only in the two sign-in tools and in the hub that defines it", () => {
+  it("names signMessageFor only in the sign-in tool and in the hub that defines it", () => {
     // The hub counts twice: the interface member and the class method.
     expect(countsOf(/\bsignMessageFor\b/g)).toEqual({
       "applications/dapp/tools.ts": 1,
-      "applications/launchpad/tools.ts": 1,
       "wc/hub.ts": 2,
     });
   });
 
-  it.each([
-    ["applications/dapp/tools.ts", "moi_dapp_sign_in"],
-    ["applications/launchpad/tools.ts", "moi_launchpad_sign_in"],
-  ])("calls it in %s from inside %s and no other tool", (file, tool) => {
-    const text = sources().get(file)!;
+  it("calls it in applications/dapp/tools.ts from inside moi_dapp_sign_in and no other tool", () => {
+    const text = sources().get("applications/dapp/tools.ts")!;
     const call = text.search(/\bsignMessageFor\b/);
     expect(call).toBeGreaterThan(-1);
     // The tool being defined at that point is the last defineTool before it. A sign-in tool can change something, so
     // layout.test.ts requires it to be built with defineTool and never registered by name: this test and that rule
     // rely on each other.
     const registered = [...text.slice(0, call).matchAll(/defineTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
-    expect(registered.at(-1)).toBe(tool);
+    expect(registered.at(-1)).toBe("moi_dapp_sign_in");
   });
 
   it("sends moi.sign from the hub only", () => {

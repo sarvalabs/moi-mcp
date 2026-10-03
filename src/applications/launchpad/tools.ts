@@ -1,7 +1,14 @@
 /**
- * The MOI Agent Launchpad from the chat: sign in with the paired wallet, pick
- * a template, create an agent, register it on chain with one tap on the
+ * The MOI Agent Launchpad from the chat: pick a template, create an agent, register it on chain with one tap on the
  * phone, link Telegram, and fetch the setup script.
+ *
+ * There is no Launchpad sign-in or sign-out tool. The Launchpad follows docs/dapp-conventions.md, so a person signs in with
+ * moi_dapp_sign_in and the Launchpad's URL and signs out with moi_dapp_sign_out and the same one. That is the very session
+ * these tools read: server.ts hands one DappSessionStore to both sets of tools, and the session is filed under the dapp's
+ * origin, which is what LaunchpadClient's base URL is (see its constructor). Each tool here says how to sign in, with the
+ * URL, when the session is missing or has expired. One cost: moi_dapp_sign_in accepts only public https hosts
+ * (src/applications/dapp/origin.ts), so a Launchpad running locally or over plain http can no longer be signed in to from
+ * the chat; its templates tool, which needs no session, still works against it, and nothing else does.
  *
  * Identity is auth.userId throughout, the same identity the wallet pairing
  * hangs off. The Launchpad session (its cookie) lives in deps.sessions under
@@ -24,11 +31,11 @@ import * as S from "./schema.js";
 import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
 import { describeSetupScript } from "./setup-script.js";
 import { MoiError } from "../../moi-error.js";
-import { getReadOnlySigner, NETWORKS } from "../../moi/provider.js";
+import { getReadOnlySigner } from "../../moi/provider.js";
 import { findAgentByWallet } from "../../capabilities/reads/registry.js";
 import { ErrorCode } from "../../schema.js";
 import { defineTool, type ToolDef } from "../../tools/define.js";
-import { awaitPhone, ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "../../tools/hosted-writes.js";
+import { ConfirmArg, loadSession, previewsOf, runWrite, type HostedWriteDeps } from "../../tools/hosted-writes.js";
 import { cut, fingerprintDigest, PREVIEW_BODY_CHARS, previewBlock, redeemOrIssue } from "../../tools/preview.js";
 import { prepareRegisterAgent } from "../registry/core.js";
 import { asWriteResult, ok } from "../../tools/write-core.js";
@@ -60,16 +67,21 @@ function requireAuth(auth: AuthInfo | null): AuthInfo {
   return auth;
 }
 
+/**
+ * What a person is told when there is no usable Launchpad session. The Launchpad is a dapp like any other, so the generic
+ * tool signs in to it, and its URL is spelled out because the session is kept for that origin and no other.
+ */
+function noSession(launchpad: string, expired: boolean): string {
+  return expired
+    ? `The Launchpad session has expired. Call moi_dapp_sign_in with url ${launchpad} to sign in again with the paired wallet.`
+    : `Not signed in to the Launchpad. Call moi_dapp_sign_in with url ${launchpad} first; it signs one message with the paired wallet.`;
+}
+
 async function requireLaunchpadSession(deps: LaunchpadDeps, userId: string): Promise<StoredDappSession> {
   const rec = await deps.sessions.get(userId, deps.client.baseUrl);
   if (rec && !isDappSessionExpired(rec)) return rec;
   if (rec) await deps.sessions.delete(userId, deps.client.baseUrl);
-  throw new MoiError(
-    ErrorCode.LAUNCHPAD_NOT_SIGNED_IN,
-    rec
-      ? "The Launchpad session has expired. Call moi_launchpad_sign_in to sign in again with the paired wallet."
-      : "Not signed in to the Launchpad. Call moi_launchpad_sign_in first; it signs one message with the paired wallet.",
-  );
+  throw new MoiError(ErrorCode.LAUNCHPAD_NOT_SIGNED_IN, noSession(deps.client.baseUrl, rec !== undefined));
 }
 
 /** A Launchpad answer of "who are you" means the stored session is dead; forget it. */
@@ -114,6 +126,7 @@ async function findRegistryAgentId(owner: string, agentWallet: string, waitMs: n
 
 export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): ToolDef[] {
   const launchpad = deps.client.baseUrl;
+  const needsSession = `Needs a session: call moi_dapp_sign_in with url ${launchpad} first.`;
   const tools: ToolDef[] = [];
 
   tools.push(defineTool(
@@ -133,13 +146,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
         const rec = await deps.sessions.get(userId, launchpad);
         if (!rec || isDappSessionExpired(rec)) {
           if (rec) await deps.sessions.delete(userId, launchpad);
-          return {
-            value: {
-              launchpad,
-              signedIn: false,
-              ...(rec ? { note: "The Launchpad session expired. Call moi_launchpad_sign_in to sign in again." } : {}),
-            },
-          };
+          return { value: { launchpad, signedIn: false, note: noSession(launchpad, rec !== undefined) } };
         }
         try {
           const [me, agents] = await Promise.all([deps.client.me(rec.cookie), deps.client.listAgents(rec.cookie)]);
@@ -157,49 +164,15 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
           await forgetIfRejected(deps, userId, err);
           if (err instanceof MoiError && err.code === ErrorCode.LAUNCHPAD_NOT_SIGNED_IN) {
             return {
-              value: { launchpad, signedIn: false, note: "The Launchpad no longer accepts the stored session. Call moi_launchpad_sign_in again." },
+              value: {
+                launchpad,
+                signedIn: false,
+                note: `The Launchpad no longer accepts the stored session. Call moi_dapp_sign_in with url ${launchpad} to sign in again.`,
+              },
             };
           }
           throw err;
         }
-      }),
-  ));
-
-  tools.push(defineTool(
-    "moi_launchpad_sign_in",
-    {
-      title: "Sign in to the MOI Agent Launchpad",
-      description:
-        "Sign in to the MOI Agent Launchpad as the paired wallet. The Launchpad hands out a short sign-in message, " +
-        "MOI Wallet on the phone shows it and the person approves it there, and the resulting session is kept on this " +
-        "server, encrypted, for up to a day. Needs a paired wallet (moi_connect_wallet). Nothing is sent on chain and no fee is paid.",
-      inputSchema: S.LaunchpadSignInInput.shape,
-      outputSchema: S.LaunchpadSignInOutput.shape,
-      annotations: ACT,
-    },
-    async (_args, extra) =>
-      run(async () => {
-        const who = requireAuth(auth);
-        const cfg = getConfig();
-        const wallet = await loadSession(deps.writes, who, NETWORKS[cfg.MOI_NETWORK].caip2);
-        const { message } = await deps.client.nonce(wallet.address);
-        const { signature } = await awaitPhone(extra, "sign-in", () =>
-          deps.writes.hub.signMessageFor(wallet.topic, wallet.address, message),
-        );
-        const session = await deps.client.verify({ address: wallet.address, message, signature });
-        await deps.sessions.set({
-          version: 1,
-          userId: who.userId,
-          baseUrl: launchpad,
-          cookie: session.cookie,
-          walletAddress: wallet.address,
-          createdAt: new Date().toISOString(),
-          expiresAt: session.expiresAt,
-        });
-        return {
-          value: { launchpad, signedIn: true as const, wallet: wallet.address, expiresAt: iso(session.expiresAt) },
-          text: `Signed in to ${launchpad} as ${wallet.address}. The session lasts until ${iso(session.expiresAt)}.`,
-        };
       }),
   ));
 
@@ -249,7 +222,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
       description:
         "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the " +
         "agent its own on-chain wallet. The agent does not run until it is registered on chain with " +
-        "moi_launchpad_register_agent. Needs moi_launchpad_sign_in first. A taken name is refused. Two calls, always: " +
+        "moi_launchpad_register_agent. " + needsSession + " A taken name is refused. Two calls, always: " +
         "the first, without confirm, creates nothing and returns what would be created and a confirm token; show it to " +
         "the person and get an explicit yes; the second, with the same arguments plus confirm, creates the agent. The " +
         "token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails " +
@@ -349,7 +322,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
         "This is the step that makes the agent live. Two calls, always. First call without confirm: nothing reaches the phone; " +
         "you get a summary of the RegisterAgent interaction and a confirm token. Show it and get an explicit yes. Second call " +
         "with the same agentId plus confirm: the phone asks for the tap, the interaction is broadcast, and the Launchpad is " +
-        "told the agent is registered. Fuel is paid by the paired wallet. Needs moi_launchpad_sign_in first.",
+        "told the agent is registered. Fuel is paid by the paired wallet. " + needsSession,
       inputSchema: {
         ...S.LaunchpadRegisterAgentInput.shape,
         confirm: ConfirmArg,
@@ -477,7 +450,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
       description:
         "Get the link that connects the person's Telegram to their MOI Agent Launchpad account, so their agents can message " +
         "them. Give the person the link as a clickable URL; opening it starts a chat with the MOI bot and they press Start. " +
-        "The link works for 15 minutes. Needs moi_launchpad_sign_in first.",
+        "The link works for 15 minutes. " + needsSession,
       inputSchema: S.LaunchpadTelegramLinkInput.shape,
       outputSchema: S.LaunchpadTelegramLinkOutput.shape,
       annotations: ACT,
@@ -521,7 +494,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
         "A one-time download link for the setup script of an active Launchpad agent. The script contains the agent's private " +
         "key, so it is never returned here: the link fetches it from the Launchpad with the person's session when opened, " +
         "serves it once, and dies after ten minutes. Give the person the link as a clickable URL and tell them to run the " +
-        "script on the machine that will host the agent. Needs moi_launchpad_sign_in first.",
+        "script on the machine that will host the agent. " + needsSession,
       inputSchema: S.LaunchpadSetupScriptInput.shape,
       outputSchema: S.LaunchpadSetupScriptOutput.shape,
       annotations: ACT,
@@ -567,31 +540,6 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
             "machine that will host the agent.\n\nWhat the script does:\n" +
             script.summary.map((s) => `- ${s}`).join("\n"),
         };
-      }),
-  ));
-
-  tools.push(defineTool(
-    "moi_launchpad_sign_out",
-    {
-      title: "Sign out of the Launchpad",
-      description: "Forget the MOI Agent Launchpad session kept on this server. The wallet pairing is untouched.",
-      inputSchema: S.LaunchpadSignOutInput.shape,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-    },
-    async () =>
-      run(async () => {
-        const userId = requireAuth(auth).userId;
-        const rec = await deps.sessions.get(userId, launchpad);
-        await deps.sessions.delete(userId, launchpad);
-        if (rec) {
-          try {
-            await deps.client.logout(rec.cookie);
-          } catch {
-            // Our record is gone, which is the guarantee; the Launchpad's
-            // cookie expires on its own.
-          }
-        }
-        return { value: { signedIn: false }, text: rec ? "Signed out of the Launchpad." : "There was no Launchpad session." };
       }),
   ));
   return tools;

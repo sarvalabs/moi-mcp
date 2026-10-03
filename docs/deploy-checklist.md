@@ -194,7 +194,7 @@ curl -X POST https://mcp.voyage.moi.technology/mcp \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-# 36 tools (37 with the faucet configured); the same call on mcp-read lists 43
+# 34 tools (35 with the faucet configured); the same call on mcp-read lists 43
 ```
 
 ## 6. Connect in Claude

@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 import { readWhole } from "../../bounds.js";
-import { DappClient, sessionCookieFrom } from "../dapp/client.js";
+import { DappClient, type FetchLike } from "../dapp/client.js";
+import { dappOrigin } from "../dapp/origin.js";
 import { MoiError } from "../../moi-error.js";
 import { ErrorCode } from "../../schema.js";
 
@@ -10,8 +11,6 @@ const MAX_SCRIPT_BYTES = 256 * 1024;
 
 export type { FetchLike } from "../dapp/client.js";
 
-const Profile = z.object({ id: z.string(), walletAddress: z.string() });
-const Verified = z.object({ ok: z.literal(true), profile: Profile });
 const Me = z.object({
   profile: z.object({ id: z.string(), walletAddress: z.string(), telegramLinked: z.boolean() }),
   usage: z.object({ interactions: z.number(), max: z.number() }).optional(),
@@ -90,24 +89,35 @@ export interface CreateAgentBody {
   price?: number;
 }
 
-export interface LaunchpadSession {
-  cookie: string;
-  /** Unix seconds. */
-  expiresAt: number;
-  profile: z.infer<typeof Profile>;
+/**
+ * The Launchpad's address as an origin: lower-case host, no default port, no trailing dot or slash. A path, query or
+ * fragment is refused, not dropped, because the origin is all the generic dapp tools use (see the constructor below), so a
+ * Launchpad served below a path could not be signed in to and its requests would silently go to the wrong place.
+ */
+function launchpadOrigin(url: string): string {
+  const origin = dappOrigin(url, { allowInsecure: true });
+  const { pathname, search, hash } = new URL(url);
+  if (/[^/]/.test(pathname) || search || hash) {
+    throw new MoiError(
+      ErrorCode.INVALID_ARGS,
+      "The Launchpad's address must be an origin such as https://launchpad.moi.technology, with no path, query or fragment (MOI_LAUNCHPAD_URL).",
+    );
+  }
+  return origin;
 }
 
 export class LaunchpadClient extends DappClient {
-  // -- auth: Sign-In With MOI is the generic client's; verify also returns the profile
-
-  override async verify(input: { address: string; message: string; signature: string }): Promise<LaunchpadSession> {
-    const res = await this.request("POST", "/api/auth/verify", { body: input });
-    const body = await this.parse(res, Verified, "/api/auth/verify", false);
-    const cookie = sessionCookieFrom(res);
-    if (!cookie) {
-      throw new MoiError(ErrorCode.LAUNCHPAD_ERROR, "The Launchpad accepted the signature but set no session cookie.");
-    }
-    return { cookie: cookie.cookie, expiresAt: cookie.expiresAt, profile: body.profile };
+  /**
+   * The Launchpad is signed in to with the generic dapp tool, which files the session under dappOrigin(url), and the
+   * Launchpad tools read it under this client's baseUrl. Taking the same origin here makes those one slot whatever form
+   * MOI_LAUNCHPAD_URL was written in (upper case, :443, a trailing dot or slash); without it a person could sign in and
+   * still be told they are not signed in. The URL is the operator's setting, not a model's choice, so the host rules that
+   * keep a model off private addresses are not applied (allowInsecure), which also keeps a local or plain-http Launchpad
+   * usable for its templates. Signing in to such a Launchpad from the chat is not possible: moi_dapp_sign_in accepts only
+   * public https hosts. Sign-In With MOI itself (nonce, verify, logout) is the generic client's; this client has none of its own.
+   */
+  constructor(baseUrl: string, fetchImpl?: FetchLike) {
+    super(launchpadOrigin(baseUrl), fetchImpl);
   }
 
   async me(cookie: string): Promise<z.infer<typeof Me>> {

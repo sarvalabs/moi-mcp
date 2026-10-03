@@ -30,18 +30,10 @@ export const LaunchpadStatusOutput = z.object({
   expiresAt: z.string().optional(),
   telegramLinked: z.boolean().optional(),
   agents: z.array(LaunchpadAgent).optional(),
-  /** Why signedIn is false, when there was a session that no longer works. */
+  /** Why signedIn is false and how to sign in again: moi_dapp_sign_in with the Launchpad's URL. */
   note: z.string().optional(),
 });
 export type LaunchpadStatusOutputType = z.infer<typeof LaunchpadStatusOutput>;
-
-export const LaunchpadSignInInput = z.object({});
-export const LaunchpadSignInOutput = z.object({
-  launchpad: z.string().url(),
-  signedIn: z.literal(true),
-  wallet: z.string(),
-  expiresAt: z.string(),
-});
 
 export const LaunchpadTemplatesInput = z.object({});
 export const LaunchpadTemplate = z.object({
@@ -139,5 +131,3 @@ export const LaunchpadSetupScriptOutput = z.object({
     previewTruncated: z.boolean(),
   }),
 });
-
-export const LaunchpadSignOutInput = z.object({});
