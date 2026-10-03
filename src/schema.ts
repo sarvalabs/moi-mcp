@@ -7,8 +7,7 @@
  *   3. On-disk session store
  *   4. Error codes returned to the agent
  *
- * TODO(adithya): confirm CAIP-2 chain ids + exact ix_args encoding against
- * sarvalabs/moi-wallet-mobile/Dapp-docs (private repo) before Phase 2.
+ * Mainnet has no published CAIP-2 chain id yet; NETWORKS.mainnet in src/moi/provider.ts holds a placeholder.
  */
 
 import { z } from "zod";
@@ -67,7 +66,7 @@ export const WireAmount = z
     return String(value);
   });
 
-/** CAIP-2 chain id used in WalletConnect namespaces. CONFIRM VALUES. */
+/** CAIP-2 chain id used in WalletConnect namespaces. voyage is confirmed; mainnet and custom are placeholders. */
 export const CAIP2 = z.record(Network, z.string()).default({
   voyage: "moi:14",         // verified against MOI Wallet + sarvalabs/wallet-connect-dapp
   mainnet: "moi:mainnet",   // PLACEHOLDER — no published mainnet chain id
@@ -494,9 +493,9 @@ export const CreateAssetInput = z.object({
   supply: WireAmount,
   /**
    * KMOI to fund the new asset with so it can pay its own storage, in BASE
-   * UNITS. KMOI has 9 decimals, so 10000000000 is 10 KMOI. Omitted, this
-   * takes the SDK's default of 10 KMOI. Below about 6.1 KMOI the chain
-   * refuses the create; more than you hold and the funding transfer fails.
+   * UNITS. KMOI has 9 decimals, so 10000000000 is 10 KMOI. Omitted, the server
+   * sizes it: 10 KMOI when the balance allows, 7 KMOI otherwise. Below about
+   * 6.1 KMOI the chain refuses the create; more than you hold and the transfer fails.
    */
   storageFund: WireAmount.optional().describe(
     "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason.",
@@ -895,7 +894,7 @@ export const Config = z.object({
   MOI_RPC_URL: z.string().url().optional(),     // override for "custom"
   WC_PROJECT_ID: z.string().min(1),             // ship a default in package
   MOI_MCP_HOME: z.string().default("~/.moi-mcp"),
-  MOI_EXPLORER_URL: z.string().url().default("https://voyage.moi.technology"), // TODO confirm
+  MOI_EXPLORER_URL: z.string().url().default("https://voyage.moi.technology"), // the Voyage explorer, confirmed 3 October 2026 by loading it
   /**
    * How long to wait for the phone.
    *

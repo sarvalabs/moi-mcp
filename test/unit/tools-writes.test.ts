@@ -419,6 +419,32 @@ describe("moi_create_asset", () => {
     expect(result.text).toMatch(/would fail \(receipt status 1\)/);
     expect(result.text).toMatch(/storageFund/);
     expect(result.text).toMatch(/base units/i);
+    // The chain's floor is quoted as measured, about 6.1 KMOI. 7 KMOI is this server's margin over it, never the chain's
+    // floor, and for a fund the server chose the hint says what it funded and why the fund is probably not the cause.
+    expect(result.text).toMatch(/Below about 6\.1 KMOI the chain refuses the create/);
+    expect(result.text).not.toMatch(/Below about 7 KMOI/);
+    expect(result.text).toMatch(
+      /This server funded 10 KMOI, which is above that floor \(it funds 10 KMOI when the balance allows and at least 7 KMOI otherwise, to stay clear of it\)/,
+    );
+    expect(wallet.request).not.toHaveBeenCalled();
+    expect(node.methods()).not.toContain("moi.SendInteractions");
+  });
+
+  it("an explicit storageFund below the floor → refused with the hint, which quotes the floor and not the margin", async () => {
+    seedSession(h.home);
+    node.state.callStatus = 1;
+
+    const result = await h.call("moi_create_asset", { ...CREATE, storageFund: "1000000000" }); // 1 KMOI
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/would fail \(receipt status 1\)/);
+    expect(result.text).toMatch(/Below about 6\.1 KMOI the chain refuses the create/);
+    expect(result.text).not.toMatch(/Below about 7 KMOI/);
+    // A fund the caller passed is used as given, so the hint does not claim the server funded it. It says what the
+    // server would have funded had `storageFund` been left out.
+    expect(result.text).toMatch(
+      /You passed 1 KMOI\. Leave `storageFund` out and this server funds 10 KMOI when the balance allows and at least 7 KMOI otherwise, to stay clear of that floor/,
+    );
+    expect(result.text).not.toMatch(/This server funded/);
     expect(wallet.request).not.toHaveBeenCalled();
     expect(node.methods()).not.toContain("moi.SendInteractions");
   });

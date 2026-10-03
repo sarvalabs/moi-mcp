@@ -86,8 +86,11 @@ Voyage already serves.
    below) for both gateways, plus WebSocket (wss) to the WalletConnect/Reown
    relay for the write gateway.
 5. A phone with MOI Wallet, for the final verification — its account must
-   hold at least ~20,000 KMOI on voyage (the asset-create test needs 10,000
-   storage fund + 10,000 fuel reserve).
+   hold at least about 11 KMOI on voyage. The asset-create test moves 10 KMOI
+   into the new asset's own account (it is not spent, but it is no longer
+   spendable from the account) and the server holds back 0.001 KMOI for fuel.
+   With less than 10.001 KMOI it falls back to a 7 KMOI deposit, and below
+   7.001 KMOI it refuses.
 
 The steps below assume one Ubuntu VM with nginx and pm2. That layout is a
 suggestion — any equivalent (different distro, proxy, or supervisor) is fine
@@ -191,7 +194,7 @@ curl -X POST https://mcp.voyage.moi.technology/mcp \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-# 13 tools; the same call on mcp-read lists 6
+# 36 tools (37 with the faucet configured); the same call on mcp-read lists 43
 ```
 
 ## 6. Connect in Claude
@@ -219,8 +222,8 @@ In a Claude chat, in order:
 3. Ask: *"create a test asset called DEPLOYTEST with supply 100"* — Claude
    first shows a preview with the storage fund and fuel cost; confirm it,
    and then the approval prompt appears on the phone. Approve it there.
-   (Needs the ~20,000 KMOI from the prerequisites; an underfunded wallet
-   fails at the preview with a clear error.)
+   (Needs the ~11 KMOI from the prerequisites; a wallet holding less than
+   7.001 KMOI fails at the preview with an `INSUFFICIENT_BALANCE` error.)
 4. Ask: *"what's my wallet status"* — shows the paired account.
 
 Deployment is done when step 3 lands on chain.

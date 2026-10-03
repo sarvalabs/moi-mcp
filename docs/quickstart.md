@@ -43,7 +43,7 @@ creates the file on first launch. If it already has an `mcpServers` block,
 ```
 
 Restart Claude completely (quit the app, not just the window). `moi` should
-appear in the tools list with 13 tools.
+appear in the tools list with 23 tools.
 
 **Cursor** — same block in `.cursor/mcp.json`. See `examples/cursor.mcp.json`.
 
@@ -92,9 +92,12 @@ the server broadcasts it and hands you the hash. Reject it and you get back
 you get `"timeout"`.
 
 Creating a token works the same way — `create an asset called MCPTEST with
-supply 1000`. A new asset must hold some KMOI to pay for
-its own storage; the default is 1,000,000, so pass a smaller `storageFund` on a
-small devnet balance.
+supply 1000`. A new asset must hold some KMOI to pay for its own storage, and
+the server sizes that for you: 10 KMOI when your balance can carry it, 7 KMOI
+when it cannot, and it refuses before your phone is asked if you hold less than
+7.001 KMOI (claim more from the faucet). The deposit goes into the new asset's
+own account and is not spent. You do not need to pass `storageFund`; if you do,
+it is in base units, so `10000000000` is 10 KMOI.
 
 <!-- TODO screenshot: approval screen, then the interaction hash in chat -->
 

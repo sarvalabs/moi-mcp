@@ -213,8 +213,13 @@ Read the tool's message first — it says which stage failed:
 
 - **"The node says this interaction would fail (receipt status N)"** — the
   simulation refused it before anything reached the phone. For
-  `moi_create_asset` this is nearly always the default `storageFund`
-  (1,000,000 KMOI) exceeding your balance; pass `storageFund: "50000"`.
+  `moi_create_asset` this is almost always a `storageFund` you passed that is
+  below what the chain needs to store a new asset, about 6.1 KMOI. Leave
+  `storageFund` out: with none, the server funds 10 KMOI when the balance
+  allows and 7 KMOI otherwise, and refuses (`INSUFFICIENT_BALANCE`) when the
+  account holds less than 7.001 KMOI. If you do pass it, it is in base units, so
+  `storageFund: "7000000000"` is 7 KMOI. The older advice (1,000,000, then
+  50000) dates from before KMOI had 9 decimals and is now far below the floor.
 - **"holds X of … but the transfer needs Y"** — balance pre-check, local.
 - **"You approved the interaction but broadcasting it failed"** — the phone
   signed, the node rejected `moi.SendInteractions`. Usually a stale sequence

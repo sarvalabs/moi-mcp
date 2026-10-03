@@ -21,7 +21,13 @@
 import { AssetStandard, KMOI_ASSET_ID } from "js-moi-sdk";
 import { describe, expect, it } from "vitest";
 
-import { buildCreateAsset, buildTransfer, chooseStorageFund, MIN_STORAGE_FUND } from "../../src/moi/ix-builder.js";
+import {
+  buildCreateAsset,
+  buildTransfer,
+  chooseStorageFund,
+  MEASURED_STORAGE_FLOOR,
+  MIN_STORAGE_FUND,
+} from "../../src/moi/ix-builder.js";
 import { getProvider } from "../../src/moi/provider.js";
 import { getAsset } from "../../src/moi/reads.js";
 
@@ -37,6 +43,21 @@ const ACCOUNT =
   process.env["MOI_CANARY_ACCOUNT"] ?? "0x000000005dfd3e93ae09bea907f0d6db965ddfe84d09dfdf868e4e6800000000";
 
 const TIMEOUT = 60_000;
+
+/**
+ * What moi.StoragePricing answered on 2 October 2026, as the raw strings the node sent. They are compared as strings
+ * and never parsed, so a change of format fails the same way a change of value does. MEASURED_STORAGE_FLOOR in
+ * src/moi/ix-builder.ts is read as the floor under this pricing, so the two change together, in one commit, after a
+ * re-measure.
+ */
+const PRICING_WHEN_FLOOR_MEASURED = {
+  storage_price_per_byte: "0xf4240",
+  storage_multiplier: "0x1",
+  anu_per_byte: "0xf4240",
+};
+
+/** Ends every failure message of the three storage checks below. */
+const REMEASURE = "Re-measure the floor: the comment above MEASURED_STORAGE_FLOOR in src/moi/ix-builder.ts says how.";
 
 d("chain canary (voyage devnet)", () => {
   const provider = getProvider({ network: "voyage" });
@@ -124,6 +145,54 @@ d("chain canary (voyage devnet)", () => {
       storageFund: MIN_STORAGE_FUND,
     });
     expect(await simulateStatus(ix)).toBe(0);
+  }, TIMEOUT);
+
+  /**
+   * A create funded with `storageFund`, shaped like the canary's other creates: MAS0, not stateful, decimals 0. The symbol
+   * is the longest the chain takes (12 characters), which has the highest floor.
+   */
+  async function createFunded(storageFund: bigint) {
+    return buildCreateAsset(await sender(), {
+      symbol: "CANARYMARGIN",
+      supply: 1000n,
+      decimals: 0,
+      dimension: 0,
+      standard: "MAS0",
+      isStateful: false,
+      isFungible: true,
+      storageFund,
+    });
+  }
+
+  it("a fund 5 percent above the measured floor is still accepted", async () => {
+    const fund = (MEASURED_STORAGE_FLOOR * 105n) / 100n;
+    expect(
+      await simulateStatus(await createFunded(fund)),
+      `A dry run funded with ${fund} base units, 5 percent above MEASURED_STORAGE_FLOOR, was refused: the chain's floor has risen. ${REMEASURE}`,
+    ).toBe(0);
+  }, TIMEOUT);
+
+  it("a fund 10 percent below the measured floor is still refused", async () => {
+    // greater than 0, not "not 0": a missing receipt reads as -1 and must not pass.
+    const fund = (MEASURED_STORAGE_FLOOR * 90n) / 100n;
+    expect(
+      await simulateStatus(await createFunded(fund)),
+      `A dry run funded with ${fund} base units, 10 percent below MEASURED_STORAGE_FLOOR, was accepted or came back with no receipt: the chain's floor has fallen. ${REMEASURE}`,
+    ).toBeGreaterThan(0);
+  }, TIMEOUT);
+
+  it("storage is still priced as it was when the floor was measured", async () => {
+    // The pricing alone does not give the floor: it has no byte count for an asset account. So this cannot say the
+    // floor moved, only that the numbers it was measured under have changed.
+    const pricing = await provider.getStoragePricing();
+    expect(
+      {
+        storage_price_per_byte: pricing.storage_price_per_byte,
+        storage_multiplier: pricing.storage_multiplier,
+        anu_per_byte: pricing.anu_per_byte,
+      },
+      `moi.StoragePricing no longer answers what it did on 2 October 2026. ${REMEASURE}`,
+    ).toEqual(PRICING_WHEN_FLOOR_MEASURED);
   }, TIMEOUT);
 
   it("the transfer this server builds would succeed", async () => {

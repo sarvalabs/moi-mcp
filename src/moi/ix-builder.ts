@@ -224,13 +224,57 @@ export function asKmoi(baseUnits: bigint): string {
 export const DEFAULT_STORAGE_FUND = BigInt(SDK_DEFAULT_STORAGE_FUND);
 
 /**
- * Least that actually covers a new asset's storage, in KMOI base units.
+ * The smallest storage fund the chain accepted for a new asset when it was
+ * measured, in KMOI base units: 6,082,031,250, about 6.08 KMOI. A measurement,
+ * not a computation. The refusal text quotes it (as about 6.1 KMOI), a unit
+ * test keeps MIN_STORAGE_FUND within 110 to 130 percent of it, and the nightly
+ * chain canary (test/e2e/chain-canary.test.ts) watches it. How much a create is
+ * actually funded with is decided by MIN_STORAGE_FUND and DEFAULT_STORAGE_FUND.
  *
- * Measured against voyage devnet by binary search: the floor is 6,072,387,694
- * base units (about 6.072 KMOI) for a short symbol, and 6,082,031,250 (about
- * 6.082) for the 12-character maximum, so it DOES move with symbol length,
- * contrary to what this comment said before the upgrade. 7 KMOI is the floor
- * plus roughly 15% for pricing changes.
+ * What was measured, where and when. Binary search on voyage devnet, after the
+ * September 2026 chain upgrade, on the receipt status of a simulated create: a
+ * fund the chain accepts simulates to status 0, a smaller one to status 1. The
+ * result was recorded on 22 September 2026 (commit 9e73772): 6,072,387,694 for
+ * a short symbol and 6,082,031,250 for the 12-character maximum, so the floor
+ * moves with the length of the symbol and this constant is the larger figure.
+ * That figure is exactly 1557/256 KMOI, a round binary fraction, so it may be
+ * where a bisection stopped and not the true floor: read it as an upper bound.
+ * The figures are for a create like the canary's (MAS0, not stateful, decimals
+ * 0, dimension 0). The record does not say whether another shape costs more.
+ *
+ * Why it is not read from the node. getStoragePricing (moi.StoragePricing)
+ * answers a price per byte, a multiplier and a second per-byte figure. It does
+ * not say how many bytes a new asset account takes or how the three combine,
+ * and js-moi-sdk says in its own comments that a client cannot know what a
+ * create's storage costs (js-moi-constants, storage.ts). A formula built on
+ * those numbers would be a guess, and a wrong guess lowers the floor without
+ * anyone noticing, where a stale constant fails loudly: assertWillSucceed
+ * (src/tools/write-core.ts) refuses the create at its simulation.
+ *
+ * What watches it. The canary simulates a create funded 5 percent above this
+ * constant (it must pass) and one funded 10 percent below it (it must fail), and
+ * checks that the storage pricing still equals the three raw strings read from
+ * devnet on 2 October 2026. That is when the pricing began to be watched, ten
+ * days after the floor was recorded.
+ *
+ * To re-measure, when one of those fails. There is no script, so write a
+ * throwaway one: build the canary's create with a 1-character and a 12-character
+ * symbol, simulate it with provider.call over a range of storageFund, and
+ * bisect on receipt.status === 0 down to one base unit (about 35 simulations
+ * per symbol, nothing is signed, no fuel is spent). Then, in one commit: set
+ * this constant to the larger result, keep MIN_STORAGE_FUND within 110 to 130
+ * percent of it, copy getStoragePricing's three raw strings into
+ * PRICING_WHEN_FLOOR_MEASURED in the canary, and correct the figure the docs
+ * quote (docs/local-testing.md and docs/testing-plan.md say about 6.1 KMOI).
+ */
+export const MEASURED_STORAGE_FLOOR = 6_082_031_250n;
+
+/**
+ * What a create is funded with when the caller gives no storageFund and the
+ * balance cannot carry DEFAULT_STORAGE_FUND, in KMOI base units: the measured
+ * floor plus about 15 percent, so that a small repricing does not turn every
+ * automatic create into a failure. This is this server's margin, not the
+ * chain's floor, and no message may present it as the chain's.
  */
 export const MIN_STORAGE_FUND = 7_000_000_000n;
 

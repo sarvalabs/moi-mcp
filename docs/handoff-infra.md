@@ -240,7 +240,7 @@ List the tools. tools/list is public, and so are calls to ping and the read tool
 curl -s -X POST https://mcp.moi.technology/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-The response lists 13 tools: ping, moi_get_account, moi_get_asset, moi_get_interaction, moi_get_logic, moi_resolve_agent (registered through src/tools/register-gateway.ts, defined in src/capabilities/reads/tools.ts), moi_connect_wallet, moi_wallet_status, moi_disconnect_wallet (src/tools/wallet-hosted.ts), moi_transfer, moi_create_asset, moi_mint, moi_call_logic (src/capabilities/). The read gateway on 8787 lists the first 6 only.
+The response lists 36 tools, or 37 when the devnet faucet is configured (`MOI_FAUCET_URL` and `MOI_FAUCET_KEY` set, network voyage): ping, the eight reads, the three wallet tools, the eleven write tools, the Launchpad tools, the dapp tools and, with the faucet configured, moi_faucet. The list is src/tools/register.ts, README.md under Tools has the table, and test/unit/__snapshots__/tools-hosted.json pins it. The read gateway on 8787 lists 43: ping, the eight reads and the 34 `moi_rpc_*` node method tools.
 
 Finally, in claude.ai: Settings, Connectors, Add custom connector, paste https://mcp.moi.technology/mcp, and choose OAuth as the auth mode. Choosing None on the write gateway makes sign-in impossible.
 
@@ -330,7 +330,7 @@ Dependabot (`.github/dependabot.yml`) opens a pull request when an npm dependenc
 
 The upstream watch (`.github/workflows/upstream-watch.yml`) runs daily and files an issue labelled `upstream-release` for each new release of the three projects. go-moi and cocolang are private repositories, and a workflow's built-in token can read only its own repository, so those two need a repository secret named `UPSTREAM_READ_TOKEN`: a fine-grained personal access token with read-only "Contents" access to `sarvalabs/go-moi` and `sarvalabs/cocolang`. Without the secret, the watch skips those two with a warning and still covers js-moi-sdk.
 
-The chain canary (`.github/workflows/chain-canary.yml`) runs nightly against the live voyage devnet. It reads KMOI and simulates the asset-create and transfer interactions this server builds. Simulation signs nothing and spends no fuel. When the chain rejects something, the canary opens an issue labelled `chain-canary`, and the next green run closes it. Run it by hand with `MOI_E2E=1 npx vitest run test/e2e/chain-canary.test.ts`.
+The chain canary (`.github/workflows/chain-canary.yml`) runs nightly against the live voyage devnet. It reads KMOI and simulates the asset-create and transfer interactions this server builds. It also watches the storage floor (`MEASURED_STORAGE_FLOOR` in src/moi/ix-builder.ts): a create funded 5 percent above it must simulate, one funded 10 percent below it must fail, and the node's storage pricing must still be the three strings it was on 2 October 2026. Any of those failing means the floor has to be measured again, and the comment above the constant says how. Simulation signs nothing and spends no fuel. When the chain rejects something, the canary opens an issue labelled `chain-canary`, and the next green run closes it. Run it by hand with `MOI_E2E=1 npx vitest run test/e2e/chain-canary.test.ts`.
 
 ## What the CI/CD pipeline should do
 

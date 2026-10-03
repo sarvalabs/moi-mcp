@@ -17,6 +17,7 @@ import {
   chooseStorageFund,
   DEFAULT_STORAGE_FUND,
   FUEL_RESERVE,
+  MEASURED_STORAGE_FLOOR,
   MIN_STORAGE_FUND,
   estimateFuelFor,
   buildCreateAccount,
@@ -446,15 +447,17 @@ describe("asset creation funds the new asset", () => {
 describe("chooseStorageFund", () => {
   /**
    * A new MOI asset pays for its own storage at creation, and a fresh asset
-   * account holds no KMOI — so the create must bundle a funding transfer. The
-   * SDK's 1,000,000 default silently exceeds most devnet balances, and the
-   * failure is opaque: the ASSET_CREATE operation reports success while the
+   * account holds no KMOI — so the create must bundle a funding transfer. A
+   * fund below the chain's floor is accepted by the node and then fails
+   * opaquely: the ASSET_CREATE operation reports success while the
    * interaction reports status 1. Nobody creating a token should have to
    * reason about any of that, so the tool sizes it.
    *
-   * The floor was measured by binary search against voyage devnet: 6,093
-   * exactly, unchanged by symbol length (1 vs 12 chars) or dimension (0 vs 18).
-   * MIN_STORAGE_FUND carries margin over it.
+   * The floor was measured by binary search against voyage devnet after the
+   * September 2026 upgrade: 6,072,387,694 for a short symbol and 6,082,031,250
+   * for the 12-character maximum, so it moves with the symbol's length.
+   * MEASURED_STORAGE_FLOOR holds the larger figure, and MIN_STORAGE_FUND carries
+   * margin over it.
    */
   it("prefers the SDK default when the balance can cover it", () => {
     expect(chooseStorageFund(50_000_000_000n)).toBe(DEFAULT_STORAGE_FUND); // 50 KMOI
@@ -474,11 +477,16 @@ describe("chooseStorageFund", () => {
   });
 
   it("stays above the measured floor at the smallest balance it accepts", () => {
-    // Measured live after the upgrade: 6,072,387,694 base units for a short
-    // symbol, 6,082,031,250 for the 12-character maximum.
     const smallest = MIN_STORAGE_FUND + FUEL_RESERVE;
     expect(chooseStorageFund(smallest)).toBeGreaterThanOrEqual(MIN_STORAGE_FUND);
-    expect(chooseStorageFund(smallest)).toBeGreaterThan(6_082_031_250n);
+    expect(chooseStorageFund(smallest)).toBeGreaterThan(MEASURED_STORAGE_FLOOR);
+  });
+
+  it("keeps MIN_STORAGE_FUND between 110 and 130 percent of the measured floor", () => {
+    // Too close, and a small repricing makes every automatic create fail. Too far, and the tool refuses balances the
+    // chain would accept. A re-measure that moves one of the two numbers and not the other fails here.
+    expect(MIN_STORAGE_FUND * 100n).toBeGreaterThanOrEqual(MEASURED_STORAGE_FLOOR * 110n);
+    expect(MIN_STORAGE_FUND * 100n).toBeLessThanOrEqual(MEASURED_STORAGE_FLOOR * 130n);
   });
 
   it("refuses clearly rather than building an interaction that fails opaquely", () => {

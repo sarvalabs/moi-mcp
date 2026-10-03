@@ -126,13 +126,15 @@ No automation reaches this. It is also where every serious bug lived.
 | 5 | `moi_transfer` → ignore 5 min | `{"status":"rejected","reason":"timeout"}` |
 | 6 | Switch wallet network, then write | `network_mismatch`; reads still work |
 | 7 | `moi_disconnect_wallet`, then write | `wallet_disconnected` |
-| 8 | `moi_create_asset` with default `storageFund` | Refused **locally** with the storage-fund hint; nothing reaches the phone |
+| 8 | `moi_create_asset` with `storageFund: "1000000000"` (1 KMOI, below the floor of about 6.1 KMOI) | Refused by simulation with the storage-fund hint; nothing reaches the phone |
 
 **Status (2026-09-01): 1, 4, 8 verified; 2, 3, 5, 6, 7 not.**
 1: a paired session exists and `moi_wallet_status` reports it (expires
 2026-09-02 05:03 UTC). 4: a rejection was mapped during the build session.
 8: run through the tool against the paired session — refused by simulation
-with the hint, nothing sent to the relay. Check 2's *mechanism* is proven — a
+with the hint, nothing sent to the relay (that run was on 2026-09-01 with the old
+1,000,000 default, before the KMOI rescale; the row above now uses an explicit
+value and has not been run). Check 2's *mechanism* is proven — a
 script signed on the phone and broadcast from here, landing at `0x3c568254…` —
 but the tool has never returned `sent` after a real tap. The guards for 6 and 7
 are covered hermetically; the live tap-through is not.

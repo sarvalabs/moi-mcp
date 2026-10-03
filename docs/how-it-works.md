@@ -8,7 +8,7 @@ You chat with Claude on claude.ai. Claude proposes actions on the MOI blockchain
 
 claude.ai is the chat website where you talk to Claude. It also acts as the MCP client. MCP is the Model Context Protocol, Anthropic's standard that lets a chat assistant call functions on an outside program. claude.ai sends each function call to the server over HTTPS, the encrypted form of ordinary web traffic, and shows you what comes back.
 
-This server is a program written in TypeScript, a typed variant of JavaScript, and run by Node.js, a program that runs JavaScript outside a browser. It uses the Express web framework to answer web requests and Anthropic's Model Context Protocol SDK to speak MCP (package.json lists `express` and `@modelcontextprotocol/sdk`; src/server.ts:28-30). Its TOOLS registry lists 11 tools (src/schema.ts:508-520). The server registers `moi_mint` separately (src/tools/hosted-writes.ts:330; src/tools/writes.ts:145) and a `ping` health check (src/index.ts:40, src/http.ts:60). The server you connect to from claude.ai lists 13 tools.
+This server is a program written in TypeScript, a typed variant of JavaScript, and run by Node.js, a program that runs JavaScript outside a browser. It uses the Express web framework to answer web requests and Anthropic's Model Context Protocol SDK to speak MCP (package.json lists `express` and `@modelcontextprotocol/sdk`; src/server.ts:28-30). Each server's list of tools is built in src/tools/register.ts. The server you connect to from claude.ai lists 36 tools, or 37 when the devnet faucet is configured: a `ping` health check, eight read tools, three wallet tools, eleven write tools, and the thirteen Launchpad and dapp tools. README.md, under Tools, has the table, and test/unit/__snapshots__/tools-hosted.json pins the list.
 
 MOI Wallet is an app on your phone. It holds your private key, a secret number that only your phone knows, and it uses that key to sign transactions. Signing means producing a mathematical proof that the key holder approved exactly this transaction. The signature is worthless for any other transaction. The pairing screen on the phone shows the server as "MOI MCP" (src/wc/hub.ts:107-112).
 
@@ -20,7 +20,7 @@ The MOI node is a computer that runs the MOI blockchain and accepts finished tra
 
 | Term | Meaning |
 |---|---|
-| MCP, tool | The Model Context Protocol. A tool is one named function the server offers, such as `moi_transfer` (src/schema.ts:508-520). |
+| MCP, tool | The Model Context Protocol. A tool is one named function the server offers, such as `moi_transfer` (src/capabilities/assets/shortcuts.ts:165-167). |
 | OAuth | A standard way for one website to prove to another that you approved a connection, without sharing a password. This server implements OAuth 2.1 itself (src/auth/index.ts:1-6). |
 | Cookie | A small piece of text a website stores in your browser and gets back on every later visit. This server's cookie is named `moi_uid` and is your whole identity here (src/auth/routes.ts:22). |
 | QR code | A square barcode a phone camera can read. Here it carries the WalletConnect pairing text. |
@@ -28,7 +28,7 @@ The MOI node is a computer that runs the MOI blockchain and accepts finished tra
 | Private key, signing | The private key is the secret that controls an account. Signing with it approves one exact transaction. Only the phone has the key. |
 | Interaction | MOI's word for a transaction: a signed instruction that changes the ledger (src/schema.ts:356). |
 | Fuel | The fee unit MOI charges for processing an interaction. A transfer takes around 300 fuel (src/moi/ix-builder.ts:47). |
-| Sequence (nonce) | A counter on each account. Every interaction carries the next number so the same one cannot run twice (src/tools/write-core.ts:99-114). |
+| Sequence (nonce) | A counter on each account. Every interaction carries the next number so the same one cannot run twice (src/tools/write-core.ts:75-90). |
 | Asset | A token type on MOI, with a symbol, a supply, and an owner (src/schema.ts:130-139). |
 | KMOI | The currency on MOI's test network. It pays fuel there and has no real value (docs/quickstart.md:8-10). |
 | Devnet | A development network. The default here is `voyage`, MOI's devnet (src/schema.ts:466). |
@@ -59,15 +59,15 @@ If you click Deny, or the sign-in stalls, Claude will report that the connector 
 5. The phone shows the pairing request, labeled "MOI MCP", and you approve it there. The server stores a record linking your user id to the topic and your wallet address (src/server.ts:490-540).
 6. The QR proposal expires after about 5 minutes if nobody scans it (src/tools/wallet-hosted.ts:130, src/server.ts:536-537). If it expires, ask Claude to connect again, and the server issues a fresh QR.
 
-A pairing has one of two lifetimes, and you choose it. The default, persistent, lasts 7 days (src/wc/lifetime.ts:16). The other, once, lasts 15 minutes or one approved transaction, whichever comes first (src/wc/lifetime.ts:19; src/tools/hosted-writes.ts:133-146). The chat tool takes a `remember` argument; the browser pairing page has the same choice as two radio buttons (src/pairing/index.ts:300-303).
+A pairing has one of two lifetimes, and you choose it. The default, persistent, lasts 7 days (src/wc/lifetime.ts:16). The other, once, lasts 15 minutes or one approved transaction, whichever comes first (src/wc/lifetime.ts:19; src/tools/hosted-writes.ts:149-171). The chat tool takes a `remember` argument; the browser pairing page has the same choice as two radio buttons (src/pairing/index.ts:300-303).
 
-Pairing again while a wallet is already paired replaces it. The tool warns you first: the reply names the currently paired address and says that approving the new scan replaces it, and that if you did not ask to change wallets you should not scan (src/tools/wallet-hosted.ts:96-138). When a pairing expires, the server deletes its record the next time it is touched, and the server answers any write attempt with a message that the pairing has expired and you should pair again (src/tools/hosted-writes.ts:121-126).
+Pairing again while a wallet is already paired replaces it. The tool warns you first: the reply names the currently paired address and says that approving the new scan replaces it, and that if you did not ask to change wallets you should not scan (src/tools/wallet-hosted.ts:96-138). When a pairing expires, the server deletes its record the next time it is touched, and the server answers any write attempt with a message that the pairing has expired and you should pair again (src/tools/hosted-writes.ts:138-144).
 
 ## Sending a transaction, step by step
 
-Suppose you type: "send 5 KMOI to 0xabc...". Every state-changing tool works as two calls (src/tools/hosted-writes.ts:180-186).
+Suppose you type: "send 5 KMOI to 0xabc...". Every state-changing tool works as two calls (src/tools/hosted-writes.ts:15-21).
 
-Call one: Claude calls `moi_transfer` with the recipient, the asset, and the amount, and no `confirm` argument. The server looks up your pairing. It reads the asset's details from the node. It checks that your balance covers 5 KMOI. It builds the unsigned interaction. It asks the node to estimate the fuel. It simulates the transaction, and refuses one that would fail, before it asks you anything (src/capabilities/assets/shortcuts.ts:84-124, src/tools/write-core.ts:69-82). Nothing reaches the phone. The reply is a preview. Rendered in the chat, it begins like this (src/tools/write-core.ts:169-185):
+Call one: Claude calls `moi_transfer` with the recipient, the asset, and the amount, and no `confirm` argument. The server looks up your pairing. It reads the asset's details from the node. It checks that your balance covers 5 KMOI. It builds the unsigned interaction. It asks the node to estimate the fuel. It simulates the transaction, and refuses one that would fail, before it asks you anything (src/capabilities/assets/shortcuts.ts:84-124, src/tools/write-core.ts:38-58). Nothing reaches the phone. The reply is a preview. Rendered in the chat, it begins like this (src/tools/write-core.ts:144-161):
 
 ```
 PREVIEW. Nothing has been sent to the phone.
@@ -83,37 +83,37 @@ What the phone will show:
   Network: voyage
 ```
 
-The block above shows the first part of the rendering. The full reply ends with an instruction that carries the confirm token, tells Claude to get an explicit yes from you, and tells you to check that the amount and address on the phone match (src/tools/write-core.ts:180-182).
+The block above shows the first part of the rendering. The full reply ends with an instruction that carries the confirm token, tells Claude to get an explicit yes from you, and tells you to check that the amount and address on the phone match (src/tools/write-core.ts:156-158).
 
-The field labels Operation, Asset, Amount, "Amount in base units", and To come from src/capabilities/assets/shortcuts.ts:116-120. Base units are the asset's smallest unit. Decimals is the asset's number of decimal places. For an asset with 6 decimals, an amount of 1.5 is 1500000 base units (src/moi/ix-builder.ts:83-100). Dimension is a separate field naming the asset's kind: 0 Economic, 1 Possession. The fuel line is built as "up to (limit) at price (price)" (src/tools/hosted-writes.ts:207). The preview also carries a confirm token: a short random string bound to your user id, this tool, and these exact arguments, valid for 10 minutes and usable once (src/tools/preview.ts:5-9, 28).
+The field labels Operation, Asset, Amount, "Amount in base units", and To come from src/capabilities/assets/shortcuts.ts:116-120. Base units are the asset's smallest unit. Decimals is the asset's number of decimal places. For an asset with 6 decimals, an amount of 1.5 is 1500000 base units (src/moi/ix-builder.ts:83-100). Dimension is a separate field naming the asset's kind: 0 Economic, 1 Possession. The fuel line is built as "up to (limit) at price (price)" (src/tools/hosted-writes.ts:232). The preview also carries a confirm token: a short random string bound to your user id, this tool, and these exact arguments, valid for 10 minutes and usable once (src/tools/preview.ts:5-9, 28).
 
 The preview exists because the wallet lacks a feature: `moi.signInteraction` has no field for a description, so the phone shows only the raw operation fields it can decode (docs/upstream-issues.md, issue 6). The chat shows you the same numbers first, in the same units the phone will use. The confirm token is the proof you saw them. Without a matching token, the server refuses to contact the phone at all.
 
-Call two: you say yes in the chat. Claude calls `moi_transfer` again with the same arguments plus the token. The server rebuilds and re-simulates, redeems the token, and checks that the rebuilt numbers still match the ones you saw (src/tools/hosted-writes.ts:244-251). Then, in order:
+Call two: you say yes in the chat. Claude calls `moi_transfer` again with the same arguments plus the token. The server rebuilds and re-simulates, redeems the token, and checks that the rebuilt numbers still match the ones you saw (src/tools/hosted-writes.ts:347-355). Then, in order:
 
-1. It writes a journal entry in state `proposed` (src/tools/hosted-writes.ts:254).
+1. It writes a journal entry in state `proposed` (src/tools/hosted-writes.ts:361).
 2. It sends the unsigned interaction to your phone through the relay as a `moi.signInteraction` request (src/wc/hub.ts:271-274). Your phone shows the approval screen.
 3. You check that the amount and address on the phone match the preview, then tap Approve. The phone signs with your private key and returns the signed bytes: `ix_args` and `signatures`, both POLO hex (src/schema.ts:439-442). The journal entry moves to `signed`.
-4. The server broadcasts the signed interaction to the MOI node itself (src/tools/write-core.ts:220-238). The server does the broadcasting because the wallet's own combined sign-and-send call, `moi.sendInteractions`, crashes the wallet's local database (docs/upstream-issues.md, issue 1). The journal entry moves to `broadcast`, then `confirmed` (src/tools/hosted-writes.ts:263-269).
+4. The server broadcasts the signed interaction to the MOI node itself (src/tools/write-core.ts:188-214). The server does the broadcasting because the wallet's own combined sign-and-send call, `moi.sendInteractions`, crashes the wallet's local database (docs/upstream-issues.md, issue 1). The journal entry moves to `broadcast`, then `confirmed` (src/tools/hosted-writes.ts:377-383).
 5. The reply in the chat carries the interaction hash and an explorer link of the form `https://voyage.moi.technology/interaction/?0x...`, where you can watch the transaction on the public ledger (src/moi/provider.ts:128-130).
 
-If your pairing was the "once" kind, the server forgets it at this point, before it returns the result (src/tools/hosted-writes.ts:133-146).
+If your pairing was the "once" kind, the server forgets it at this point, before it returns the result (src/tools/hosted-writes.ts:149-171).
 
 ## What can go wrong
 
-Each row shows the reply Claude receives, from `WriteResult` in src/schema.ts:190-225 and `asWriteResult` in src/tools/write-core.ts:121-140.
+Each row shows the reply Claude receives, from `WriteResult` in src/schema.ts:190-225 and `asWriteResult` in src/tools/write-core.ts:92-116.
 
 | What happened | What Claude tells you | What to do |
 |---|---|---|
 | You tapped Reject on the phone | `status: "rejected"`, `reason: "user_rejected"` | Nothing was sent. Ask again if you change your mind. |
 | You ignored the phone past the time limit | `status: "rejected"`, `reason: "timeout"`, with the message "No answer from MOI Wallet within N seconds. Nothing was sent. Check the phone and try again." (src/wc/hub.ts:87). The hosted wait is 240 seconds by default (src/config.ts:157). While it waits, a client that asked for progress hears a notice every 15 seconds saying how long it has been waiting and that nothing is sent until you approve. | A tap after the timeout broadcasts nothing (src/wc/hub.ts:277-281). Retry from a fresh preview. |
-| The pairing expired | `status: "rejected"`, `reason: "wallet_disconnected"`, message "The wallet pairing has expired. Call moi_connect_wallet to pair again." (src/tools/hosted-writes.ts:121-126) | Ask Claude to connect your wallet and scan a new QR. |
-| The wallet is on the wrong network | `status: "rejected"`, `reason: "network_mismatch"`, message "Wallet is on (chain), expected (chain)" (src/tools/hosted-writes.ts:103-106) | Re-pair on the network the server is configured for. |
+| The pairing expired | `status: "rejected"`, `reason: "wallet_disconnected"`, message "The wallet pairing has expired. Call moi_connect_wallet to pair again." (src/tools/hosted-writes.ts:138-144) | Ask Claude to connect your wallet and scan a new QR. |
+| The wallet is on the wrong network | `status: "rejected"`, `reason: "network_mismatch"`, message "Wallet is on (chain), expected (chain)" (src/tools/hosted-writes.ts:119-123) | Re-pair on the network the server is configured for. |
 | Your balance is too small | `status: "error"`, `code: "INSUFFICIENT_BALANCE"`, with a message naming what you hold and what the transfer needs, in base units (src/capabilities/assets/shortcuts.ts:97-103) | Get more of the asset, or send less. On devnet, use the Voyage faucet, a web page that hands out free test tokens (docs/quickstart.md:81-82). |
-| The numbers changed between preview and confirm | A fresh preview with the note "The numbers changed since the preview, for example because a balance moved. Nothing was sent to the phone." (src/tools/hosted-writes.ts:192-194) | Read the new preview and say yes again. |
-| The token was missing, expired, used, or the arguments changed | A fresh preview with the note beginning "That confirm token did not match this call" (src/tools/hosted-writes.ts:188-190) | Read the new preview and say yes again. |
+| The numbers changed between preview and confirm | A fresh preview with the note "The numbers changed since the preview, for example because a balance moved. Nothing was sent to the phone." (src/tools/hosted-writes.ts:217-219) | Read the new preview and say yes again. |
+| The token was missing, expired, used, or the arguments changed | A fresh preview with the note beginning "That confirm token did not match this call" (src/tools/hosted-writes.ts:213-215) | Read the new preview and say yes again. |
 
-One failure is not in the table. If the phone signs but the broadcast to the node then fails, the reply says "You approved the interaction but broadcasting it failed" (src/tools/write-core.ts:233-237), and the journal records the attempt as `orphaned` so the server never retries it on its own (src/tools/hosted-writes.ts:74-98). Check the explorer before retrying, so you do not send twice.
+One failure is not in the table. If the phone signs but the broadcast to the node then fails, the reply says "You approved the interaction but broadcasting it failed" (src/tools/write-core.ts:209-212), and the journal records the attempt as `orphaned` so the server never retries it on its own (src/tools/hosted-writes.ts:89-110). Check the explorer before retrying, so you do not send twice.
 
 ## What the server keeps and what it never has
 
@@ -125,6 +125,6 @@ The pairing record for each user holds the WalletConnect topic, the chain id, th
 
 The journal is an append-only file of every write attempt and the states it passed through: proposed, signed, broadcast, confirmed, failed, orphaned (src/journal.ts:16).
 
-The server never stores a private key and never sees one. The only signer class in the codebase throws on both of its signing methods. Its sign method throws with the message "This MCP server holds no private keys. Signing happens in MOI Wallet on your phone." (src/moi/provider.ts:190-195). Its signInteraction method throws a similar message that points to the tools that route signing to the phone over WalletConnect (src/moi/provider.ts:197-202). Keys stay on the phone; the server only relays the signed bytes to the node (src/tools/write-core.ts:213-219).
+The server never stores a private key and never sees one. The only signer class in the codebase throws on both of its signing methods. Its sign method throws with the message "This MCP server holds no private keys. Signing happens in MOI Wallet on your phone." (src/moi/provider.ts:190-195). Its signInteraction method throws a similar message that points to the tools that route signing to the phone over WalletConnect (src/moi/provider.ts:197-202). Keys stay on the phone; the server only relays the signed bytes to the node (src/tools/write-core.ts:188-214).
 
 So a fully stolen server, records and all, could see which wallet address is paired to which browser cookie and could push approval requests to your phone. It could do nothing else. It could not sign, and it could not spend. The pairing lifetime limits that exposure, and you choose it (src/wc/lifetime.ts:1-9). Money moves only when you read the screen on your phone and tap Approve.

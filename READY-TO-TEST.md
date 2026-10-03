@@ -94,7 +94,7 @@ Call the transfer prompt **T**:
 | 4 | **T** | **Reject** | `{"status":"rejected","reason":"user_rejected"}` |
 | 5 | **T** | ignore it | After ~60 s the chat shows `MCP error -32001: Request timed out`. The server gives up first at `REQUEST_TIMEOUT_MS` (55000), just under the MCP client's own 60s `DEFAULT_REQUEST_TIMEOUT_MSEC`, so the approval dies with it. Pass = the request ends cleanly, a later tap does nothing, and `npm run status` still shows `connected: true` |
 | 6 | quit Claude Desktop, set `MOI_NETWORK` to `mainnet` in `claude_desktop_config.json`, reopen, then **T** | — | `reason: network_mismatch`; `what's in my account?` still answers. Set `MOI_NETWORK` back to `voyage` and reopen afterwards |
-| 7 | `create an asset called MCPTEST2 with supply 1000` (no storageFund) | nothing arrives | Tool error: "The node says this interaction would fail … Pass a smaller `storageFund`". Already verified; a regression if the phone buzzes |
+| 7 | `create an asset called MCPTEST2 with supply 1000 and storageFund 1000000000` (1 KMOI, below the floor of about 6.1 KMOI) | nothing arrives | Tool error: "The node says this interaction would fail … Below about 6.1 KMOI the chain refuses the create …". A regression if the phone buzzes |
 | 8 | `disconnect my MOI wallet`, then **T** | — | `No wallet was paired`-style text, then `reason: wallet_disconnected`. To re-pair: quit Claude Desktop (Cmd-Q) first, then `npm run pair`, then reopen Claude Desktop. The running server holds its own in-memory WalletConnect client over `~/.moi-mcp/wc.db`; re-pairing from the terminal while it is up leaves it holding a session topic it cannot sign with |
 
 `KMOI = 0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000`.
