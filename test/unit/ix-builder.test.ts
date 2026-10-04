@@ -25,6 +25,7 @@ import {
   buildTransfer,
   MAX_OPERATIONS,
   parseAmount,
+  simulate,
   toPoloHex,
   toWireJson,
   type SenderInfo,
@@ -264,6 +265,87 @@ describe("assertSendable", () => {
   it("rejects more operations than the node allows", () => {
     const tooMany = Array.from({ length: MAX_OPERATIONS + 1 }, () => ix.ix_operations[0]!);
     expect(() => assertSendable({ ...ix, ix_operations: tooMany })).toThrow(/at most 3/);
+  });
+});
+
+describe("simulate fails closed", () => {
+  const ix = buildTransfer(SENDER, { to: recipient.toHex(), assetId: asset.toHex(), amount: 1000n });
+  const answering = (response: unknown) => ({ call: async () => response });
+  const NO_STATUS = /no readable receipt status/;
+
+  it.each<[string, unknown]>([
+    ["a number", { receipt: { status: 0 } }],
+    ["a hex string", { receipt: { status: "0x0" } }],
+    ["a hex string in capitals", { receipt: { status: "0X0" } }],
+    ["a decimal string", { receipt: { status: "0" } }],
+    ["a bigint", { receipt: { status: 0n } }],
+  ])("passes a status of 0 given as %s", async (_name, response) => {
+    await expect(simulate(answering(response), ix)).resolves.toMatchObject({ ok: true, status: 0 });
+  });
+
+  it("reads the fuel used the same way, and leaves it out when it cannot be read", async () => {
+    await expect(simulate(answering({ receipt: { status: 0, fuel_used: "0x12b" } }), ix)).resolves.toEqual({
+      ok: true,
+      status: 0,
+      fuelUsed: 299,
+    });
+    const unreadable = await simulate(answering({ receipt: { status: 0, fuel_used: "lots" } }), ix);
+    expect(unreadable).toMatchObject({ ok: true, status: 0 });
+    expect(unreadable.fuelUsed).toBeUndefined();
+  });
+
+  // Every shape below used to read as a pass (a missing status was 0) or threw a bare SyntaxError out of BigInt().
+  it.each<[string, unknown]>([
+    ["no response at all", undefined],
+    ["a null response", null],
+    ["a response with no receipt", {}],
+    ["an undefined receipt", { receipt: undefined }],
+    ["a null receipt", { receipt: null }],
+    ["a receipt that is a string", { receipt: "0x0" }],
+    ["a receipt that is an array", { receipt: [] }],
+    ["an empty receipt", { receipt: {} }],
+    ["a receipt with fuel but no status", { receipt: { fuel_used: "0x12b" } }],
+    ["a null status", { receipt: { status: null } }],
+    ["an empty status", { receipt: { status: "" } }],
+    ["a status that is text", { receipt: { status: "abc" } }],
+    ["a bare 0x", { receipt: { status: "0x" } }],
+    ["a status with spaces round it", { receipt: { status: " 0 " } }],
+    ["a negative string", { receipt: { status: "-1" } }],
+    ["a negative number", { receipt: { status: -1 } }],
+    ["a fraction", { receipt: { status: 0.5 } }],
+    ["NaN", { receipt: { status: Number.NaN } }],
+    ["a boolean", { receipt: { status: false } }],
+    ["an object", { receipt: { status: {} } }],
+    ["an array holding zero, which String() would read as 0", { receipt: { status: [0] } }],
+    ["a number beyond 2^53", { receipt: { status: 2 ** 60 } }],
+    ["a hex string beyond 2^53", { receipt: { status: `0x${"f".repeat(40)}` } }],
+  ])("is a failure, with a reason and no throw, for %s", async (_name, response) => {
+    const result = await simulate(answering(response), ix);
+    expect(result.ok).toBe(false);
+    expect(result.status).toBeUndefined();
+    expect(result.detail).toMatch(NO_STATUS);
+  });
+
+  it("still reports a status the node did give, with the operation's detail", async () => {
+    const result = await simulate(
+      answering({ receipt: { status: "0x1", ix_operations: [{ status: 1, data: { error: "0x" } }] } }),
+      ix,
+    );
+    expect(result).toEqual({ ok: false, status: 1, fuelUsed: undefined, detail: "op status 1" });
+  });
+
+  it("does not throw on operations it cannot read, once the status is known to be a failure", async () => {
+    for (const ix_operations of ["nope", { 0: 1 }, [null, 5, "x"]]) {
+      const result = await simulate(answering({ receipt: { status: 1, ix_operations } }), ix);
+      expect(result).toMatchObject({ ok: false, status: 1, detail: "" });
+    }
+  });
+
+  it("returns the message of a call that throws, with no status", async () => {
+    const result = await simulate({ call: async () => { throw new Error("execution reverted: boom"); } }, ix);
+    expect(result).toEqual({ ok: false, detail: "execution reverted: boom" });
+    const text = await simulate({ call: async () => { throw "plain text"; } }, ix);
+    expect(text).toEqual({ ok: false, detail: "plain text" });
   });
 });
 

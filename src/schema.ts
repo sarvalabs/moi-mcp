@@ -907,6 +907,15 @@ export const Config = z.object({
    */
   REQUEST_TIMEOUT_MS: z.coerce.number().default(55_000),
   LOG_LEVEL: z.enum(["silent", "error", "info", "debug"]).default("error"),
+  /**
+   * What to do when the interaction MOI Wallet signed is not byte for byte one of the encodings of the interaction that was
+   * previewed (src/moi/signed-check.ts, applied in broadcastSigned). `warn` logs it and broadcasts as before. `enforce`
+   * refuses: nothing is broadcast and the journal entry ends as orphaned. The default is warn on purpose: the wallet's real
+   * encoding has never been captured, and a false refusal after the person has already approved is the worst outcome. Move
+   * to enforce once one real write has logged a match (docs/handoff-infra.md). Any other value fails config load, so a typo
+   * never leaves the check weaker than the operator meant.
+   */
+  MOI_SIGNED_CHECK: z.enum(["warn", "enforce"], { message: "must be warn or enforce" }).default("warn"),
 });
 export type Config = z.infer<typeof Config>;
 

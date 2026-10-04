@@ -370,7 +370,10 @@ export async function runWrite(
     signed = true;
     await deps.journal.update(id, "signed");
 
-    const hash = await broadcastSigned(ix_args, signatures);
+    // prepared.ix is the interaction that was simulated, previewed and handed to the phone. What came back is compared with
+    // it before anything is broadcast (MOI_SIGNED_CHECK). A refusal throws from here, after the journal says "signed", so
+    // the catch below records the entry as orphaned.
+    const hash = await broadcastSigned(ix_args, signatures, prepared.ix);
     // From here the interaction is on the chain. Nothing below may turn that
     // into an error the caller sees: cleanup and journaling are best-effort,
     // and reconcileJournalOnBoot finalizes an entry a crash leaves behind.

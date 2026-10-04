@@ -13,6 +13,7 @@ import { getConfig, log } from "../config.js";
 import { toMcpError } from "../errors.js";
 import { isMoiError, MoiError } from "../moi-error.js";
 import { estimateFuelFor, simulate, type SenderInfo, type UnsignedInteraction } from "../moi/ix-builder.js";
+import { compareSigned, type SignedComparison } from "../moi/signed-check.js";
 import { getProvider, interactionUrl } from "../moi/provider.js";
 import { getAccount, toBigInt } from "../moi/reads.js";
 import { ErrorCode, WriteResult } from "../schema.js";
@@ -47,13 +48,26 @@ export async function assertWillSucceed(ix: UnsignedInteraction, hint?: string):
   const result = await simulate(provider, ix);
   if (result.ok) return;
 
+  // No status means the node did not say the interaction would fail: it said nothing usable (it was unreachable, or the
+  // receipt had no readable status). That is not an argument the model can fix, so it is not INVALID_ARGS, and it must not
+  // claim a verdict the node did not give. Nothing has been sent to the phone either way.
+  if (result.status === undefined) {
+    throw new MoiError(
+      ErrorCode.RPC_ERROR,
+      `The node's dry run gave no usable answer${result.detail ? ` (${result.detail})` : ""}, so this was not sent to your ` +
+        `wallet. Nothing was changed. Try again; if it keeps happening the node may be down or answering in a form this ` +
+        `server cannot read.`,
+      { simulatedStatus: null },
+    );
+  }
+
   throw new MoiError(
     ErrorCode.INVALID_ARGS,
-    `The node says this interaction would fail (receipt status ${result.status ?? "?"})` +
+    `The node says this interaction would fail (receipt status ${result.status})` +
       `${result.detail ? `: ${result.detail}` : ""}. ` +
       `Not sending it to your wallet — approving it would burn fuel and change nothing.` +
       (hint ? ` ${hint}` : ""),
-    { simulatedStatus: result.status ?? null },
+    { simulatedStatus: result.status },
   );
 }
 
@@ -185,6 +199,56 @@ export function ok(value: Write) {
   };
 }
 
+/** What the person is told when MOI_SIGNED_CHECK is enforce and the phone's answer is not the interaction that was previewed. */
+const SIGNED_MISMATCH =
+  "MOI Wallet returned a different interaction than the one that was previewed. Nothing was sent to the network: the " +
+  "interaction was not broadcast and the signature was discarded. Tell the user, and have them check what MOI Wallet showed " +
+  "before they try again from a fresh preview.";
+
+/** The lengths of the answer and of each encoding it was compared with. Lengths only: the bytes never go in a log. */
+function lengthsOf(c: SignedComparison): string {
+  const of = (n: number | undefined) => (n === undefined ? "not encodable" : `${n}`);
+  return (
+    `the answer is ${c.answerLength} hex characters, the wire form is ${of(c.expectedLength.wire)} ` +
+    `and the full-width form is ${of(c.expectedLength["full-width"])}`
+  );
+}
+
+/**
+ * Check that what the phone signed is the interaction that was simulated and previewed, before anything is broadcast.
+ *
+ * A match is logged at info level in both modes, so one real write shows which encoding the wallet produces. A mismatch is
+ * logged at error level, the only level that shows by default (there is no warn), and then depends on MOI_SIGNED_CHECK:
+ * `warn` lets the broadcast go ahead as it always did, `enforce` throws and nothing is sent. The throw is a MoiError, which
+ * runWrite journals as orphaned, because by now the phone has signed.
+ */
+function checkSigned(ix_args: string, previewed: UnsignedInteraction): void {
+  const mode = getConfig().MOI_SIGNED_CHECK;
+  const result = compareSigned(ix_args, previewed);
+  if (result.matched.length > 0) {
+    const forms =
+      result.matched.length > 1
+        ? "wire and full-width encodings, which are the same bytes for this interaction"
+        : `${result.matched[0]} encoding`;
+    log("info", `signed check (${mode}): the interaction MOI Wallet signed matches the preview as the ${forms} (${result.answerLength} hex characters)`);
+    return;
+  }
+  if (mode === "warn") {
+    log(
+      "error",
+      `signed check (warn): the interaction MOI Wallet signed is not byte for byte the one that was previewed (${lengthsOf(result)}); ` +
+        `broadcasting it anyway because MOI_SIGNED_CHECK is warn`,
+    );
+    return;
+  }
+  log(
+    "error",
+    `signed check (enforce): the interaction MOI Wallet signed is not byte for byte the one that was previewed (${lengthsOf(result)}); ` +
+      `refusing to broadcast it`,
+  );
+  throw new MoiError(ErrorCode.RPC_ERROR, SIGNED_MISMATCH);
+}
+
 /**
  * The broadcast half: send already-signed interaction to the node.
  *
@@ -192,8 +256,14 @@ export function ok(value: Write) {
  * the wallet's combined sendInteractions is broken (see wc/client.ts). It also
  * keeps the zero-key property: the signature is produced on the phone and this
  * process only relays it to the node.
+ *
+ * `previewed` is the interaction that was simulated, shown to the person and sent to the phone. What the phone signed is
+ * compared with it first (checkSigned), here so that the hosted and the stdio server, which share this path, both get the
+ * check, and so that no caller can broadcast without saying what it expects. The signatures are not inspected: the node
+ * verifies them.
  */
-export async function broadcastSigned(ix_args: string, signatures: string): Promise<string> {
+export async function broadcastSigned(ix_args: string, signatures: string, previewed: UnsignedInteraction): Promise<string> {
+  checkSigned(ix_args, previewed);
   const provider = getProvider(providerOptions()) as unknown as {
     sendInteraction: (req: { ix_args: string; signatures: string }) => Promise<{ hash: string }>;
   };

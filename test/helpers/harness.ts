@@ -16,6 +16,7 @@ import { vi } from "vitest";
 
 import { resetConfigCache } from "../../src/config.js";
 import { STDIO_INSTRUCTIONS } from "../../src/instructions.js";
+import { toPoloHex } from "../../src/moi/ix-builder.js";
 import { resetProviderCache } from "../../src/moi/provider.js";
 import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/capabilities/reads/registry.js";
 import { registerResources } from "../../src/resources/index.js";
@@ -65,6 +66,7 @@ const MANAGED_ENV = [
   "MOI_READ_CALLER",
   "MOI_WC_PARAM_STYLE",
   "MOI_AGENT_REGISTRY_LOGIC_ID",
+  "MOI_SIGNED_CHECK",
 ] as const;
 
 let savedEnv: Record<string, string | undefined> | undefined;
@@ -95,6 +97,8 @@ export function applyEnv(rpcUrl: string, home: string, overrides: Record<string,
     MOI_AGENT_REGISTRY_LOGIC_ID: DEFAULT_REGISTRY_LOGIC_ID,
     MOI_WC_PARAM_STYLE: "positional",
     MOI_READ_CALLER: ACCOUNT,
+    // The tests run the strict mode. The shipped default is warn; a test of warn passes it in `overrides`.
+    MOI_SIGNED_CHECK: "enforce",
     ...overrides,
   });
   resetConfigCache();
@@ -226,7 +230,13 @@ export interface FakeWallet {
  */
 export function signatureFor(req: WcRequest): { ix_args: string; signatures: string } {
   const digest = createHash("sha256").update(JSON.stringify(req.request.params[0])).digest("hex");
-  return { ix_args: `0e5f0300${digest.slice(0, 32)}`, signatures: `0e1f03${digest.slice(32, 64)}` };
+  const signatures = `0e1f03${digest.slice(32, 64)}`;
+  // Not an interaction (moi.sign takes a message): there is nothing to re-encode, so the old derived value stands.
+  if (req.request.method !== "moi.signInteraction") return { ix_args: `0e5f0300${digest.slice(0, 32)}`, signatures };
+  // moi.signInteraction: what a real wallet does with the JSON it receives, which is to serialise it as it is and sign those
+  // bytes. This is the encoding the write path checks. It encodes a COPY, because toPoloHex rewrites `participants` in place
+  // and tests read the recorded request afterwards.
+  return { ix_args: toPoloHex(structuredClone(req.request.params[0]) as never), signatures };
 }
 
 /**

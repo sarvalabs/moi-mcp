@@ -623,35 +623,62 @@ export function buildLogicDeploy(
 }
 
 /**
+ * A node quantity as a non-negative integer that fits a number, or undefined when it cannot be read as one. The node sends
+ * quantities as numbers or as 0x-hex or decimal strings, and the SDK may hand over a bigint; anything else (missing, null,
+ * empty, text, a float, a negative, an object, an array, a value past 2^53) is unreadable. Never throws: BigInt("abc") does.
+ */
+function readQuantity(raw: unknown): number | undefined {
+  if (typeof raw === "number") return Number.isSafeInteger(raw) && raw >= 0 ? raw : undefined;
+  let value: bigint;
+  if (typeof raw === "bigint") value = raw;
+  else if (typeof raw === "string" && /^(0x[0-9a-f]+|[0-9]+)$/i.test(raw)) value = BigInt(raw);
+  else return undefined;
+  return value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+}
+
+/** Why a dry run that gave no usable receipt status is a failure: it is not known to succeed. */
+const NO_READABLE_STATUS = "the node's dry run came back with no readable receipt status, so it is not known to succeed";
+
+/**
  * Dry-run an interaction against the node before a human is asked to approve it.
  *
  * `provider.call` executes the interaction in simulation and returns a receipt.
  * A receipt status other than 0 means it would revert on chain — burning fuel
  * and achieving nothing. Catching that here means the user is never shown an
  * approval for an interaction that cannot succeed.
+ *
+ * Fails closed: only a status that reads as 0 passes. A call that throws, a reply with no receipt, and a receipt whose
+ * status is missing, null, empty or unreadable all come back ok: false, never as a pass and never as a throw. `status` is
+ * undefined in those cases, which is how a caller tells "the node said no" from "the node said nothing usable".
  */
 export async function simulate(
   caller: { call: (ix: unknown) => Promise<unknown> },
   ix: UnsignedInteraction,
 ): Promise<{ ok: boolean; status?: number; fuelUsed?: number; detail?: string }> {
-  let receipt: Record<string, unknown>;
+  let receipt: unknown;
   try {
-    const response = (await caller.call(ix)) as { receipt?: Record<string, unknown> };
-    receipt = response?.receipt ?? {};
+    const response = (await caller.call(ix)) as { receipt?: unknown } | null | undefined;
+    receipt = response?.receipt;
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message.slice(0, 200) : String(err) };
   }
 
-  const status = Number(BigInt(String(receipt["status"] ?? 0)));
-  const fuelUsed = Number(BigInt(String(receipt["fuel_used"] ?? 0)));
+  if (typeof receipt !== "object" || receipt === null || Array.isArray(receipt)) {
+    return { ok: false, detail: NO_READABLE_STATUS };
+  }
+  const fields = receipt as Record<string, unknown>;
+  const status = readQuantity(fields["status"]);
+  if (status === undefined) return { ok: false, detail: NO_READABLE_STATUS };
+  const fuelUsed = readQuantity(fields["fuel_used"]);
   if (status === 0) return { ok: true, status, fuelUsed };
 
   // Surface any per-operation error the node bothered to fill in. The error
   // arrives POLO-encoded ("0x0e7f06…"); best-effort extract the printable
   // strings inside so the user reads "builtin.AssetError insufficient funds"
   // rather than a hex blob.
-  const ops = (receipt["ix_operations"] ?? []) as Array<Record<string, unknown>>;
+  const ops = Array.isArray(fields["ix_operations"]) ? (fields["ix_operations"] as unknown[]) : [];
   const opDetail = ops
+    .filter((o): o is Record<string, unknown> => typeof o === "object" && o !== null)
     .map((o) => {
       const data = (o["data"] ?? {}) as Record<string, unknown>;
       const err = String(data["error"] ?? "");

@@ -174,7 +174,32 @@ describe("guard order", () => {
     const result = await h.call("moi_transfer", TRANSFER);
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/boom/);
+    // The node gave no verdict, so it is not reported as one, and the code is not the one that tells a model to fix its arguments.
+    expect(result.text).toMatch(/^\[RPC_ERROR\] The node's dry run gave no usable answer/);
+    expect(result.text).not.toMatch(/would fail/);
     expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  // A receipt with no readable status used to read as status 0, a pass, and the person was asked to approve it.
+  it.each<[string, unknown]>([
+    ["an empty receipt", {}],
+    ["a receipt with fuel but no status", { fuel_used: "0x12b" }],
+    ["a null status", { status: null }],
+    ["an empty status", { status: "" }],
+    ["a status that is text", { status: "abc" }],
+  ])("a dry run that answers with %s → refused before the phone, in words that do not claim a verdict", async (_name, receipt) => {
+    seedSession(h.home);
+    node.on("moi.Call", () => receipt);
+
+    const result = await h.call("moi_transfer", TRANSFER);
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/^\[RPC_ERROR\] /);
+    expect(result.text).toMatch(/no readable receipt status/);
+    expect(result.text).toMatch(/not sent to your wallet/);
+    expect(result.text).not.toMatch(/would fail/);
+    expect(wallet.request).not.toHaveBeenCalled();
+    expect(node.methods()).not.toContain("moi.SendInteractions");
   });
 });
 

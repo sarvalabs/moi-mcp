@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { AuthInfo } from "../../src/auth/index.js";
 import { HOSTED_INSTRUCTIONS } from "../../src/instructions.js";
 import { WriteJournal } from "../../src/journal.js";
+import { toPoloHex, toWireJson, type UnsignedInteraction } from "../../src/moi/ix-builder.js";
 import { TOOLS } from "../../src/schema.js";
 import { buildHostedApp, GATED, type HostedDeps } from "../../src/server.js";
 import { PROGRESS_EVERY_MS } from "../../src/tools/hosted-writes.js";
@@ -87,7 +88,7 @@ class FakeHub implements WalletConnectHubLike {
   async signMessageFor(): Promise<{ signature: string }> {
     throw new Error("FakeHub.signMessageFor is not exercised by this test file");
   }
-  async signInteractionFor(): Promise<{ ix_args: string; signatures: string }> {
+  async signInteractionFor(_topic: string, _ix: UnsignedInteraction): Promise<{ ix_args: string; signatures: string }> {
     throw new Error("FakeHub.signInteractionFor is not exercised by this test file");
   }
   onSessionDelete(): () => void {
@@ -102,10 +103,11 @@ class HeldHub extends FakeHub {
   readonly asked = new Promise<void>((resolve) => (this.ask = resolve));
   tap!: () => void;
   private readonly held = new Promise<void>((resolve) => (this.tap = resolve));
-  override async signInteractionFor(): Promise<{ ix_args: string; signatures: string }> {
+  override async signInteractionFor(_topic: string, ix: UnsignedInteraction): Promise<{ ix_args: string; signatures: string }> {
     this.ask();
     await this.held;
-    return { ix_args: "0x" + "1".repeat(64), signatures: "0x" + "2".repeat(128) };
+    // An honest phone: the bytes of the interaction it was asked to sign, which the write path checks before it broadcasts.
+    return { ix_args: toPoloHex(toWireJson(ix) as never), signatures: "0x" + "2".repeat(128) };
   }
 }
 

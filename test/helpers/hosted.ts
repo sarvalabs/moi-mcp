@@ -11,6 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { deriveKey } from "../../src/auth/crypto.js";
+import { toPoloHex, toWireJson, type UnsignedInteraction } from "../../src/moi/ix-builder.js";
 import type { AuthInfo } from "../../src/auth/types.js";
 import { DAPP_SESSION_KEY_LABEL } from "../../src/applications/dapp/store.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
@@ -74,8 +75,11 @@ export function fakeHub(): FakeHub {
       throw new Error("not used here");
     }),
     signMessageFor: vi.fn(async () => ({ signature: "0xfeed" })),
-    signInteractionFor: vi.fn(async () => ({
-      ix_args: "0x" + "1".repeat(64),
+    // An honest phone: the bytes of the interaction it was asked to sign, which the write path checks before it
+    // broadcasts. The real hub returns unprefixed hex (PoloHex in src/schema.ts), so this does too. Not a canned value:
+    // a constant reply would be accepted or refused regardless of the interaction.
+    signInteractionFor: vi.fn(async (_topic: string, ix: UnsignedInteraction) => ({
+      ix_args: toPoloHex(toWireJson(ix) as never),
       signatures: "0x" + "2".repeat(128),
     })),
     onSessionDelete: vi.fn(() => () => {}),

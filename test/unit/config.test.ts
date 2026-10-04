@@ -74,6 +74,26 @@ describe("loadConfig", () => {
   });
 });
 
+describe("MOI_SIGNED_CHECK", () => {
+  it("defaults to warn, so a real phone is never refused before one write has shown what it signs", () => {
+    expect(loadConfig(baseEnv()).MOI_SIGNED_CHECK).toBe("warn");
+  });
+
+  it("treats a blank line in .env as unset", () => {
+    expect(loadConfig(baseEnv({ MOI_SIGNED_CHECK: "" })).MOI_SIGNED_CHECK).toBe("warn");
+    expect(loadConfig(baseEnv({ MOI_SIGNED_CHECK: "  " })).MOI_SIGNED_CHECK).toBe("warn");
+  });
+
+  it.each(["warn", "enforce"] as const)("accepts %s", (mode) => {
+    expect(loadConfig(baseEnv({ MOI_SIGNED_CHECK: mode })).MOI_SIGNED_CHECK).toBe(mode);
+  });
+
+  // A refused value fails the whole load, as a bad MOI_NETWORK does, so a typo for enforce cannot quietly leave the check on warn.
+  it.each(["enforced", "ENFORCE", "Warn", "off", "none", "true", "1", "warn,enforce"])("rejects %s, naming the variable", (value) => {
+    expect(() => loadConfig(baseEnv({ MOI_SIGNED_CHECK: value }))).toThrow(/MOI_SIGNED_CHECK: must be warn or enforce/);
+  });
+});
+
 describe("expandHome", () => {
   it("expands a bare tilde", () => {
     expect(expandHome("~")).toBe(process.env.HOME);
