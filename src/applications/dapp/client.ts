@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { clip, MAX_BODY_BYTES, readCapped, readWhole } from "../../bounds.js";
 import { MoiError } from "../../moi-error.js";
+import type { FetchLike } from "../../public-fetch.js";
 import { ErrorCode } from "../../schema.js";
 
 const TIMEOUT_MS = 20_000;
@@ -39,7 +40,8 @@ export const SIWM_ROUTES = {
 /** Where a dapp may publish its OpenAPI document, tried in order. */
 export const OPENAPI_PATHS = ["/.well-known/openapi.json", "/openapi.json", "/api/openapi.json"] as const;
 
-export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+// Defined with the address guard that builds one (src/public-fetch.ts); re-exported for the clients that take one.
+export type { FetchLike };
 
 const Nonce = z.object({ nonce: z.string().min(1).optional(), message: z.string().min(20) });
 const Verified = z.object({ ok: z.literal(true) }).passthrough();
@@ -340,7 +342,7 @@ export class DappClient {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {
-      // The address guard (src/applications/dapp/origin.ts) refuses with a MoiError. undici reports a failure in its connect step as
+      // The address guard (src/public-fetch.ts) refuses with a MoiError. undici reports a failure in its connect step as
       // TypeError("fetch failed") with the real error as the cause, so look there too: the guard's own words are what the
       // person needs, not "fetch failed".
       const refused = err instanceof MoiError ? err : err instanceof Error && err.cause instanceof MoiError ? err.cause : undefined;

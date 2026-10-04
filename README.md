@@ -134,7 +134,7 @@ Eight node methods are not tools. `moi.SendInteractions` is how a signed interac
 | `moi_asset_routines` | no | What an asset can do, read from its own manifest on the node: each routine's name, whether it reads or changes state, its inputs and outputs, and whether this server can describe it in a preview |
 | `moi_get_interaction` | no | Interaction status, sender, operations, and fuel used, by hash; for an interaction with no receipt yet, what the node's pool says about its sender (pending or queued, how many come first, whether the wait has expired); at most 20 operations are listed, long payloads and receipts are cut, and a note links the whole interaction when anything was cut |
 | `moi_get_logic` | no | A deployed logic's callable routines with input and output types (cut and flagged when there are very many) |
-| `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address; a not-found marked `truncated` means the search stopped before it covered the registry |
+| `moi_resolve_agent` | no | Look up an AI agent in the on chain registry by handle, name, or address; a not-found marked `truncated` means the search stopped before it covered the registry; `cardNote` says why an agent's card was not read (https cards on public hosts only) |
 | `moi_list_agents` | no | Page through the on chain registry: every agent, or those one account registered |
 
 ### Wallet tools and writes

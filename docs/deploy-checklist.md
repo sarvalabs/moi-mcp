@@ -84,7 +84,11 @@ Voyage already serves.
 4. Outbound access from the host: HTTPS to the voyage RPC endpoint
    (`dev.voyage-rpc.moi.technology`, or the internal one — see `MOI_RPC_URL`
    below) for both gateways, plus WebSocket (wss) to the WalletConnect/Reown
-   relay for the write gateway.
+   relay for the write gateway. Both gateways also need DNS and HTTPS to the
+   public hosts where agents publish their cards (private addresses,
+   redirects and anything that is not https are refused on purpose); without
+   that, `moi_resolve_agent` still answers, but every card comes back with a
+   `cardNote` saying it was not fetched.
 5. A phone with MOI Wallet, for the final verification — its account must
    hold at least about 11 KMOI on voyage. The asset-create test moves 10 KMOI
    into the new asset's own account (it is not spent, but it is no longer

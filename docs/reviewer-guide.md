@@ -83,6 +83,7 @@ Top level:
 - `src/json-schema-dialect.ts` (150): rewrites the SDK's draft-07 `$schema` stamp to JSON Schema 2020-12 on the way out, because strict clients reject draft-07 tools before they run.
 - `src/security-headers.ts` (28): the response headers, aimed at clickjacking on the consent and pairing pages.
 - `src/clean-errors.ts` (23): replaces Express's stack-printing error handler with plain 400 and 500 JSON bodies.
+- `src/public-fetch.ts` (143): the address guard for any host somebody else chose: a dapp's origin, the faucet, an agent's card. `dappOrigin` refuses http, IP addresses and local names; `publicFetch` resolves the name on every connection, refuses a loopback, private, link-local, unique-local or unspecified answer, and connects only to the address it checked. It imports no wallet, write or application code, so the read gateway can use it (an agent's card is read through it).
 - `src/branding.ts` (97): serves the server's own icon and landing page so connector lists do not show a tunnel provider's favicon.
 
 `src/auth/` (the OAuth 2.1 authorization server):
@@ -135,7 +136,7 @@ Top level:
 
 - `src/applications/registry/`: the agent registry's write tools (`tools.ts`) and what they prepare (`core.ts`).
 - `src/applications/launchpad/`: the Agent Launchpad client, one-time download links, setup-script handling and tools.
-- `src/applications/dapp/`: the generic dapp client, origin guard, encrypted session store and tools.
+- `src/applications/dapp/`: the generic dapp client, encrypted session store and tools. Its address guard lives in `src/public-fetch.ts`.
 
 Other directories:
 

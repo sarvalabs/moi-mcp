@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 
-import { dappOrigin } from "../../src/applications/dapp/origin.js";
+import { dappOrigin } from "../../src/public-fetch.js";
 import { FileDappSessionStore } from "../../src/applications/dapp/store.js";
 import { LaunchpadClient, type FetchLike } from "../../src/applications/launchpad/client.js";
 import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";

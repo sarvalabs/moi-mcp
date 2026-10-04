@@ -834,6 +834,10 @@
         "note": {
           "type": "string",
           "description": "Says what truncated means for this answer."
+        },
+        "cardNote": {
+          "type": "string",
+          "description": "Present only when the agent has a card URL that was not fetched: says why, and what to do next. Without the card, name and capabilities are left out; the registry's own fields are unaffected."
         }
       },
       "required": [

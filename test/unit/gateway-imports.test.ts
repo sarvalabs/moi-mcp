@@ -100,6 +100,10 @@ describe("the read gateway's module graph", () => {
       ]),
     );
     expect(importGraph("src/http.ts").files).not.toContain("src/tools/register.ts");
+    // The address guard the dapp tools and the agent lookup share. The gateway reaches it through the registry read, and it
+    // reaches nothing of the wallet, the writes or the applications: exactly the error type and the schemas, and no more.
+    expect(importGraph("src/http.ts").files).toContain("src/public-fetch.ts");
+    expect(importGraph("src/public-fetch.ts").files).toEqual(["src/moi-error.ts", "src/public-fetch.ts", "src/schema.ts"]);
     // The hosted and read-only entry points start themselves when loaded. Bundled into the stdio entry point they
     // would start a second server inside it.
     expect(stdio.files).not.toContain("src/server.ts");

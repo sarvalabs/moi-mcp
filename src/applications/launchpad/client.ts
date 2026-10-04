@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { readWhole } from "../../bounds.js";
 import { DappClient, type FetchLike } from "../dapp/client.js";
-import { dappOrigin } from "../dapp/origin.js";
+import { dappOrigin } from "../../public-fetch.js";
 import { MoiError } from "../../moi-error.js";
 import { ErrorCode } from "../../schema.js";
 

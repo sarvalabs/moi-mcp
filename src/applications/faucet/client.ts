@@ -10,7 +10,7 @@
  *     from a response's url, or from a header (a redirect's Location carries the key). Every failure is FIXED text, plus at
  *     most the faucet's own message field, which is withheld whole if it repeats the key (see #said).
  *   - A redirect is never followed, so the key cannot be sent to another host.
- *   - The default fetch is the dapp layer's guarded one (publicFetch), which resolves the host on every connection and
+ *   - The default fetch is the shared guarded one (publicFetch, src/public-fetch.ts), which resolves the host on every connection and
  *     refuses private addresses. Only allowInsecure, a switch for tests, swaps it for a plain fetch.
  *
  * What a failure SAYS is limited to what is known. "Nothing was claimed" is said only when the request provably never went
@@ -23,8 +23,7 @@ import { readWhole } from "../../bounds.js";
 import { MoiError } from "../../moi-error.js";
 import { quoteChainText } from "../../moi/ix-builder.js";
 import { ErrorCode, type Network } from "../../schema.js";
-import type { FetchLike } from "../dapp/client.js";
-import { dappOrigin, publicFetch, type Resolver } from "../dapp/origin.js";
+import { dappOrigin, publicFetch, type FetchLike, type Resolver } from "../../public-fetch.js";
 
 /** The one network the faucet hands out funds on: MOI_NETWORK=voyage is the Voyage devnet. */
 export const FAUCET_NETWORK: Network = "voyage";

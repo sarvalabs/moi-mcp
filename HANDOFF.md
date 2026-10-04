@@ -81,7 +81,10 @@ against live devnet.
   place; the wallet therefore sees the SDK-normalised participant list. Tests
   cover the resulting wire payload as-is.
 - **`moi_resolve_agent` scans** up to 200 profiles and fetches agent cards
-  over HTTP. Fine while the registry is small.
+  over https only, through the same address guard as the dapp tools
+  (src/public-fetch.ts): a card on a private or local host, at an IP address,
+  behind a redirect or over 64 KB is not read, and `cardNote` says why. Fine
+  while the registry is small.
 
 ## Open questions
 

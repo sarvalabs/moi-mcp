@@ -14,7 +14,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Progress } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
-import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver } from "../../src/applications/dapp/origin.js";
+import { dappOrigin, guardedLookup, isPublicAddress, publicFetch, type Resolver } from "../../src/public-fetch.js";
 import {
   checkSignInMessage,
   DappClient,

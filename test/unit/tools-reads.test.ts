@@ -993,6 +993,24 @@ describe("moi_resolve_agent and moi_list_agents through the tools", () => {
     expect(result.structuredContent?.["truncated"]).toBe(true);
   });
 
+  it("says why a card was not fetched, in a field the output schema carries, and still returns the agent", async () => {
+    // http is refused before any lookup or connection, so this runs the real default fetch without touching the network.
+    prime({
+      GetAgentProfile: routine(() => ({
+        output: {
+          profile: { agent_id: "agent_7", agent_wallet: ACCOUNT, status: "ACTIVE", url: "https://agents.example/7", card_uri: "http://agents.example/card.json" },
+          found: true,
+        },
+        error: null,
+      })),
+    });
+    const result = await h.call("moi_resolve_agent", { query: "agent_7" });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent?.["found"]).toBe(true);
+    expect(result.structuredContent?.["endpoint"]).toBe("https://agents.example/7");
+    expect(String(result.structuredContent?.["cardNote"])).toMatch(/not fetched: its address is not an https URL/);
+  });
+
   it("cuts the url and card uri an agent's owner wrote when it lists agents", async () => {
     const long = `https://example.com/${"a".repeat(10_000)}`;
     prime({

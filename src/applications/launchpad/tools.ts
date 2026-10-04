@@ -7,7 +7,7 @@
  * these tools read: server.ts hands one DappSessionStore to both sets of tools, and the session is filed under the dapp's
  * origin, which is what LaunchpadClient's base URL is (see its constructor). Each tool here says how to sign in, with the
  * URL, when the session is missing or has expired. One cost: moi_dapp_sign_in accepts only public https hosts
- * (src/applications/dapp/origin.ts), so a Launchpad running locally or over plain http can no longer be signed in to from
+ * (src/public-fetch.ts), so a Launchpad running locally or over plain http can no longer be signed in to from
  * the chat; its templates tool, which needs no session, still works against it, and nothing else does.
  *
  * Identity is auth.userId throughout, the same identity the wallet pairing

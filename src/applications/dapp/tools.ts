@@ -16,7 +16,7 @@ import type { AuthInfo } from "../../auth/types.js";
 import { boundedResult, limitDepth, MAX_BODY_BYTES, MAX_DEPTH } from "../../bounds.js";
 import { getConfig, log } from "../../config.js";
 import { DappClient, requestFor, type DappApi, type DappOperation } from "./client.js";
-import { dappOrigin, publicFetch, type Resolver } from "./origin.js";
+import { dappOrigin, publicFetch, type Resolver } from "../../public-fetch.js";
 import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "./store.js";
 import { toMcpError } from "../../errors.js";
 import { MoiError } from "../../moi-error.js";

@@ -16,6 +16,7 @@ import { z } from "zod";
 import { limitDepth, readWhole } from "../../bounds.js";
 import { MoiError, asRpcError } from "../../moi-error.js";
 import { capRecord, clampChainText } from "../../moi/reads.js";
+import { dappOrigin, publicFetch, type FetchLike } from "../../public-fetch.js";
 import { ErrorCode, type ResolveAgentOutput } from "../../schema.js";
 import type { ReadOnlySigner } from "../../moi/provider.js";
 
@@ -242,8 +243,9 @@ const isUrl = (s: string): boolean => {
   }
 };
 
-function toOutput(raw: RawProfile, agentId: string, card?: Record<string, unknown>): z.infer<typeof ResolveAgentOutput> {
+function toOutput(raw: RawProfile, agentId: string, outcome?: CardOutcome): z.infer<typeof ResolveAgentOutput> {
   const seen = { cut: false };
+  const card = outcome && "card" in outcome ? outcome.card : undefined;
   const address = str(raw.agent_wallet) ?? str(raw.owner);
   // The card comes from a URL the agent's owner controls, so every text in it is cleaned and cut like other chain text.
   const rawName = card?.["name"];
@@ -287,6 +289,7 @@ function toOutput(raw: RawProfile, agentId: string, card?: Record<string, unknow
     capabilities,
     ...(endpoint ? { endpoint } : {}),
     metadata: { ...profile, ...(shownCard ? { card: shownCard.value } : {}) },
+    ...(outcome && "reason" in outcome ? { cardNote: cardNote(outcome.reason) } : {}),
     ...(seen.cut ? { truncated: true, note: CUT_NOTE } : {}),
   };
 }
@@ -298,24 +301,112 @@ const notFoundYet = (note: string): z.infer<typeof ResolveAgentOutput> => ({ fou
 
 /** A card is one agent owner's text, and a name lookup can read up to MAX_SCAN of them, so the cap is small. */
 const MAX_CARD_BYTES = 64 * 1024;
+const CARD_TIMEOUT_MS = 5_000;
+/** The statuses undici itself treats as a redirect. Any other non-2xx answer is an ordinary failure. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-/** Fetch an agent card if it is reachable over plain HTTP(S). A card that is too large, too slow or not JSON is ignored. */
-async function fetchCard(cardUri: string | undefined, timeoutMs = 5_000): Promise<Record<string, unknown> | undefined> {
-  if (!cardUri || !/^https?:\/\//i.test(cardUri)) return undefined;
+/**
+ * Why a card was not read, and what to do about it, in words that are the same every time. None of it comes from the card's
+ * URL, from the address its host resolved to, or from an error: the URL is the agent owner's, and an internal address or an
+ * error's own text must not reach the model. A name that does not resolve and one that resolves to a private address are
+ * both notPublic, in the same words, so the answer is no oracle for what exists inside the network.
+ */
+const CARD_REASONS = {
+  notHttps: {
+    why: "its address is not an https URL",
+    next: "This server reads only https cards on public hosts, so the owner has to register the agent with an https card address.",
+  },
+  notPublic: {
+    why: "its host is not a public internet address this server may reach (a local or private name, an IP address, or a name that did not resolve)",
+    next: "This server reads only cards on public hosts, so the owner has to register a card address on a public name; if the name is public and working, try again in a minute, because a failed name lookup reads the same.",
+  },
+  redirected: {
+    why: "it answered with a redirect, which this server does not follow",
+    next: "The owner has to register the address the card is actually served from.",
+  },
+  tooLarge: {
+    why: `it is over ${MAX_CARD_BYTES / 1024} KB`,
+    next: `The owner has to publish a card under ${MAX_CARD_BYTES / 1024} KB.`,
+  },
+  timedOut: {
+    why: "it did not answer in time",
+    next: "Try again in a minute; if it keeps happening, the card host is down or very slow.",
+  },
+  unreadable: {
+    why: "it could not be fetched, or what it returned is not a JSON card",
+    next: "Try again in a minute; if it keeps happening, the card host is down or is serving something that is not a JSON object.",
+  },
+} as const;
+type CardReason = keyof typeof CARD_REASONS;
+
+/** The card, or the one reason it was not read. */
+type CardOutcome = { card: Record<string, unknown> } | { reason: CardReason };
+
+const cardNote = (reason: CardReason): string =>
+  `The agent's card was not fetched: ${CARD_REASONS[reason].why}. ${CARD_REASONS[reason].next} ` +
+  "Its name and capabilities come from the card, so they are left out; the registry's own fields, including the card address in metadata.card_uri, are unaffected.";
+
+/**
+ * Fetch an agent card. The URL is chosen by whoever registered the agent, so it is held to what a dapp's address is held to
+ * (src/public-fetch.ts): https, a host that does not read as local or an IP address, and, in the default `get`, a connection
+ * only to the address the host was checked to resolve to. A redirect is never followed: the guard looks at an IP literal
+ * only on the first URL, and the socket skips the name lookup for one, so a followed redirect to http://169.254.169.254/
+ * would not be checked. A card that is refused, too large, too slow or not a JSON object does not fail the lookup: the
+ * outcome says why. Undefined means the agent has no card URL.
+ */
+async function fetchCard(cardUri: string | undefined, get?: FetchLike, timeoutMs = CARD_TIMEOUT_MS): Promise<CardOutcome | undefined> {
+  if (!cardUri) return undefined;
+  let https = false;
+  try {
+    https = new URL(cardUri).protocol === "https:";
+  } catch {
+    /* not a URL: refused below with the other schemes */
+  }
+  if (!https) return { reason: "notHttps" };
+  try {
+    dappOrigin(cardUri);
+  } catch {
+    return { reason: "notPublic" };
+  }
   // The timer runs until the body is read, not just until the headers arrive, so a card that never finishes cannot hang a lookup.
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const res = await fetch(cardUri, { signal: ac.signal });
+    let res: Response;
+    try {
+      // The guarded fetch is picked here, inside the try, so nothing about building it can fail the lookup.
+      res = await (get ?? publicFetch())(cardUri, { redirect: "manual", signal: ac.signal });
+    } catch (err) {
+      if (ac.signal.aborted) return { reason: "timedOut" };
+      // The guard refuses with a MoiError, which undici reports as the cause of its own "fetch failed" (src/public-fetch.ts).
+      const refused = err instanceof MoiError || (err instanceof Error && err.cause instanceof MoiError);
+      return { reason: refused ? "notPublic" : "unreadable" };
+    }
+    if (REDIRECT_STATUSES.has(res.status)) {
+      await res.body?.cancel().catch(() => undefined);
+      return { reason: "redirected" };
+    }
     if (!res.ok) {
       await res.body?.cancel().catch(() => undefined);
-      return undefined;
+      return { reason: "unreadable" };
     }
-    const card: unknown = JSON.parse(await readWhole(res, MAX_CARD_BYTES, cardUri));
-    // Cut in depth here: jsonSafe below recurses without a limit and would overflow the stack on a deeply nested card.
-    return limitDepth(card).value as Record<string, unknown>;
-  } catch {
-    return undefined;
+    let text: string;
+    try {
+      text = await readWhole(res, MAX_CARD_BYTES, "The agent card");
+    } catch (err) {
+      if (ac.signal.aborted) return { reason: "timedOut" };
+      // Only whether the size limit was the reason is taken from the error (readWhole sets limitBytes), never its text.
+      return { reason: err instanceof MoiError && "limitBytes" in err.data ? "tooLarge" : "unreadable" };
+    }
+    try {
+      const parsed: unknown = JSON.parse(text);
+      // A card is a JSON object. null, a number, a string, a boolean or an array has no name to show.
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return { reason: "unreadable" };
+      // Cut in depth here: jsonSafe below recurses without a limit and would overflow the stack on a deeply nested card.
+      return { card: limitDepth(parsed).value as Record<string, unknown> };
+    } catch {
+      return { reason: "unreadable" };
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -339,9 +430,11 @@ async function profileFor(driver: RegistryDriver, agentId: string): Promise<RawP
 export async function resolveAgent(
   signer: ReadOnlySigner,
   query: string,
-  options: { logicId?: string; maxScan?: number; fetchCards?: boolean; budgetMs?: number } = {},
+  options: { logicId?: string; maxScan?: number; fetchCards?: boolean; budgetMs?: number; cardFetch?: FetchLike } = {},
 ): Promise<z.infer<typeof ResolveAgentOutput>> {
   const driver = await getRegistryDriver(signer, options.logicId ?? registryLogicId());
+  // Cards are read through the address guard the dapp tools use (one Agent for the process). Tests pass a stand-in.
+  const readCard = (cardUri: string | undefined) => fetchCard(cardUri, options.cardFetch);
   const needle = query.trim();
   if (!needle) return NOT_FOUND;
 
@@ -350,7 +443,7 @@ export async function resolveAgent(
   if (/^agent_\d+$/i.test(needle) || /^0x[0-9a-fA-F]+$/.test(needle)) {
     try {
       const raw = await profileFor(driver, needle);
-      if (raw) return toOutput(raw, needle, await fetchCard(str(raw.card_uri)));
+      if (raw) return toOutput(raw, needle, await readCard(str(raw.card_uri)));
     } catch (err) {
       if (!isEmptyRegistryError(err)) throw err;
       return NOT_FOUND;
@@ -413,14 +506,15 @@ export async function resolveAgent(
       const owner = str(raw.owner)?.toLowerCase();
       const url = str(raw.url)?.toLowerCase();
       if (agentId.toLowerCase() === lowered || wallet === lowered || owner === lowered || url === lowered) {
-        return toOutput(raw, agentId, await fetchCard(str(raw.card_uri)));
+        return toOutput(raw, agentId, await readCard(str(raw.card_uri)));
       }
 
       if (options.fetchCards !== false && nameQuery) {
-        const card = await fetchCard(str(raw.card_uri));
+        const outcome = await readCard(str(raw.card_uri));
+        const card = outcome && "card" in outcome ? outcome.card : undefined;
         const name = typeof card?.["name"] === "string" ? (card["name"] as string).toLowerCase() : undefined;
         if (name && (name === lowered || name.includes(lowered))) {
-          return toOutput(raw, agentId, card);
+          return toOutput(raw, agentId, outcome);
         }
       }
     }

@@ -1,19 +1,22 @@
 /**
- * Which dapp a person may sign in to from the chat: a public https origin.
- * Anything else, a bare IP, a machine-local name, a plain-http site, is
- * refused before any request is made. Tests may allow http for a local fake.
- * The host is also resolved, on every connection, by publicFetch below: a name
- * with any loopback, private, link-local, unique-local or unspecified answer is
- * refused, and the socket connects to the address that was checked.
+ * Reaching a host somebody else chose, without letting that choice point the server at its own network. The dapp tools
+ * (src/applications/dapp), the faucet client and the agent card read (src/capabilities/reads/registry.ts) all go through
+ * here, which is why it sits outside both folders: it imports no wallet, write or application code.
+ *
+ * Which dapp a person may sign in to from the chat: a public https origin (dappOrigin). Anything else, a bare IP, a
+ * machine-local name, a plain-http site, is refused before any request is made. Tests may allow http for a local fake.
+ * The host is also resolved, on every connection, by publicFetch below: a name with any loopback, private, link-local,
+ * unique-local or unspecified answer is refused, and the socket connects to the address that was checked.
  */
 
 import { lookup as dnsLookup } from "node:dns/promises";
 import { BlockList, isIP, type LookupFunction } from "node:net";
 import { Agent, fetch as undiciFetch } from "undici";
 
-import { MoiError } from "../../moi-error.js";
-import { ErrorCode } from "../../schema.js";
-import type { FetchLike } from "./client.js";
+import { MoiError } from "./moi-error.js";
+import { ErrorCode } from "./schema.js";
+
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 const LOCAL_SUFFIXES = [".local", ".localhost", ".internal", ".home", ".lan"];
 

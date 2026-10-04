@@ -331,6 +331,12 @@ export const ResolveAgentOutput = z.object({
     .optional()
     .describe("With found false: the search stopped before it covered the registry, so the agent may still be registered. With found true: some text from the agent's record or card was cut."),
   note: z.string().optional().describe("Says what truncated means for this answer."),
+  cardNote: z
+    .string()
+    .optional()
+    .describe(
+      "Present only when the agent has a card URL that was not fetched: says why, and what to do next. Without the card, name and capabilities are left out; the registry's own fields are unaffected.",
+    ),
 });
 
 export const ListAgentsInput = z.object({
