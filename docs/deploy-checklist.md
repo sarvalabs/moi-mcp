@@ -27,7 +27,7 @@ Two independent Node.js services, both in this repo, built by `npm run build`:
 | Tools | 6 (reads + ping) | 13 (reads + wallet + transactions) |
 | State | None — stateless, no secrets | Wallet pairing per user + write journal |
 | Sign-in | None — public endpoint | OAuth (the service itself is the issuer; `PUBLIC_URL` must equal the public hostname) |
-| Secrets | None | `WC_PROJECT_ID` (WalletConnect project id) and `MOI_SESSION_KEY` (encrypts stored dapp sessions) in `.env` |
+| Secrets | None | `WC_PROJECT_ID` (WalletConnect project id) and `MOI_SESSION_KEY` (encrypts the stored wallet pairings, WalletConnect state and dapp sessions) in `.env` |
 | Storage | None | `MOI_DATA_DIR` (`/var/lib/moi-mcp`) on disk |
 | Scaling | Any number of copies | Exactly one process — the live WalletConnect client is per-process |
 

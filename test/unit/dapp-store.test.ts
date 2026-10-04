@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RedisClientType } from "redis";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deriveKey, seal } from "../../src/auth/crypto.js";
@@ -15,6 +14,7 @@ import {
   RedisDappSessionStore,
   type StoredDappSession,
 } from "../../src/applications/dapp/store.js";
+import { fakeRedis } from "../helpers/fake-redis.js";
 import { dappKey, SESSION_SECRET } from "../helpers/hosted.js";
 
 const dirs: string[] = [];
@@ -281,32 +281,6 @@ describe("FileDappSessionStore", () => {
     });
   });
 });
-
-/**
- * A stand-in for the node-redis client with just the four calls the store
- * makes, recording the expiry each set was given. node-redis 4 yields keys one
- * at a time from scanIterator and 5 yields batches; both shapes are exercised.
- */
-function fakeRedis(batched = false): { client: RedisClientType; data: Map<string, string>; ttls: Map<string, number> } {
-  const data = new Map<string, string>();
-  const ttls = new Map<string, number>();
-  const client = {
-    get: vi.fn(async (key: string) => data.get(key) ?? null),
-    set: vi.fn(async (key: string, value: string, opts?: { EX?: number }) => {
-      data.set(key, value);
-      if (opts?.EX !== undefined) ttls.set(key, opts.EX);
-      return "OK";
-    }),
-    del: vi.fn(async (key: string) => (data.delete(key) ? 1 : 0)),
-    scanIterator: vi.fn(async function* (opts: { MATCH: string }) {
-      const prefix = opts.MATCH.replace(/\*$/, "");
-      const keys = [...data.keys()].filter((k) => k.startsWith(prefix));
-      if (batched) yield keys;
-      else yield* keys;
-    }),
-  };
-  return { client: client as unknown as RedisClientType, data, ttls };
-}
 
 describe.each([
   ["one key at a time", false],

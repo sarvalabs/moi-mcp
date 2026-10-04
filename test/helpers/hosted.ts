@@ -18,7 +18,12 @@ import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
 import { registerHostedWrites, type HostedWriteOptions } from "../../src/tools/register.js";
 import type { PreviewRegistry } from "../../src/tools/preview.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
-import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";
+import {
+  WALLET_SESSION_KEY_LABEL,
+  WC_STORAGE_KEY_LABEL,
+  type StoredWalletSession,
+  type WalletSessionStore,
+} from "../../src/wc/store.js";
 import { ACCOUNT } from "./mock-node.js";
 
 export const USER = "user-a";
@@ -34,6 +39,16 @@ export const SESSION_SECRET = Buffer.alloc(32, 7).toString("base64");
 /** The dapp session key the hosted server derives from MOI_SESSION_KEY, for tests that build a real store. */
 export function dappKey(secret: string = SESSION_SECRET): Buffer {
   return deriveKey(secret, DAPP_SESSION_KEY_LABEL);
+}
+
+/** The wallet pairing store's key, derived the way main() derives it. */
+export function walletKey(secret: string = SESSION_SECRET): Buffer {
+  return deriveKey(secret, WALLET_SESSION_KEY_LABEL);
+}
+
+/** The WalletConnect storage's key, derived the way main() derives it. */
+export function wcKey(secret: string = SESSION_SECRET): Buffer {
+  return deriveKey(secret, WC_STORAGE_KEY_LABEL);
 }
 
 /**

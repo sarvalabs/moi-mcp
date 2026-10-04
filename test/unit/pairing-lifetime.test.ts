@@ -25,6 +25,7 @@ import {
   PERSISTENT_TTL_SECONDS,
 } from "../../src/wc/lifetime.js";
 import { FileWalletSessionStore, type StoredWalletSession } from "../../src/wc/store.js";
+import { walletKey } from "../helpers/hosted.js";
 
 const NOW = 1_700_000_000;
 
@@ -77,7 +78,7 @@ describe("store round-trips the new fields and still reads old records", () => {
   it("keeps mode and expiresAt", async () => {
     const dir = mkdtempSync(join(tmpdir(), "moi-lifetime-"));
     dirs.push(dir);
-    const store = new FileWalletSessionStore(dir);
+    const store = new FileWalletSessionStore(dir, walletKey());
     await store.set(record({ mode: "once", expiresAt: NOW + 5 }));
     const back = await store.get("u1");
     expect(back?.mode).toBe("once");
@@ -87,7 +88,7 @@ describe("store round-trips the new fields and still reads old records", () => {
   it("accepts a record with neither field", async () => {
     const dir = mkdtempSync(join(tmpdir(), "moi-lifetime-"));
     dirs.push(dir);
-    const store = new FileWalletSessionStore(dir);
+    const store = new FileWalletSessionStore(dir, walletKey());
     await store.set(record());
     const back = await store.get("u1");
     expect(back).toBeDefined();

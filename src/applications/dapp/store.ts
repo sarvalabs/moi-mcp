@@ -4,16 +4,15 @@
  * signs a person in by having their wallet sign a message and answers with a
  * session cookie; that cookie is what lives here, so later calls to that dapp
  * act as the person. Records are stored like wallet sessions: hashed
- * filenames, 0600 files, never logged.
+ * filenames, 0600 files, sealed with AES-256-GCM before they reach disk or
+ * Redis (key from MOI_SESSION_KEY, see src/auth/crypto.ts), never logged.
  *
- * Unlike wallet sessions, a record is sealed with AES-256-GCM before it
- * reaches disk or Redis (key from MOI_SESSION_KEY, see src/auth/crypto.ts), so
- * a copy of the data directory, a backup or a Redis snapshot holds no usable
- * cookie. A sealed record is bound to its slot: the sha256 of the user and
- * dapp (keyOf) is the GCM additional data, so a record copied into another
- * person's or another dapp's slot fails to open. The limits: this does not
- * stop a compromised running process, which holds the key, and an older
- * sealed record put back into its own slot would still open.
+ * A copy of the data directory, a backup or a Redis snapshot therefore holds
+ * no usable cookie. A sealed record is bound to its slot: the sha256 of the
+ * user and dapp (keyOf) is the GCM additional data, so a record copied into
+ * another person's or another dapp's slot fails to open. The limits: this
+ * does not stop a compromised running process, which holds the key, and an
+ * older sealed record put back into its own slot would still open.
  */
 
 import { createHash } from "node:crypto";

@@ -143,3 +143,14 @@ export function unseal(sealed: string, key: Buffer, aad: string): string | undef
     return undefined;
   }
 }
+
+/**
+ * Whether a parsed value has the shape `seal` writes, whether or not it opens
+ * under any key. The boot migration uses it to tell a sealed value it cannot
+ * open (kept) from a plain one (sealed). It judges the shape only.
+ */
+export function isSealedEnvelope(parsed: unknown): boolean {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+  const { v, alg, iv, ct, tag } = parsed as Record<string, unknown>;
+  return v === 2 && alg === "A256GCM" && typeof iv === "string" && typeof ct === "string" && typeof tag === "string";
+}

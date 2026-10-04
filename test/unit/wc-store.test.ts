@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FileWalletSessionStore, type StoredWalletSession } from "../../src/wc/store.js";
+import { walletKey } from "../helpers/hosted.js";
+
+const KEY = walletKey();
 
 const tempDirs: string[] = [];
 function tempDataDir(): string {
@@ -35,7 +38,7 @@ describe("FileWalletSessionStore", () => {
   describe("set and get", () => {
     it("round-trips a session through disk", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
       const session = testSession("user1");
 
       await store.set(session);
@@ -46,7 +49,7 @@ describe("FileWalletSessionStore", () => {
 
     it("returns undefined for missing sessions", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const result = await store.get("nonexistent");
       expect(result).toBeUndefined();
@@ -54,7 +57,7 @@ describe("FileWalletSessionStore", () => {
 
     it("returns undefined for corrupt files", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       // Write bad JSON directly to the sessions directory
       const sessionsDir = join(dir, "sessions");
@@ -70,7 +73,7 @@ describe("FileWalletSessionStore", () => {
 
     it("returns undefined for files that don't match schema", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       // Write valid JSON but missing required fields
       const sessionsDir = join(dir, "sessions");
@@ -86,7 +89,7 @@ describe("FileWalletSessionStore", () => {
 
     it("creates sessions directory with 0700 permissions", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
       const sessionsDir = join(dir, "sessions");
 
       await store.set(testSession("user1"));
@@ -97,7 +100,7 @@ describe("FileWalletSessionStore", () => {
 
     it("stores session files with 0600 permissions", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       await store.set(testSession("user1"));
 
@@ -113,7 +116,7 @@ describe("FileWalletSessionStore", () => {
   describe("delete", () => {
     it("removes a session", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       await store.set(testSession("user1"));
       await store.delete("user1");
@@ -124,7 +127,7 @@ describe("FileWalletSessionStore", () => {
 
     it("is idempotent", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       // Delete nonexistent session should not throw
       expect(async () => {
@@ -136,7 +139,7 @@ describe("FileWalletSessionStore", () => {
   describe("findByTopic", () => {
     it("finds a session by topic", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const session = testSession("user1", { topic: "wc-abc-123" });
       await store.set(session);
@@ -147,7 +150,7 @@ describe("FileWalletSessionStore", () => {
 
     it("returns undefined when topic not found", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const result = await store.findByTopic("nonexistent-topic");
       expect(result).toBeUndefined();
@@ -155,7 +158,7 @@ describe("FileWalletSessionStore", () => {
 
     it("scans through list to find matching topic", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const session1 = testSession("user1", { topic: "topic1" });
       const session2 = testSession("user2", { topic: "topic2" });
@@ -173,7 +176,7 @@ describe("FileWalletSessionStore", () => {
   describe("list", () => {
     it("returns all stored sessions", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const session1 = testSession("user1");
       const session2 = testSession("user2");
@@ -190,7 +193,7 @@ describe("FileWalletSessionStore", () => {
 
     it("returns empty list when no sessions exist", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const list = await store.list();
       expect(list).toEqual([]);
@@ -198,7 +201,7 @@ describe("FileWalletSessionStore", () => {
 
     it("skips unparsable files when listing", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       // Add a valid session
       await store.set(testSession("user1"));
@@ -218,7 +221,7 @@ describe("FileWalletSessionStore", () => {
   describe("atomicity", () => {
     it("does not leave temp files after set", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       await store.set(testSession("user1"));
 
@@ -234,7 +237,7 @@ describe("FileWalletSessionStore", () => {
   describe("passthrough fields", () => {
     it("passes through mandates field as unknown", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const mandates = { type: "custom", rules: [1, 2, 3] };
       const session = testSession("user1", { mandates });
@@ -247,7 +250,7 @@ describe("FileWalletSessionStore", () => {
 
     it("passes through policy field as unknown", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const policy = { version: 2, constraints: { maxAmount: "1000.0" } };
       const session = testSession("user1", { policy });
@@ -260,7 +263,7 @@ describe("FileWalletSessionStore", () => {
 
     it("omits optional fields when not present", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       const session = testSession("user1");
       // Explicitly remove optional fields
@@ -279,7 +282,7 @@ describe("FileWalletSessionStore", () => {
   describe("path traversal protection", () => {
     it("hashes userId in filename to prevent path traversal", async () => {
       const dir = tempDataDir();
-      const store = new FileWalletSessionStore(dir);
+      const store = new FileWalletSessionStore(dir, KEY);
 
       // Try to use a path traversal userId
       const maliciousId = "../../../etc/passwd";
@@ -291,9 +294,10 @@ describe("FileWalletSessionStore", () => {
       const hash = createHash("sha256").update(maliciousId).digest("hex");
       const filePath = join(sessionsDir, `${hash}.json`);
 
-      // File should exist and be readable
+      // The file is sealed, so it does not hold the id; the record is proven through the store.
       const content = readFileSync(filePath, "utf8");
-      expect(content).toContain("etc");
+      expect(content).not.toContain("passwd");
+      expect((await store.get(maliciousId))?.userId).toBe(maliciousId);
 
       // But it should NOT exist outside the sessions directory
       const parentDir = join(dir, "etc");

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { deriveKey, seal, sha256Base64Url, unseal } from "../../src/auth/crypto.js";
+import { deriveKey, isSealedEnvelope, seal, sha256Base64Url, unseal } from "../../src/auth/crypto.js";
 import { mountAuth } from "../../src/auth/index.js";
 
 /** Mount on a real listening server so requests exercise HTTP end to end. */
@@ -741,6 +741,32 @@ describe("seal and unseal", () => {
     for (const text of cases) expect(unseal(text, key, aad), text).toBeUndefined();
     // A key of the wrong size is a caller bug, but it must not throw out of a read either.
     expect(unseal(good, Buffer.alloc(16), aad)).toBeUndefined();
+  });
+});
+
+describe("isSealedEnvelope", () => {
+  const key = deriveKey("s".repeat(44), "test");
+  const good = JSON.parse(seal("x", key, "a")) as Record<string, unknown>;
+
+  it("is true for what seal writes, whether or not it opens, since it judges the shape only", () => {
+    expect(isSealedEnvelope(good)).toBe(true);
+    expect(isSealedEnvelope({ ...good, ct: "AAAA" })).toBe(true); // an altered ciphertext still has the shape
+  });
+
+  it("is false for anything else, a plain pairing record included", () => {
+    const cases: unknown[] = [
+      null,
+      [],
+      "x",
+      42,
+      {},
+      { ...good, v: 1 },
+      { ...good, alg: "other" },
+      { ...good, tag: undefined },
+      { ...good, iv: 5 },
+      { version: 1, userId: "u", topic: "t", caip2: "moi:14", address: "0xabc", sessionData: {}, createdAt: "x" },
+    ];
+    for (const value of cases) expect(isSealedEnvelope(value), JSON.stringify(value)).toBe(false);
   });
 });
 
