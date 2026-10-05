@@ -136,7 +136,7 @@ Top level:
 
 - `src/applications/registry/`: the agent registry's write tools (`tools.ts`) and what they prepare (`core.ts`).
 - `src/applications/launchpad/`: the Agent Launchpad client, one-time download links, setup-script handling and tools.
-- `src/applications/dapp/`: the generic dapp client, encrypted session store and tools. Its address guard lives in `src/public-fetch.ts`.
+- `src/applications/dapp/`: the generic dapp client, session store and tools. Its address guard lives in `src/public-fetch.ts`.
 
 Other directories:
 

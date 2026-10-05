@@ -14,7 +14,6 @@ import {
   RedisKeyValueStorage,
   RedisWalletSessionStore,
 } from "../../src/wc/redis-store.js";
-import { walletKey, wcKey } from "../helpers/hosted.js";
 
 const URL = process.env["TEST_REDIS_URL"] ?? "redis://127.0.0.1:6379";
 
@@ -80,7 +79,7 @@ function record(userId: string, topic: string): StoredWalletSession {
 describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
   it("round-trips a session", async () => {
     if (!available || !client) return;
-    const store = new RedisWalletSessionStore(client, walletKey());
+    const store = new RedisWalletSessionStore(client);
     await store.set(record("alice", "topic-a"));
     expect((await store.get("alice"))?.topic).toBe("topic-a");
     expect(await store.get("nobody")).toBeUndefined();
@@ -88,7 +87,7 @@ describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
 
   it("keeps users apart", async () => {
     if (!available || !client) return;
-    const store = new RedisWalletSessionStore(client, walletKey());
+    const store = new RedisWalletSessionStore(client);
     await store.set(record("alice", "topic-a"));
     await store.set(record("bob", "topic-b"));
 
@@ -105,7 +104,7 @@ describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
 
   it("drops the old topic index when a user re-pairs", async () => {
     if (!available || !client) return;
-    const store = new RedisWalletSessionStore(client, walletKey());
+    const store = new RedisWalletSessionStore(client);
     await store.set(record("carol", "topic-old"));
     await store.set(record("carol", "topic-new"));
 
@@ -116,12 +115,12 @@ describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
 
   it("survives the process that wrote it going away", async () => {
     if (!available || !client) return;
-    await new RedisWalletSessionStore(client, walletKey()).set(record("dave", "topic-d"));
+    await new RedisWalletSessionStore(client).set(record("dave", "topic-d"));
 
     // A completely separate connection, standing in for a replacement process.
     const second = await connectRedis(URL);
     try {
-      const seen = await new RedisWalletSessionStore(second, walletKey()).get("dave");
+      const seen = await new RedisWalletSessionStore(second).get("dave");
       expect(seen?.topic).toBe("topic-d");
     } finally {
       await second.quit();
@@ -130,7 +129,7 @@ describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
 
   it("skips an unreadable record instead of failing every lookup", async () => {
     if (!available || !client) return;
-    const store = new RedisWalletSessionStore(client, walletKey());
+    const store = new RedisWalletSessionStore(client);
     await store.set(record("erin", "topic-e"));
     await client.set("moi:session:garbage", "{not json");
 
@@ -143,7 +142,7 @@ describe.runIf(REDIS_UP)("RedisWalletSessionStore", () => {
 describe.runIf(REDIS_UP)("RedisKeyValueStorage", () => {
   it("satisfies the shape WalletConnect asks for", async () => {
     if (!available || !client) return;
-    const kv = new RedisKeyValueStorage(client, wcKey());
+    const kv = new RedisKeyValueStorage(client);
 
     await kv.setItem("wc@2:core:keychain", { a: "1" });
     expect(await kv.getItem("wc@2:core:keychain")).toEqual({ a: "1" });
@@ -156,11 +155,11 @@ describe.runIf(REDIS_UP)("RedisKeyValueStorage", () => {
 
   it("hands SDK state to a different connection", async () => {
     if (!available || !client) return;
-    await new RedisKeyValueStorage(client, wcKey()).setItem("wc@2:client:session", [{ topic: "t" }]);
+    await new RedisKeyValueStorage(client).setItem("wc@2:client:session", [{ topic: "t" }]);
 
     const second = await connectRedis(URL);
     try {
-      expect(await new RedisKeyValueStorage(second, wcKey()).getItem("wc@2:client:session")).toEqual([
+      expect(await new RedisKeyValueStorage(second).getItem("wc@2:client:session")).toEqual([
         { topic: "t" },
       ]);
     } finally {

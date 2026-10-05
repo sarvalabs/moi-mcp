@@ -13,7 +13,6 @@
  *   sign-in tool (the Launchpad's included); test/unit/wc-hub.test.ts pins that call site
  * - Topic is never accepted from tool parameters; only from StoredWalletSession
  * - Identity reasoning (userId -> topic) is caller's job (hosted-writes.ts)
- * - The WalletConnect state is always the sealed storage main() builds: init requires a storage, and there is no fallback to the SDK's own plain file
  */
 
 import type { UnsignedInteraction } from "../moi/ix-builder.js";
@@ -24,14 +23,6 @@ import { translateWcError, toSession, WC_NAMESPACE, type PairResult } from "./cl
 import { NETWORKS } from "../moi/provider.js";
 import type { SignClientLike, WcConfig } from "./client.js";
 import { SignClient } from "@walletconnect/sign-client";
-
-/**
- * What the hub is built from: the shared WcConfig with its optional storage
- * made required. The hosted server keeps the SDK's keys and relay identity only
- * in storage it has sealed (src/wc/store.ts, src/wc/redis-store.ts), so there is
- * no fallback to the SDK's own plain file.
- */
-export type HubConfig = WcConfig & { storage: NonNullable<WcConfig["storage"]> };
 
 export interface SignInteractionOpts {
   description?: string;
@@ -154,7 +145,7 @@ export class WalletConnectHub implements WalletConnectHubLike {
    * Constructs and initializes the single WalletConnectHub for this process.
    * Called once by main() before any tool registration.
    */
-  static async init(config: HubConfig): Promise<WalletConnectHub> {
+  static async init(config: WcConfig): Promise<WalletConnectHub> {
     const client = await defaultFactory(config);
     return new WalletConnectHub(client, config.chainId ?? NETWORKS[config.network].caip2, config.requestTimeoutMs);
   }
@@ -415,11 +406,19 @@ export class WalletConnectHub implements WalletConnectHubLike {
  * Default factory: creates and initializes a real SignClient.
  * Injected by tests with a fake.
  */
-async function defaultFactory(cfg: HubConfig): Promise<SignClientLike> {
-  // The SDK keeps its keychain, subscriptions and sessions in the storage
-  // supplied here, which is sealed. That is also what lets a replacement
-  // process serve a user who paired against an earlier one: our own session
-  // store alone would give it the topic but not the key behind it.
-  const client = await SignClient.init({ projectId: cfg.projectId, metadata: METADATA, storage: cfg.storage });
+async function defaultFactory(cfg: WcConfig): Promise<SignClientLike> {
+  // With a storage backend supplied, the SDK keeps its keychain, subscriptions
+  // and sessions there instead of a local sqlite file. That is what lets a
+  // replacement process serve a user who paired against an earlier one: our own
+  // session store alone would give it the topic but not the key behind it.
+  const client = await SignClient.init(
+    cfg.storage
+      ? { projectId: cfg.projectId, metadata: METADATA, storage: cfg.storage }
+      : {
+          projectId: cfg.projectId,
+          metadata: METADATA,
+          storageOptions: { database: `${cfg.home}/wc.db` },
+        },
+  );
   return client as unknown as SignClientLike;
 }

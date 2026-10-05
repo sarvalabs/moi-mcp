@@ -19,7 +19,7 @@ import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capab
 import { ErrorCode } from "../../src/schema.js";
 import type { runWrite } from "../../src/tools/hosted-writes.js";
 import { PreviewRegistry } from "../../src/tools/preview.js";
-import { authFor, dappKey, deps as writeDeps, fakeHub, fakeJournal, fakeStore, send, session, structured, USER } from "../helpers/hosted.js";
+import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, send, session, structured, USER } from "../helpers/hosted.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {
   AGENT_WALLET,
@@ -519,11 +519,11 @@ describe("signing in to the Launchpad is moi_dapp_sign_in's job", () => {
   });
   const text = (res: Awaited<ReturnType<typeof callTool>>) => (res.content as Array<{ text: string }>)[0]!.text;
 
-  /** What server.ts builds: one sealed store behind both the generic dapp tools and the Launchpad tools, one paired wallet. */
+  /** What server.ts builds: one store behind both the generic dapp tools and the Launchpad tools, one paired wallet. */
   async function rig() {
     const dir = mkdtempSync(join(tmpdir(), "moi-launchpad-tools-"));
     dirs.push(dir);
-    const sessions = new FileDappSessionStore(dir, dappKey());
+    const sessions = new FileDappSessionStore(dir);
     const writes = wallet(true, new PreviewRegistry({ maxPerUser: 50 }));
     const dapp = await connectDapp({ sessions, writes, allowInsecure: true });
     const launchpad = await connectLaunchpad(launchpadDeps(fake, writes, sessions));

@@ -167,28 +167,11 @@ const HostedConfigSchema = z.object({
   MOI_FAUCET_URL: z.string().trim().optional(),
   /**
    * The faucet's API key. The faucet takes it as a path segment of its address, so the key and the address built from it are
-   * both secrets: HostedConfig now carries two (this and MOI_SESSION_KEY), so never log or serialise it whole, and server.ts
+   * both secrets: HostedConfig carries a secret, so never log or serialise it whole, and server.ts
    * logs individual fields only. Its real format is not documented, so nothing is assumed of it here; FaucetClient refuses an
    * empty key, one over 256 characters, and one of only dots.
    */
   MOI_FAUCET_KEY: z.string().trim().optional(),
-  /**
-   * The secret the stored dapp sessions, the wallet pairing records and the
-   * WalletConnect client's own state are encrypted under (one HKDF subkey per
-   * store, deriveKey in src/auth/crypto.ts). Required on the hosted server
-   * only. HostedConfig now carries a secret: never log or serialise it whole
-   * (server.ts logs individual fields only), and keep the messages below free
-   * of the value. Random, not a passphrase: HKDF adds no work for a guesser.
-   */
-  MOI_SESSION_KEY: z
-    .string({
-      required_error: "is required; generate one with `openssl rand -base64 32` and put it in .env before restarting",
-    })
-    .trim()
-    .regex(
-      /^[A-Za-z0-9+/_=-]{43,}$/,
-      "must be at least 43 characters of base64 or hex, such as the 44 `openssl rand -base64 32` gives",
-    ),
 });
 
 export type HostedConfig = z.infer<typeof HostedConfigSchema> & {
@@ -228,12 +211,12 @@ export function loadHostedConfig(env: NodeJS.ProcessEnv = process.env): HostedCo
   }
 
   const dataDir = expandHome(parsed.data.MOI_DATA_DIR);
-  // 0700: this directory holds the sealed per-user wallet pairing records
-  // (wc/store.ts's sessions/, keyed by sha256(userId)), the sealed
-  // WalletConnect client state (wc.db/, one file per SDK key, which is NOT
-  // per-user data and is never read as if it were: per-user lookups always go
-  // through the sessions/ store above), the sealed dapp sessions (dapps/), the
-  // OAuth client/token stores, and the write journal.
+  // 0700: this directory holds per-user WalletConnect pairing records
+  // (wc/store.ts's sessions/, keyed by sha256(userId)), the WalletConnect
+  // client state (wc.db/, one file per SDK key, which is NOT per-user data and
+  // is never read as if it were: per-user lookups always go through the
+  // sessions/ store above), the dapp sessions (dapps/), the OAuth
+  // client/token stores, and the write journal.
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 
   return { ...parsed.data, dataDir };

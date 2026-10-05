@@ -56,19 +56,14 @@ curl localhost:8787/health
 
 Two extra things it needs.
 
-A WalletConnect project id, free from cloud.reown.com, and a session key, which
-the server uses to encrypt the wallet pairings, WalletConnect state and dapp
-sessions it stores. Put both in a file the server reads, rather than in the
-pm2 config, which is committed. The command generates the session key without
-printing it:
+A WalletConnect project id, free from cloud.reown.com. Put it in a file the
+server reads, rather than in the pm2 config, which is committed:
 
 ```bash
 cd /opt/moi-mcp
-printf 'WC_PROJECT_ID=your_32_character_id_here\nMOI_SESSION_KEY=%s\n' "$(openssl rand -base64 32)" > .env
+printf 'WC_PROJECT_ID=your_32_character_id_here\n' > .env
 chmod 600 .env
 ```
-
-Without `MOI_SESSION_KEY` the write gateway exits at boot.
 
 A directory for wallet pairings and the write journal:
 

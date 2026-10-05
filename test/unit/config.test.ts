@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { expandHome, loadConfig, loadHostedConfig } from "../../src/config.js";
-import { hostedEnv, SESSION_SECRET } from "../helpers/hosted.js";
 
 const created: string[] = [];
 
@@ -126,80 +125,9 @@ describe("request timeout stays under the client's", () => {
   });
 });
 
-describe("loadHostedConfig", () => {
-  /** A MOI_DATA_DIR in a temp dir, because a successful load creates it. */
-  const env = (over: Record<string, string> = {}) => hostedEnv(tempHome(), over);
-  /** Distinct enough to find in a message if the value were ever echoed. */
-  const sentinel = (n: number) => "Z".repeat(n);
-
-  it("returns the key it was given", () => {
-    expect(loadHostedConfig(env()).MOI_SESSION_KEY).toBe(SESSION_SECRET);
-  });
-
-  it("fails at boot when the key is missing, and says how to make one", () => {
-    const { MOI_SESSION_KEY: _gone, ...without } = env();
-    expect(() => loadHostedConfig(without)).toThrow(/MOI_SESSION_KEY/);
-    expect(() => loadHostedConfig(without)).toThrow(/openssl rand -base64 32/);
-  });
-
-  it("treats a blank or whitespace-only key as missing, so a blank .env line fails closed", () => {
-    for (const value of ["", "   ", "\n"]) {
-      expect(() => loadHostedConfig(env({ MOI_SESSION_KEY: value })), JSON.stringify(value)).toThrow(/MOI_SESSION_KEY: is required/);
-    }
-  });
-
-  it("rejects a key shorter than 43 characters without echoing it", () => {
-    const short = sentinel(42);
-    let message = "";
-    try {
-      loadHostedConfig(env({ MOI_SESSION_KEY: short }));
-    } catch (err) {
-      message = (err as Error).message;
-    }
-    expect(message).toMatch(/MOI_SESSION_KEY: must be at least 43 characters/);
-    expect(message).not.toContain(short);
-    expect(message).not.toContain("ZZZZZ");
-  });
-
-  it("rejects a value that is not base64 or hex text, without echoing it", () => {
-    for (const bad of [`${sentinel(30)} ${sentinel(30)}`, `${sentinel(50)}!`, `${sentinel(50)}\u00e9`]) {
-      let message = "";
-      try {
-        loadHostedConfig(env({ MOI_SESSION_KEY: bad }));
-      } catch (err) {
-        message = (err as Error).message;
-      }
-      expect(message, JSON.stringify(bad)).toMatch(/MOI_SESSION_KEY/);
-      expect(message).not.toContain("ZZZZZ");
-    }
-  });
-
-  it("accepts what openssl gives: 44 characters of base64, and 64 of hex", () => {
-    const base64 = Buffer.alloc(32, 9).toString("base64");
-    const hex = Buffer.alloc(32, 9).toString("hex");
-    expect(base64).toHaveLength(44);
-    expect(loadHostedConfig(env({ MOI_SESSION_KEY: base64 })).MOI_SESSION_KEY).toBe(base64);
-    expect(loadHostedConfig(env({ MOI_SESSION_KEY: hex })).MOI_SESSION_KEY).toBe(hex);
-    // The unpadded 43 characters and url-safe base64 too.
-    expect(() => loadHostedConfig(env({ MOI_SESSION_KEY: "A".repeat(43) }))).not.toThrow();
-    expect(() => loadHostedConfig(env({ MOI_SESSION_KEY: Buffer.alloc(32, 251).toString("base64url") }))).not.toThrow();
-  });
-
-  it("trims whitespace around the key before checking it", () => {
-    expect(loadHostedConfig(env({ MOI_SESSION_KEY: `  ${SESSION_SECRET}\n` })).MOI_SESSION_KEY).toBe(SESSION_SECRET);
-    // Trimming happens before the length check, so padding cannot make a short key pass.
-    expect(() => loadHostedConfig(env({ MOI_SESSION_KEY: `   ${sentinel(42)}   ` }))).toThrow(/MOI_SESSION_KEY/);
-  });
-
-  it("leaves the shared config alone: stdio and the read gateway need no key", () => {
-    expect(() => loadConfig(baseEnv())).not.toThrow();
-    expect(Object.keys(loadConfig(baseEnv()))).not.toContain("MOI_SESSION_KEY");
-  });
-});
-
 describe("loadHostedConfig: the faucet settings", () => {
   /** A MOI_DATA_DIR in a temp dir, because a successful load creates it. */
-  const env = (over: Record<string, string> = {}) => hostedEnv(tempHome(), over);
+  const env = (over: Record<string, string> = {}) => ({ MOI_DATA_DIR: tempHome(), ...over });
 
   it("has no default for either: both are undefined when unset", () => {
     // No default for the address in particular: a wrong default would send MOI_FAUCET_KEY to the wrong host.

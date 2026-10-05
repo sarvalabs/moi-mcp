@@ -33,7 +33,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { deriveKey } from "./auth/crypto.js";
 import { mountAuth, type AuthHandle, type AuthInfo } from "./auth/index.js";
 import { getConfig, getHostedConfig, log } from "./config.js";
 import { messageOf } from "./errors.js";
@@ -58,26 +57,16 @@ import type { LaunchpadDeps } from "./applications/launchpad/tools.js";
 import { LaunchpadClient } from "./applications/launchpad/client.js";
 import { createDownloadModule } from "./applications/launchpad/download.js";
 import {
-  DAPP_SESSION_KEY_LABEL,
   FileDappSessionStore,
   isDappSessionExpired,
-  purgeDappSessionsOnBoot,
   RedisDappSessionStore,
-  type DappSessionBackend,
+  type DappSessionStore,
 } from "./applications/dapp/store.js";
 import type { DappDeps } from "./applications/dapp/tools.js";
 import { faucetDepsFor, type FaucetDeps } from "./applications/faucet/tools.js";
 import { registerTools } from "./tools/register.js";
 import { WalletConnectHub, type WalletConnectHubLike } from "./wc/hub.js";
-import { sealWalletStateOnBoot } from "./wc/seal-migration.js";
-import {
-  FileKeyValueStorage,
-  FileWalletSessionStore,
-  type StoredWalletSession,
-  WALLET_SESSION_KEY_LABEL,
-  WC_STORAGE_KEY_LABEL,
-  type WalletSessionStore,
-} from "./wc/store.js";
+import { FileWalletSessionStore, type StoredWalletSession, type WalletSessionStore } from "./wc/store.js";
 import { connectRedis, RedisKeyValueStorage, RedisWalletSessionStore } from "./wc/redis-store.js";
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -483,45 +472,30 @@ export async function reconcileJournalOnBoot(journal: WriteJournal): Promise<voi
 
 async function main(): Promise<void> {
   const cfg = getConfig(); // loads dotenv as a side effect; call before getHostedConfig()
-  const hosted = getHostedConfig(); // a missing or short MOI_SESSION_KEY fails the boot here
-  const dappKey = deriveKey(hosted.MOI_SESSION_KEY, DAPP_SESSION_KEY_LABEL);
-  const walletKey = deriveKey(hosted.MOI_SESSION_KEY, WALLET_SESSION_KEY_LABEL);
-  const wcKey = deriveKey(hosted.MOI_SESSION_KEY, WC_STORAGE_KEY_LABEL);
+  const hosted = getHostedConfig();
 
   const app = express();
   app.disable("x-powered-by");
   app.use(securityHeaders(hosted.PUBLIC_URL));
 
-  // Redis when a URL is configured, files otherwise. The stores move together
+  // Redis when a URL is configured, files otherwise. Both stores move together
   // on purpose: our session record and the WalletConnect SDK's key material are
   // two halves of the same thing, and splitting them across backends would give
-  // a replacement process the topic without the key to use it. All three
-  // (pairings, WalletConnect state, dapp sessions) are sealed, each under its
-  // own key derived from MOI_SESSION_KEY.
-  let store: FileWalletSessionStore | RedisWalletSessionStore;
-  let wcStorage: FileKeyValueStorage | RedisKeyValueStorage;
-  let dappSessions: DappSessionBackend;
+  // a replacement process the topic without the key to use it.
+  let store: WalletSessionStore;
+  let wcStorage: RedisKeyValueStorage | undefined;
+  let dappSessions: DappSessionStore;
   if (hosted.REDIS_URL) {
     const redis = await connectRedis(hosted.REDIS_URL);
-    store = new RedisWalletSessionStore(redis, walletKey);
-    wcStorage = new RedisKeyValueStorage(redis, wcKey);
-    dappSessions = new RedisDappSessionStore(redis, dappKey);
+    store = new RedisWalletSessionStore(redis);
+    wcStorage = new RedisKeyValueStorage(redis);
+    dappSessions = new RedisDappSessionStore(redis);
     log("info", "wallet sessions and WalletConnect state in redis");
   } else {
-    store = new FileWalletSessionStore(hosted.dataDir, walletKey);
-    wcStorage = new FileKeyValueStorage(join(hosted.dataDir, "wc.db"), wcKey);
-    dappSessions = new FileDappSessionStore(hosted.dataDir, dappKey);
+    store = new FileWalletSessionStore(hosted.dataDir);
+    dappSessions = new FileDappSessionStore(hosted.dataDir);
     log("info", `wallet sessions on disk under ${hosted.dataDir}`);
   }
-  // Before anything can read a dapp session or the server listens: plain
-  // records from before sealing are removed here, once, and never read.
-  await purgeDappSessionsOnBoot(dappSessions);
-  // Pairings and the WalletConnect client's state written before sealing are
-  // sealed in place here, once, before the client starts and before the server
-  // listens. Nobody is un-paired and nothing is deleted. If any WalletConnect
-  // value will not open or could not be sealed, this throws and the client is
-  // never started over state it cannot read.
-  await sealWalletStateOnBoot({ sessions: store, wcStorage });
 
   const { authenticate, challengeHeader } = mountAuth(app, {
     publicUrl: hosted.PUBLIC_URL,
@@ -540,7 +514,7 @@ async function main(): Promise<void> {
     network: cfg.MOI_NETWORK,
     // The hosted budget, not the stdio one: claude.ai allows 300 s per call.
     requestTimeoutMs: hosted.HOSTED_TIMEOUT_MS,
-    storage: wcStorage,
+    ...(wcStorage ? { storage: wcStorage } : {}),
   });
   const journal = new WriteJournal(hosted.dataDir);
   // Decided once, here: the tool is absent from tools/list unless both settings are set, the client accepts them and the

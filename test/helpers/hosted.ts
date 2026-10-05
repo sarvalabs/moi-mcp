@@ -10,54 +10,17 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-import { deriveKey } from "../../src/auth/crypto.js";
 import { toPoloHex, toWireJson, type UnsignedInteraction } from "../../src/moi/ix-builder.js";
 import type { AuthInfo } from "../../src/auth/types.js";
-import { DAPP_SESSION_KEY_LABEL } from "../../src/applications/dapp/store.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
 import { registerHostedWrites, type HostedWriteOptions } from "../../src/tools/register.js";
 import type { PreviewRegistry } from "../../src/tools/preview.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
-import {
-  WALLET_SESSION_KEY_LABEL,
-  WC_STORAGE_KEY_LABEL,
-  type StoredWalletSession,
-  type WalletSessionStore,
-} from "../../src/wc/store.js";
+import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";
 import { ACCOUNT } from "./mock-node.js";
 
 export const USER = "user-a";
 export const TOPIC = "topic-a";
-
-/**
- * A MOI_SESSION_KEY-shaped secret for tests: 44 base64 characters, the length
- * `openssl rand -base64 32` gives. Built rather than typed, so no literal that
- * looks like a key sits in the repo; it protects nothing.
- */
-export const SESSION_SECRET = Buffer.alloc(32, 7).toString("base64");
-
-/** The dapp session key the hosted server derives from MOI_SESSION_KEY, for tests that build a real store. */
-export function dappKey(secret: string = SESSION_SECRET): Buffer {
-  return deriveKey(secret, DAPP_SESSION_KEY_LABEL);
-}
-
-/** The wallet pairing store's key, derived the way main() derives it. */
-export function walletKey(secret: string = SESSION_SECRET): Buffer {
-  return deriveKey(secret, WALLET_SESSION_KEY_LABEL);
-}
-
-/** The WalletConnect storage's key, derived the way main() derives it. */
-export function wcKey(secret: string = SESSION_SECRET): Buffer {
-  return deriveKey(secret, WC_STORAGE_KEY_LABEL);
-}
-
-/**
- * The environment a hosted server needs beyond its defaults, with MOI_SESSION_KEY
- * set, for tests that load hosted config. `over` replaces any of it.
- */
-export function hostedEnv(dataDir: string, over: Record<string, string> = {}): NodeJS.ProcessEnv {
-  return { MOI_DATA_DIR: dataDir, MOI_SESSION_KEY: SESSION_SECRET, ...over };
-}
 
 export function session(over: Partial<StoredWalletSession> = {}): StoredWalletSession {
   return {
