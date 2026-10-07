@@ -73,12 +73,25 @@ Why: adding a key at weight 1000 hands full signing power to that key for good. 
 
 Recommendation: do not register `moi_configure_account` on the stdio or hosted server unless an operator turns it on with a setting, off by default. Keep the code (it works and was dry-run on the devnet) and keep the account-keys read. Revoking is lower risk but is also a signing change, so the whole tool goes rather than half of it. Gokul asked for the account operations in his review, so tell him. Files: `src/tools/register.ts`, `src/capabilities/accounts/`, `test/unit/tool-lists.test.ts` and its snapshots, `docs/`.
 
+### 10. Add MAS1, MAS2 and MASX asset creation
+
+Found with "Create a MAS1 asset with symbol NFTA" (A2): the refusal is correct for the code as it stands, and Adithya wants the capability built.
+
+What the SDK sends for each standard, which the create builder must match (`node_modules/js-moi-asset/lib.cjs/mas1-asset.js`, `mas2-asset.js`, `asset-factory.js`):
+
+- MAS1: an ASSET_CREATE with `max_supply: 1`, no decimals, `dimension: 0`, and `logic_payload: { manifest: "0x", callsite: "Init" }`, plus the funding transfer. One unit, so no `supply` input.
+- MAS2: as MAS0 (symbol, supply, decimals, dimension 0) plus the same `logic_payload` with the `Init` callsite.
+- MASX: a caller-supplied compiled manifest, a deploy callsite and its calldata in `logic_payload`, like `moi_deploy_logic`. The SDK's `AssetFactory.create` requires a callsite when the manifest has any deploy routine.
+
+Work: widen `CreateAssetInput.standard` to the four values with the inputs each one needs; branch `buildCreateAsset` (`src/moi/ix-builder.ts`) per standard; make `moi_create_asset` describe each; relax the transfer and mint guards once the paths exist (`assertStandardSupported`, `src/capabilities/assets/shortcuts.ts`): a MAS1 or MAS2 transfer names a token id, a MAS1 mint takes no amount; test each create by simulation on the devnet and then with one real creation, since no MAS1 or MAS2 asset existed on the devnet on 1 October 2026 to test against. The server's own documentation (part 4 of the change document) has the detail of why these were blocked.
+
 ## Passed on 6 October 2026
 
 | Test | Result |
 |---|---|
 | Connector sign-in | Worked after removing and re-adding the connector. The first attempt failed because the preview was still answering 502 when it was added, and claude.ai kept that failed discovery for a few minutes. |
 | Wallet pairing | Worked (with issues 1 and 2 above). |
+| Create a MAS1 asset (A2), 7 October | Refused before the phone, as designed for now (issue 10). |
 | Create asset | Preview (10 KMOI fund, MAS0, decimals 0), confirm, phone, sent. A name change before confirm gave a fresh preview. Asset bobtoken `0x1003000090487ec2e20295bf9dacbc8ee80bcc39294f7664cfb20d1600000000`, interaction `0x1aa5c7ad80d5ed77469dd1cf8a62cb21d3755cd3f175253cf807d46ac6ab3985`. |
 | Mint | Preview, confirm, phone, sent; balance 100 bobtoken. Interaction `0x8f719e5f34944b32a080fe96aa4d841ff5c2137eb2ea57b21cf4493205d15a83`. Run twice; the phone prompted both times. |
 | Launchpad | Sign-in, agent creation and the setup-script download worked (see issue 5). |
