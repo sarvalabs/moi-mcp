@@ -12,7 +12,7 @@ import { z } from "zod";
 import { getConfig, log } from "../config.js";
 import { toMcpError } from "../errors.js";
 import { isMoiError, MoiError } from "../moi-error.js";
-import { estimateFuelFor, simulate, type SenderInfo, type UnsignedInteraction } from "../moi/ix-builder.js";
+import { asKmoi, estimateFuelFor, simulate, type SenderInfo, type UnsignedInteraction } from "../moi/ix-builder.js";
 import { compareSigned, type SignedComparison } from "../moi/signed-check.js";
 import { getProvider, interactionUrl } from "../moi/provider.js";
 import { getAccount, toBigInt } from "../moi/reads.js";
@@ -21,19 +21,46 @@ import { ErrorCode, WriteResult } from "../schema.js";
 type Write = z.infer<typeof WriteResult>;
 
 /**
- * Replace the built-in fuel ceiling with a measured one.
+ * Measure the fuel an interaction needs, and say whether it was measured.
  *
- * A fuel_limit far above the real cost is the number a human sees on the
- * approval screen, so an unmeasured default reads as though the interaction
- * is enormous.
+ * A fuel_limit far above the real cost is the number a human sees on the approval screen, so an unmeasured default reads
+ * as though the interaction is enormous. When the node cannot estimate, the limit is `fallbackLimit` if one is given and
+ * the ordinary 200,000 otherwise: a deploy, and a MASX create that runs a deploy routine, pass the larger limit a deploy
+ * needs, which the 200,000 sized for transfers and plain creates is not.
  */
-export async function withMeasuredFuel(ix: UnsignedInteraction): Promise<UnsignedInteraction> {
+export async function measureFuel(
+  ix: UnsignedInteraction,
+  fallbackLimit?: number,
+): Promise<{ ix: UnsignedInteraction; estimated: boolean }> {
   const provider = getProvider(providerOptions()) as unknown as {
     estimateFuel: (i: unknown) => Promise<number | bigint>;
   };
   const { fuelLimit, estimated, reason } = await estimateFuelFor(provider, ix);
-  if (!estimated) log("info", `fuel estimation unavailable (${reason}); using fallback ${fuelLimit}`);
-  return { ...ix, fuel_limit: fuelLimit };
+  const limit = estimated ? fuelLimit : (fallbackLimit ?? fuelLimit);
+  if (!estimated) log("info", `fuel estimation unavailable (${reason}); using fallback ${limit}`);
+  return { ix: { ...ix, fuel_limit: limit }, estimated };
+}
+
+/** Replace the built-in fuel ceiling with a measured one. See measureFuel. */
+export async function withMeasuredFuel(ix: UnsignedInteraction, fallbackLimit?: number): Promise<UnsignedInteraction> {
+  return (await measureFuel(ix, fallbackLimit)).ix;
+}
+
+/**
+ * Refuse a write whose account cannot pay for it: the fund that moves into the new account plus the whole fuel limit,
+ * which the chain holds back until the interaction is done. An account with the fund and a little more cannot pay for its
+ * own deploy, and the node's own refusal says only that the interaction would fail. `what` begins the sentence: "Deploying
+ * a logic" or "Creating a MASX asset".
+ */
+export function assertAffordable(balance: bigint, fund: bigint, maxFee: bigint, what: string): void {
+  if (balance >= fund + maxFee) return;
+  throw new MoiError(
+    ErrorCode.INSUFFICIENT_BALANCE,
+    `${what} moves ${fund} base units of KMOI (${asKmoi(fund)} KMOI) into it, and the chain holds back ` +
+      `the whole fuel limit, up to ${maxFee} (${asKmoi(maxFee)} KMOI), until the interaction is done, but this account holds ${balance} ` +
+      `(${asKmoi(balance)} KMOI). Fund the account from the faucet. Nothing was sent to your wallet.`,
+    { balance: balance.toString(), needed: (fund + maxFee).toString() },
+  );
 }
 
 /**

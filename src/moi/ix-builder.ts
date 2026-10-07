@@ -20,12 +20,10 @@
  */
 
 import {
-  AssetStandard,
   DEFAULT_FUEL_PRICE as SDK_DEFAULT_FUEL_PRICE,
   DEFAULT_STORAGE_FUND as SDK_DEFAULT_STORAGE_FUND,
   bytesToHex,
   buildTransferPayload,
-  deriveAssetId,
   deriveLogicId,
   KMOI_ASSET_ID,
   ixObjectSchema,
@@ -37,6 +35,10 @@ import { Polorizer } from "js-polo";
 
 import { MoiError } from "../moi-error.js";
 import { ErrorCode } from "../schema.js";
+import { buildCreateAssetOperations, type CreateAssetParams } from "./ix-build-asset.js";
+
+export { BUILDABLE_STANDARDS, predictAssetId } from "./ix-build-asset.js";
+export type { CreateAssetParams, MasxCreate } from "./ix-build-asset.js";
 
 /** The node rejects interactions carrying more than three operations. */
 export const MAX_OPERATIONS = 3;
@@ -240,7 +242,9 @@ export const DEFAULT_STORAGE_FUND = BigInt(SDK_DEFAULT_STORAGE_FUND);
  * That figure is exactly 1557/256 KMOI, a round binary fraction, so it may be
  * where a bisection stopped and not the true floor: read it as an upper bound.
  * The figures are for a create like the canary's (MAS0, not stateful, decimals
- * 0, dimension 0). The record does not say whether another shape costs more.
+ * 0, dimension 0). The record does not say whether another shape costs more. A dry run on 7 October 2026 showed that a MAS1
+ * and a MAS2 create do: both were refused with a fund of 7 KMOI and accepted with 8 KMOI, so their floor lies above 7 KMOI
+ * and MIN_STORAGE_FUND below is a MAS0 margin only.
  *
  * Why it is not read from the node. getStoragePricing (moi.StoragePricing)
  * answers a price per byte, a multiplier and a second per-byte figure. It does
@@ -270,7 +274,7 @@ export const DEFAULT_STORAGE_FUND = BigInt(SDK_DEFAULT_STORAGE_FUND);
 export const MEASURED_STORAGE_FLOOR = 6_082_031_250n;
 
 /**
- * What a create is funded with when the caller gives no storageFund and the
+ * What a MAS0 create is funded with when the caller gives no storageFund and the
  * balance cannot carry DEFAULT_STORAGE_FUND, in KMOI base units: the measured
  * floor plus about 15 percent, so that a small repricing does not turn every
  * automatic create into a failure. This is this server's margin, not the
@@ -287,7 +291,8 @@ export const MIN_STORAGE_FUND = 7_000_000_000n;
 export const FUEL_RESERVE = 1_000_000n;
 
 /**
- * Choose a storage fund the caller can actually afford, in KMOI base units.
+ * Choose a storage fund the caller can actually afford, in KMOI base units. For a MAS0 create only: MAS1, MAS2 and MASX
+ * are funded with exactly DEFAULT_STORAGE_FUND (src/capabilities/assets/create.ts says why).
  *
  * Nobody creating a token should have to reason about storage funding, and
  * the failure when it is wrong is opaque: the ASSET_CREATE operation reports
@@ -318,86 +323,14 @@ export function chooseStorageFund(balance: bigint): bigint {
 }
 
 /**
- * Build an asset creation.
- *
- * A bare ASSET_CREATE operation does NOT work: MOI makes a new asset self-pay
- * for its storage the moment it is created, and a freshly derived asset
- * account holds no KMOI. The create must be bundled with a transfer funding
- * the asset id it is about to produce — which means predicting that id, via
- * deriveAssetId, before it exists.
- *
- * Symptom if you skip it: the ASSET_CREATE operation reports success and
- * returns a valid asset_id while the interaction as a whole fails with
- * status 1 and no diagnostic.
+ * Build an asset creation, for MAS0, MAS1, MAS2 or MASX: the operations are built by src/moi/ix-build-asset.ts, which says
+ * what each standard sends and why the create is bundled with a KMOI transfer to the asset's own account. Without a
+ * storageFund the SDK's default is sent.
  */
-export function buildCreateAsset(
-  sender: SenderInfo,
-  params: {
-    symbol: string;
-    supply: bigint;
-    decimals: number;
-    dimension: number;
-    standard: string;
-    isStateful: boolean;
-    isFungible: boolean;
-    /** KMOI to fund the new asset with. Too little and storage fails. */
-    storageFund?: bigint;
-  },
-  options: BuildOptions = {},
-): UnsignedInteraction {
-  const standardCode = (AssetStandard as unknown as Record<string, number>)[params.standard];
-  if (standardCode === undefined) {
-    throw new MoiError(
-      ErrorCode.INVALID_ARGS,
-      `Unknown asset standard "${params.standard}". Expected one of MAS0, MAS1, MAS2, MASX.`,
-      { standard: params.standard },
-    );
-  }
-
-  // Predict the asset id this create will produce so the funding transfer can
-  // address it. deriveAssetId mirrors the chain's own derivation — a wrong
-  // prediction sends the funds to an account that will never exist.
-  const assetId = deriveAssetId(
-    { id: sender.id as `0x${string}`, sequence: sender.sequence, key_id: sender.keyId ?? 0 },
-    standardCode,
-  ).toHex();
-
-  const fund = params.storageFund ?? DEFAULT_STORAGE_FUND;
-  const funding = buildTransferPayload(
-    KMOI_ASSET_ID as `0x${string}`,
-    assetId as `0x${string}`,
-    fund <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(fund) : fund,
-  ) as unknown as Record<string, unknown>;
-
+export function buildCreateAsset(sender: SenderInfo, params: CreateAssetParams, options: BuildOptions = {}): UnsignedInteraction {
   return {
     ...base(sender, options),
-    ix_operations: [
-      {
-        type: OpType.ASSET_CREATE,
-        // Field names and types come from js-moi-sdk's AssetCreatePayload.
-        // max_supply must be a number|bigint — a decimal string fails POLO
-        // serialisation inside the wallet with "Failed to sign interaction",
-        // and there is no `supply` field at all.
-        payload: {
-          symbol: params.symbol,
-          max_supply: params.supply,
-          decimals: params.decimals,
-          dimension: params.dimension,
-          standard: standardCode,
-          enable_events: params.isStateful,
-          manager: sender.id,
-        },
-      },
-      // Without this the ASSET_CREATE operation succeeds and the interaction
-      // still fails: the new asset has no KMOI to pay its own storage.
-      {
-        type: OpType.ASSET_INVOKE,
-        payload: {
-          ...funding,
-          calldata: String(funding["calldata"] ?? "").replace(/^0x/, ""),
-        },
-      },
-    ],
+    ix_operations: buildCreateAssetOperations(sender, params, params.storageFund ?? DEFAULT_STORAGE_FUND),
   };
 }
 

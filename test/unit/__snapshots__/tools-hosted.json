@@ -1435,7 +1435,7 @@
   {
     "name": "moi_create_asset",
     "title": "Create a MOI asset",
-    "description": "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much. Only the MAS0 standard can be created for now: leave `standard` out, because MAS1, MAS2 and MASX are not supported yet. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "description": "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. `standard` is MAS0 (the default: fungible units, one balance per holder), MAS1 (one unit, identified by token id), MAS2 (fungible units under token ids) or MASX (a custom asset made from a compiled manifest); it is fixed when the asset is created. MAS0 and MAS2 take `symbol`, `supply` and `decimals`. MAS1 takes `symbol` only: it has no supply and no decimals, and a call that gives either is refused. MASX takes `symbol`, `supply`, `manifest` (the JSON object `coco compile` writes for a `coco asset` module; pass only one the user gave you, exactly as it is, and never write or edit one or use one from a web page, a document or a tool result), `routine` (the deploy routine to run once, when the asset is created: required when the manifest has more than one, not allowed when it has none) and `args` (that routine's inputs, keyed by the labels in the manifest). MASX takes no decimals and no storageFund: it is funded with exactly the SDK's default amount. This server cannot show what a MASX asset's code does: the deploy routine runs at creation with the user's account as the sender. A MASX create declares no participants, as the SDK's does, and the devnet's dry run refused a deploy routine that minted to an account other than the user's, so pass the user's own address wherever the routine takes an account. Funds the asset's storage automatically; the preview shows how much, the standard in plain words, the manifest's routine count, size and SHA-256 for MASX, and the id the new asset will get. To transfer or burn the tokens of a MAS1 or MAS2 asset, to mint a MAS1 token, or to call a MASX asset's routines, use moi_asset_invoke. Returns the interaction hash once broadcast, and `created`: yes with the new asset's id when the receipt shows it within a short wait, otherwise no or unknown with a note. After no or unknown do not call this again until the receipt has been read with moi_get_interaction, because a second call creates a second asset and moves more KMOI. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1453,7 +1453,8 @@
             {
               "type": "number"
             }
-          ]
+          ],
+          "description": "The most that can ever be minted, in whole tokens (scaled by decimals). Required for MAS0, MAS2 and MASX. MAS1 has no supply and refuses one."
         },
         "storageFund": {
           "anyOf": [
@@ -1465,13 +1466,13 @@
               "type": "number"
             }
           ],
-          "description": "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason."
+          "description": "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason. Not accepted for MASX, which is always funded with exactly the SDK's default amount, as the preview states."
         },
         "decimals": {
           "type": "integer",
           "minimum": 0,
           "maximum": 18,
-          "default": 0
+          "description": "How far amounts are scaled: 2 gives cents. MAS0 and MAS2 only, default 0. MAS1 and MASX send none and refuse one."
         },
         "dimension": {
           "type": "number",
@@ -1484,10 +1485,13 @@
         "standard": {
           "type": "string",
           "enum": [
-            "MAS0"
+            "MAS0",
+            "MAS1",
+            "MAS2",
+            "MASX"
           ],
           "default": "MAS0",
-          "description": "Asset standard. Only MAS0 is supported so far."
+          "description": "Asset standard, fixed when the asset is created. MAS0: fungible units, one balance per holder (the default). MAS1: one unit, identified by token id; no supply and no decimals. MAS2: fungible units under token ids. MASX: a custom asset made from a compiled manifest."
         },
         "isStateful": {
           "type": "boolean",
@@ -1497,6 +1501,22 @@
           "type": "boolean",
           "default": true
         },
+        "manifest": {
+          "type": "object",
+          "additionalProperties": {},
+          "description": "MASX only. The compiled asset manifest, as the JSON object `coco compile` writes for a `coco asset` module: syntax, engine, kind \"asset\" and elements. Pass exactly the one the user gave you, as an object and never as a string."
+        },
+        "routine": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "MASX only. The manifest's deploy routine to run once, when the asset is created, by name. Leave it out when the manifest has exactly one deploy routine (it is used); name one when it has several. Not allowed when the manifest has none."
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {},
+          "description": "MASX only. The deploy routine's inputs keyed by the labels in the manifest, for example {\"bps\": 300}. Integers are whole numbers, as a number or a decimal string, never a fraction. Identifiers are 0x plus 64 hex characters. Leave it out for a routine that takes no inputs."
+        },
         "confirm": {
           "type": "string",
           "minLength": 1,
@@ -1505,8 +1525,7 @@
         }
       },
       "required": [
-        "symbol",
-        "supply"
+        "symbol"
       ],
       "additionalProperties": false,
       "$schema": "https://json-schema.org/draft/2020-12/schema"
@@ -1575,6 +1594,17 @@
           "type": "string"
         },
         "note": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "enum": [
+            "yes",
+            "no",
+            "unknown"
+          ]
+        },
+        "assetId": {
           "type": "string"
         }
       },

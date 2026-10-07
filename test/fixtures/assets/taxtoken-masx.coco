@@ -1,0 +1,28 @@
+// Differs from the TaxToken source of the Webinar (session-2/coco/taxtoken.coco) only by `payer Logic` on the two state writes of Init.
+// The devnet's dry run on 2026-10-07 refused a MASX create of the original (receipt status 1) and accepted this version, as it does for a logic deploy.
+// TaxToken — fungible with fee-on-transfer: route tax_bps of every
+// Transfer to the treasury, send the remainder to the beneficiary.
+
+coco asset TaxToken
+
+state logic:
+    treasury Identifier
+    tax_bps U64
+
+endpoint deploy Init(treasury_addr Identifier, bps U64, initial_supply U256):
+    mutate treasury_addr -> TaxToken.Logic.treasury payer Logic
+    mutate bps           -> TaxToken.Logic.tax_bps payer Logic
+
+    asset.Mint(token_id: 0, beneficiary: treasury_addr, amount: initial_supply)
+
+endpoint dynamic Transfer(beneficiary Identifier, amount U256):
+    memory treasury Identifier
+    memory bps U64
+    observe treasury <- TaxToken.Logic.treasury
+    observe bps      <- TaxToken.Logic.tax_bps
+
+    memory tax = (amount * U256(bps)) / U256(10000)
+    memory net = amount - tax
+
+    asset.Transfer(token_id: 0, beneficiary: treasury,    amount: tax)
+    asset.Transfer(token_id: 0, beneficiary: beneficiary, amount: net)

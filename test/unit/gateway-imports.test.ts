@@ -27,6 +27,9 @@ function isWalletOrWriteCode(name: string): boolean {
     name.startsWith("src/capabilities/accounts/") ||
     name.startsWith("src/capabilities/logics/") ||
     name === "src/capabilities/assets/create.ts" ||
+    name === "src/capabilities/assets/create-plan.ts" ||
+    name === "src/capabilities/assets/create-masx.ts" ||
+    name === "src/capabilities/assets/create-receipt.ts" ||
     name === "src/capabilities/assets/shortcuts.ts" ||
     name === "src/capabilities/assets/execute.ts" ||
     name === "src/tools/define.ts" ||
@@ -101,9 +104,16 @@ describe("the read gateway's module graph", () => {
     );
     expect(importGraph("src/http.ts").files).not.toContain("src/tools/register.ts");
     // The address guard the dapp tools and the agent lookup share. The gateway reaches it through the registry read, and it
-    // reaches nothing of the wallet, the writes or the applications: exactly the error type and the schemas, and no more.
+    // reaches nothing of the wallet, the writes or the applications: exactly the error type and the schemas (src/schema.ts and the
+    // two files it re-exports from, schema-amount.ts and schema-create-asset.ts), and no more.
     expect(importGraph("src/http.ts").files).toContain("src/public-fetch.ts");
-    expect(importGraph("src/public-fetch.ts").files).toEqual(["src/moi-error.ts", "src/public-fetch.ts", "src/schema.ts"]);
+    expect(importGraph("src/public-fetch.ts").files).toEqual([
+      "src/moi-error.ts",
+      "src/public-fetch.ts",
+      "src/schema-amount.ts",
+      "src/schema-create-asset.ts",
+      "src/schema.ts",
+    ]);
     // The hosted and read-only entry points start themselves when loaded. Bundled into the stdio entry point they
     // would start a second server inside it.
     expect(stdio.files).not.toContain("src/server.ts");
@@ -120,6 +130,12 @@ describe("the read gateway's module graph", () => {
     expect(importGraph("src/server.ts").files).toEqual(expect.arrayContaining(deployFiles));
     expect(stdio.files).toEqual(expect.arrayContaining(deployFiles));
     for (const file of deployFiles) expect(importGraph("src/http.ts").files).not.toContain(file);
+    // So is the creation of an asset: the files that plan a create, read a MASX manifest and read the receipt of a create are
+    // reached from the signing servers, and the gateway reaches none of them.
+    const createFiles = ["create.ts", "create-plan.ts", "create-masx.ts", "create-receipt.ts"].map((f) => `src/capabilities/assets/${f}`);
+    expect(importGraph("src/server.ts").files).toEqual(expect.arrayContaining(createFiles));
+    expect(stdio.files).toEqual(expect.arrayContaining(createFiles));
+    for (const file of createFiles) expect(importGraph("src/http.ts").files).not.toContain(file);
     // Enlisting is sent through moi_call_logic, so the file that builds it is reached from the signing servers and never from the gateway.
     const enlist = "src/capabilities/logics/enlist.ts";
     expect(importGraph("src/server.ts").files).toContain(enlist);

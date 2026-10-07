@@ -12,6 +12,12 @@
 
 import { z } from "zod";
 
+import { Amount, WireAmount } from "./schema-amount.js";
+import { CreateAssetInput } from "./schema-create-asset.js";
+
+export { Amount, WireAmount } from "./schema-amount.js";
+export { CREATABLE_STANDARDS, CreateAssetInput, type CreatableStandard } from "./schema-create-asset.js";
+
 // ---------------------------------------------------------------------------
 // 0. Shared primitives
 // ---------------------------------------------------------------------------
@@ -28,43 +34,7 @@ export const AssetId = HexId;
 /** Logic (Cocolang program) id. */
 export const LogicId = HexId;
 
-/** Human-readable amount as string to avoid float drift. e.g. "12.5" */
-export const Amount = z.string().regex(/^\d+(\.\d+)?$/, "decimal string");
-
 export const InteractionHash = HexId;
-
-/**
- * An amount as it arrives over the wire.
- *
- * Amounts are decimal STRINGS internally so that values beyond 2^53 survive,
- * but an MCP client handed a numeric-looking field sends a JSON number — and
- * a string-only schema then rejects it with no value able to satisfy both.
- * Accept a number too, and normalise it to the canonical string.
- *
- * A number above Number.MAX_SAFE_INTEGER is refused rather than silently
- * rounded; those callers must send a string.
- */
-export const WireAmount = z
-  .union([Amount, z.number()])
-  .transform((value, ctx) => {
-    if (typeof value === "string") return value;
-    if (!Number.isFinite(value) || value < 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "amount must be a non-negative number" });
-      return z.NEVER;
-    }
-    if (!Number.isSafeInteger(value) && !Number.isInteger(value)) {
-      // A non-integer is fine (1.5); an unsafe integer is not.
-      return String(value);
-    }
-    if (!Number.isSafeInteger(value)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `amount ${value} exceeds the safe integer range — pass it as a string to keep full precision`,
-      });
-      return z.NEVER;
-    }
-    return String(value);
-  });
 
 /** CAIP-2 chain id used in WalletConnect namespaces. voyage is confirmed; mainnet and custom are placeholders. */
 export const CAIP2 = z.record(Network, z.string()).default({
@@ -494,37 +464,6 @@ export const ConfigureAccountInput = z.object({
     .describe("Ids of the keys to revoke, as the account lists them (the first key is 0). Give this or add, not both."),
 });
 
-export const CreateAssetInput = z.object({
-  symbol: z.string().min(1).max(12),
-  supply: WireAmount,
-  /**
-   * KMOI to fund the new asset with so it can pay its own storage, in BASE
-   * UNITS. KMOI has 9 decimals, so 10000000000 is 10 KMOI. Omitted, the server
-   * sizes it: 10 KMOI when the balance allows, 7 KMOI otherwise. Below about
-   * 6.1 KMOI the chain refuses the create; more than you hold and the transfer fails.
-   */
-  storageFund: WireAmount.optional().describe(
-    "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason.",
-  ),
-  /** How far amounts are scaled: 2 gives cents. Separate from `dimension`. */
-  decimals: z.number().int().min(0).max(18).default(0),
-  /** The asset's kind. The chain accepts only 0 (Economic) or 1 (Possession). */
-  dimension: z.union([z.literal(0), z.literal(1)]).default(0),
-  /**
-   * Only MAS0 can be created for now: buildCreateAsset sends no Init payload for MAS1 and MAS2 and no manifest for
-   * MASX, so those creates would be malformed. A one-value list rather than dropping the field, because zod strips an
-   * unknown field silently and a request for MAS1 would then create a MAS0 asset.
-   */
-  standard: z
-    .enum(["MAS0"], {
-      message:
-        "Only MAS0 can be created for now. MAS1, MAS2 and MASX are not supported yet; leave `standard` out or pass MAS0.",
-    })
-    .default("MAS0")
-    .describe("Asset standard. Only MAS0 is supported so far."),
-  isStateful: z.boolean().default(false),
-  isFungible: z.boolean().default(true),
-});
 
 /**
  * Mint tokens of an asset you manage.

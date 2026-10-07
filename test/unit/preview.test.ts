@@ -356,6 +356,8 @@ describe("a hosted write is previewed before it touches the phone", () => {
     expect(journal.append).not.toHaveBeenCalled();
   });
 
+  // Changed on purpose with the standards moi_create_asset builds: MAS1, MAS2 and MASX are created now, so this sends a
+  // standard that is none of the four (MAS9) and expects the schema's new message and its four-name list.
   it("moi_create_asset refuses another standard in the hosted schema, before the session is even read", async () => {
     const previews = new PreviewRegistry();
     const hub = fakeHub();
@@ -365,10 +367,10 @@ describe("a hosted write is previewed before it touches the phone", () => {
 
     const r = await client.callTool({
       name: "moi_create_asset",
-      arguments: { symbol: "TST", supply: "1000", standard: "MAS1" },
+      arguments: { symbol: "TST", supply: "1000", standard: "MAS9" },
     });
     expect(r.isError).toBe(true);
-    expect((r.content as Array<{ text: string }>)[0]!.text).toMatch(/Only MAS0 can be created for now/);
+    expect((r.content as Array<{ text: string }>)[0]!.text).toMatch(/standard must be one of MAS0, MAS1, MAS2 or MASX \(default MAS0\)\. MASN is reserved/);
     expect(store.get).not.toHaveBeenCalled();
     expect(previews.size).toBe(0);
     expect(hub.signInteractionFor).not.toHaveBeenCalled();
@@ -378,7 +380,7 @@ describe("a hosted write is previewed before it touches the phone", () => {
     const { tools } = await client.listTools();
     const create = tools.find((t) => t.name === "moi_create_asset")!;
     const standard = (create.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties["standard"]!;
-    expect(standard.enum).toEqual(["MAS0"]);
+    expect(standard.enum).toEqual(["MAS0", "MAS1", "MAS2", "MASX"]);
   });
 
   it.each([

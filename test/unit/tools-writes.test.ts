@@ -474,16 +474,16 @@ describe("moi_create_asset", () => {
     expect(node.methods()).not.toContain("moi.SendInteractions");
   });
 
-  // Only MAS0 can be created for now. The schema refuses the rest before any handler runs, so a standard that is not
-  // MAS0 never reaches the session, the node or the phone. This is the SDK's own validation error, not a [CODE] result.
-  it.each(["MAS1", "MAS2", "MASX", "MAS9"])(
+  // Changed on purpose: MAS1, MAS2 and MASX are created now (asset-create-write.test.ts, asset-create-masx-write.test.ts), so the schema
+  // refuses what is none of the four (MASN is the native asset's), before any handler runs. The SDK's own validation error, not a [CODE].
+  it.each(["MAS9", "MASN"])(
     "standard %s is refused by the schema before any node or wallet traffic",
     async (standard) => {
       seedSession(h.home);
       const result = await h.call("moi_create_asset", { ...CREATE, standard });
       expect(result.isError).toBe(true);
-      expect(result.text).toMatch(/Only MAS0 can be created for now/);
-      expect(result.text).toMatch(/MAS1, MAS2 and MASX are not supported yet/);
+      expect(result.text).toMatch(/standard must be one of MAS0, MAS1, MAS2 or MASX \(default MAS0\)/);
+      expect(result.text).toMatch(/MASN is reserved for the native asset and cannot be created/);
       expect(wallet.request).not.toHaveBeenCalled();
       expect(node.calls).toHaveLength(0);
     },
@@ -496,13 +496,13 @@ describe("moi_create_asset", () => {
     expect(opsOf(signedIx(0))[0]!.payload["standard"]).toBe(0);
   });
 
-  it("the tool schema lists MAS0 as the only standard, which is what the model reads", async () => {
+  it("the tool schema lists MAS0, MAS1, MAS2 and MASX as the standards, which is what the model reads", async () => {
     const { tools } = await h.client.listTools();
     const create = tools.find((t) => t.name === "moi_create_asset")!;
     const standard = (create.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties[
       "standard"
     ]!;
-    expect(standard.enum).toEqual(["MAS0"]);
+    expect(standard.enum).toEqual(["MAS0", "MAS1", "MAS2", "MASX"]);
   });
 });
 

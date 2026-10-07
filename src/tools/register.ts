@@ -48,6 +48,8 @@ export function registerWalletTools(server: McpServer): void {
 export interface HostedWriteOptions {
   /** How long moi_deploy_logic watches for the receipt of a deploy it has broadcast, to report the new logic's id. 0 does not look. */
   deployWaitMs?: number;
+  /** How long moi_create_asset watches for the receipt of a create it has broadcast, to report the new asset's id. 0 does not look. */
+  createWaitMs?: number;
 }
 
 /**
@@ -67,7 +69,7 @@ export function registerHostedWrites(
     transferTool(deps, auth),
     createAccountTool(deps, auth),
     configureAccountTool(deps, auth),
-    createAssetTool(deps, auth),
+    createAssetTool(deps, auth, { receiptWaitMs: options.createWaitMs }),
     mintTool(deps, auth),
     callLogicTool(deps, auth),
     deployLogicTool(deps, auth, { receiptWaitMs: options.deployWaitMs }),
@@ -89,16 +91,16 @@ export function registerRegistryWrites(
  * The eleven write tools on the stdio server: the hosted tools, run with the local user and the adapters of
  * src/tools/local-writes.ts.
  *
- * registryWaitMs and deployWaitMs are 0 because a write that waits for the phone already uses most of the MCP client's
- * 60 second budget, and polling afterwards for up to 30 more could lose the hash of a transaction that landed. The
- * registry result still carries the agent's id if one look finds it and says where to look otherwise; a deploy does not
- * look at all, since a receipt right after a broadcast is rarely there, and says how to read the new logic's id.
+ * registryWaitMs, deployWaitMs and createWaitMs are 0 because a write that waits for the phone already uses most of the MCP
+ * client's 60 second budget, and polling afterwards for up to 30 more could lose the hash of a transaction that landed. The
+ * registry result still carries the agent's id if one look finds it and says where to look otherwise; a deploy and an asset
+ * create do not look at all, since a receipt right after a broadcast is rarely there, and say how to read the new id.
  *
  * The journal is not reconciled at boot: several MCP clients start one stdio process each against the same
  * MOI_MCP_HOME, and a second process would mark the first one's live write orphaned.
  */
 export function registerLocalWriteTools(server: McpServer, deps: WriteDeps = localWriteDeps()): void {
-  registerHostedWrites(server, deps, LOCAL_AUTH, { deployWaitMs: 0 });
+  registerHostedWrites(server, deps, LOCAL_AUTH, { deployWaitMs: 0, createWaitMs: 0 });
   registerRegistryWrites(server, deps, LOCAL_AUTH, { registryWaitMs: 0 });
 }
 

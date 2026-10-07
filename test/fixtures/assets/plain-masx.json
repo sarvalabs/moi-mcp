@@ -1,0 +1,109 @@
+{
+  "source": "test/fixtures/assets/plain-masx.coco, compiled 2026-10-07 with Coco 0.9.0 for PISA 0.8.0 (coco compile -f json, [target.pisa] version = \"0.8.0\"); the compiler wrote kind asset, nothing was edited by hand",
+  "manifest": {
+    "syntax": 1,
+    "engine": {
+      "kind": "PISA",
+      "flags": [],
+      "version": "0.8.0"
+    },
+    "kind": "asset",
+    "elements": [
+      {
+        "ptr": 0,
+        "kind": "state",
+        "data": {
+          "mode": "logic",
+          "fields": [
+            {
+              "slot": 0,
+              "label": "note",
+              "type": "u64"
+            }
+          ]
+        }
+      },
+      {
+        "ptr": 1,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Set",
+          "mode": "dynamic",
+          "kind": "invoke",
+          "accepts": [
+            {
+              "slot": 0,
+              "label": "value",
+              "type": "u64"
+            }
+          ],
+          "returns": [],
+          "executes": {
+            "bin": [
+              131,
+              0,
+              144,
+              1,
+              0,
+              30,
+              1,
+              0,
+              4,
+              0,
+              0,
+              155,
+              1,
+              0,
+              159,
+              1
+            ]
+          },
+          "catches": []
+        }
+      },
+      {
+        "ptr": 2,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Note",
+          "mode": "static",
+          "kind": "invoke",
+          "accepts": [],
+          "returns": [
+            {
+              "slot": 0,
+              "label": "note",
+              "type": "u64"
+            }
+          ],
+          "executes": {
+            "bin": [
+              144,
+              0,
+              0,
+              5,
+              0,
+              0,
+              158,
+              0
+            ]
+          },
+          "catches": []
+        }
+      },
+      {
+        "ptr": 3,
+        "kind": "asset",
+        "data": {
+          "engine": "1.0.0"
+        }
+      }
+    ]
+  }
+}

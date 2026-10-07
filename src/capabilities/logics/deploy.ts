@@ -34,42 +34,34 @@ import { KMOI_ASSET_ID } from "js-moi-sdk";
 import type { z } from "zod";
 
 import type { AuthInfo } from "../../auth/types.js";
-import { log } from "../../config.js";
-import { MoiError } from "../../moi-error.js";
-import {
-  asKmoi,
-  assertSendable,
-  buildLogicDeploy,
-  DEFAULT_STORAGE_FUND,
-  estimateFuelFor,
-  predictLogicId,
-} from "../../moi/ix-builder.js";
+import { asKmoi, assertSendable, buildLogicDeploy, DEFAULT_STORAGE_FUND, predictLogicId } from "../../moi/ix-builder.js";
 import { getProvider } from "../../moi/provider.js";
-import { clampChainText } from "../../moi/reads.js";
-import { DeployLogicInput, ErrorCode } from "../../schema.js";
+import { DeployLogicInput } from "../../schema.js";
 import { defineTool, type ToolDef } from "../../tools/define.js";
 import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type WriteDeps } from "../../tools/hosted-writes.js";
 import { fingerprintDigest } from "../../tools/preview.js";
 import {
   asWriteResult,
+  assertAffordable,
   assertWillSucceed,
   kmoiBalance,
+  measureFuel,
   ok,
   providerOptions,
   senderFor,
   type PreparedWrite,
 } from "../../tools/write-core.js";
-import { coerceArgs, encodeCalldata, showValue } from "../assets/codec.js";
-import { PREVIEW_ARGS_CHARS } from "../assets/invoke.js";
-import { MAX_FIELDS } from "../assets/routines.js";
-import { invalid, shorten } from "../assets/standards/common.js";
-import { MAX_MANIFEST_BYTES, readDeployManifest, type DeployManifest, type DeployRoutine } from "./deploy-manifest.js";
-import { deployResult, readDeployOutcome, type DeployOutcome } from "./deploy-receipt.js";
+import { invalid } from "../assets/standards/common.js";
+import {
+  encodeDeployInputs,
+  MAX_MANIFEST_BYTES,
+  manifestLine,
+  pickRoutine,
+  readDeployManifest,
+  routinesWord,
+} from "./deploy-manifest.js";
+import { DEFAULT_RECEIPT_WAIT_MS, deployResult, readDeployOutcome, type DeployOutcome } from "./deploy-receipt.js";
 
-/** Routine names listed in the preview before it says how many more there are. */
-const MAX_NAMES_SHOWN = 12;
-/** How long moi_register_agent waits for the registry; a deploy watches for its receipt for as long. */
-const DEFAULT_RECEIPT_WAIT_MS = 30_000;
 /**
  * The fuel limit a deploy gets when the node cannot estimate one, which it is expected not to for a deploy, as it cannot for
  * an asset create (estimateFuelFor in src/moi/ix-builder.ts). The 200,000 fallback every other write uses was sized for
@@ -103,60 +95,6 @@ export interface LogicDeployPlan {
   manifestLine: string;
 }
 
-function unavailable(message: string, available: string[]): MoiError {
-  return new MoiError(ErrorCode.LOGIC_ROUTINE_NOT_FOUND, `${message} Nothing was sent to your wallet.`, { available });
-}
-
-/** The deploy routine the call runs: the one named, or the only one there is. Never a guess between several. */
-function pickRoutine(m: DeployManifest, wanted: string | undefined): { routine: DeployRoutine; only: boolean } {
-  const names = [...m.deploys.keys()];
-  if (names.length === 0) {
-    throw invalid(
-      "The manifest has no deploy routine. This tool deploys a logic by running one of its deploy routines: whether the chain " +
-        "accepts a deploy with nothing to run is documented only in the SDK's own comments, and has not been run, so it is not offered.",
-    );
-  }
-  if (wanted !== undefined) {
-    const found = m.deploys.get(wanted);
-    if (found) return { routine: found, only: false };
-    // Offered, never applied: the preview must show the exact name that will run.
-    const close = names.find((n) => n.toLowerCase() === wanted.toLowerCase());
-    throw unavailable(
-      `The manifest has no deploy routine "${clampChainText(wanted, 64)}"${close ? ` (did you mean "${close}"?)` : ""}. ` +
-        `Its deploy routines are: ${names.join(", ")}.`,
-      names,
-    );
-  }
-  if (names.length === 1) return { routine: m.deploys.get(names[0] as string) as DeployRoutine, only: true };
-  throw invalid(`The manifest has ${names.length} deploy routines: ${names.join(", ")}. Pass routine to say which one runs at deployment.`);
-}
-
-function routinesWord(n: number): string {
-  return `${n} routine${n === 1 ? "" : "s"}`;
-}
-
-function manifestLine(m: DeployManifest): string {
-  const c = m.counts;
-  const parts = (
-    [
-      ["deploy", c.deploy],
-      ["invoke", c.invoke],
-      ["enlist", c.enlist],
-      ["internal", c.internal],
-      ["other", c.other],
-    ] as const
-  )
-    .filter(([, n]) => n > 0)
-    .map(([kind, n]) => `${n} ${kind}`);
-  const shown = m.names.slice(0, MAX_NAMES_SHOWN);
-  const more = m.names.length - shown.length;
-  return (
-    `${routinesWord(c.total)}${parts.length > 0 ? ` (${parts.join(", ")})` : ""}` +
-    `${shown.length > 0 ? `: ${shown.join(", ")}${more > 0 ? `, and ${more} more` : ""}` : ""}; ` +
-    `${m.bytes} bytes encoded; SHA-256 of those bytes ${m.digest}; no name, because a compiled manifest carries none and the chain stores none`
-  );
-}
-
 /**
  * Everything a deploy needs that does not need the node: the manifest read and encoded, the deploy routine chosen, its
  * inputs validated and encoded, the participants checked, and the lines of the preview that come from them.
@@ -164,23 +102,7 @@ function manifestLine(m: DeployManifest): string {
 export function planLogicDeploy(input: LogicDeployInput): LogicDeployPlan {
   const m = readDeployManifest(input.manifest);
   const { routine, only } = pickRoutine(m, input.routine);
-  if (!routine.accepts) {
-    throw invalid(
-      `The deploy routine ${routine.name} has inputs this server cannot read (more than ${MAX_FIELDS}, or a label or type that is not plain).`,
-    );
-  }
-
-  // An asset has decimals and a logic does not: 0, so no message talks about whole tokens.
-  const coerced = coerceArgs(routine.name, routine.accepts, input.args, { decimals: 0 });
-  const encoded = encodeCalldata(m.coder, routine.name, routine.accepts, coerced);
-  // The manifest's order, and showValue's own: the same call in any key order gives the same text, which the confirm step compares.
-  const argsLine =
-    routine.accepts.length === 0
-      ? "none"
-      : shorten(
-          JSON.stringify(Object.fromEntries(routine.accepts.map((f) => [f.label, showValue(coerced.get(f.label) as never)]))),
-          PREVIEW_ARGS_CHARS,
-        );
+  const { calldata, argsLine } = encodeDeployInputs(m, routine, input.args);
 
   const participants = input.participants ?? [];
   for (const p of participants) {
@@ -194,7 +116,7 @@ export function planLogicDeploy(input: LogicDeployInput): LogicDeployPlan {
   return {
     manifestHex: m.hex,
     callsite: routine.name,
-    calldata: encoded === undefined ? undefined : `0x${encoded}`,
+    calldata,
     participants: [...participants],
     routines: m.counts.total,
     deployLine: `${routine.name}${only ? " (the only deploy routine in the manifest)" : ""}`,
@@ -260,22 +182,10 @@ export async function prepareLogicDeploy(account: string, plan: LogicDeployPlan)
     ...(plan.calldata ? { calldata: plan.calldata } : {}),
     participants: plan.participants,
   });
-  const provider = getProvider(providerOptions()) as unknown as { estimateFuel: (i: unknown) => Promise<number | bigint> };
-  const estimate = await estimateFuelFor(provider, built);
-  if (!estimate.estimated) log("info", `fuel estimation unavailable (${estimate.reason}); using the deploy fallback ${DEPLOY_FALLBACK_FUEL_LIMIT}`);
-  const ix = { ...built, fuel_limit: estimate.estimated ? estimate.fuelLimit : DEPLOY_FALLBACK_FUEL_LIMIT };
+  const { ix, estimated } = await measureFuel(built, DEPLOY_FALLBACK_FUEL_LIMIT);
 
   const maxFee = BigInt(ix.fuel_limit) * BigInt(ix.fuel_price);
-  const balance = await kmoiBalance(account);
-  if (balance < DEFAULT_STORAGE_FUND + maxFee) {
-    throw new MoiError(
-      ErrorCode.INSUFFICIENT_BALANCE,
-      `Deploying a logic moves ${DEFAULT_STORAGE_FUND} base units of KMOI (${asKmoi(DEFAULT_STORAGE_FUND)} KMOI) into it, and the chain holds back ` +
-        `the whole fuel limit, up to ${maxFee} (${asKmoi(maxFee)} KMOI), until the interaction is done, but this account holds ${balance} ` +
-        `(${asKmoi(balance)} KMOI). Fund the account from the faucet. Nothing was sent to your wallet.`,
-      { balance: balance.toString(), needed: (DEFAULT_STORAGE_FUND + maxFee).toString() },
-    );
-  }
+  assertAffordable(await kmoiBalance(account), DEFAULT_STORAGE_FUND, maxFee, "Deploying a logic");
 
   assertSendable(ix);
   await assertWillSucceed(
@@ -283,7 +193,7 @@ export async function prepareLogicDeploy(account: string, plan: LogicDeployPlan)
     `A new logic is funded with ${asKmoi(DEFAULT_STORAGE_FUND)} KMOI for its own account's storage, and this server moves no more. A deploy fails like this ` +
       "when its deploy routine writes state without `payer Logic` (that write is billed to your account and needs a storage grant the deploy cannot " +
       "bundle), when the routine's own checks revert, when the manifest needs more storage than that fund covers, or when the fuel limit is too low " +
-      `for a deploy (${ix.fuel_limit} here, ${estimate.estimated ? "the node's estimate with headroom" : "a fixed fallback, because the node could not estimate one"}). ` +
+      `for a deploy (${ix.fuel_limit} here, ${estimated ? "the node's estimate with headroom" : "a fixed fallback, because the node could not estimate one"}). ` +
       "The reason above is the node's, when it gave one.",
   );
   const logicId = predictLogicId(sender);

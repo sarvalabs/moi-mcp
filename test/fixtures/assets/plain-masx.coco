@@ -1,0 +1,11 @@
+// A MASX asset with no deploy routine, compiled to show the shape. Nothing runs when the asset is created and no callsite is sent.
+coco asset PlainAsset
+
+state logic:
+    note U64
+
+endpoint dynamic Set(value U64):
+    mutate value -> PlainAsset.Logic.note payer Logic
+
+endpoint static Note() -> (note U64):
+    observe note <- PlainAsset.Logic.note
