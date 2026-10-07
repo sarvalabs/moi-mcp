@@ -1,0 +1,199 @@
+{
+  "source": "test/fixtures/logics/flipper-payer.coco, compiled 2026-10-07 with Coco 0.9.0 for PISA 0.8.0 (coco compile -f json, [target.pisa] version = \"0.8.0\"), kind added by hand",
+  "manifest": {
+    "syntax": 1,
+    "engine": {
+      "kind": "PISA",
+      "flags": [],
+      "version": "0.8.0"
+    },
+    "kind": "logic",
+    "elements": [
+      {
+        "ptr": 0,
+        "kind": "state",
+        "data": {
+          "mode": "logic",
+          "fields": [
+            {
+              "slot": 0,
+              "label": "value",
+              "type": "bool"
+            }
+          ]
+        }
+      },
+      {
+        "ptr": 1,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Init",
+          "mode": "dynamic",
+          "kind": "deploy",
+          "accepts": [],
+          "returns": [],
+          "executes": {
+            "bin": []
+          },
+          "catches": []
+        }
+      },
+      {
+        "ptr": 2,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Seed",
+          "mode": "dynamic",
+          "kind": "deploy",
+          "accepts": [
+            {
+              "slot": 0,
+              "label": "initial",
+              "type": "bool"
+            }
+          ],
+          "returns": [],
+          "executes": {
+            "bin": [
+              131,
+              0,
+              144,
+              1,
+              0,
+              30,
+              1,
+              0,
+              4,
+              0,
+              0,
+              155,
+              1,
+              0,
+              159,
+              1
+            ]
+          },
+          "catches": []
+        }
+      },
+      {
+        "ptr": 3,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Get",
+          "mode": "static",
+          "kind": "invoke",
+          "accepts": [],
+          "returns": [
+            {
+              "slot": 0,
+              "label": "value",
+              "type": "bool"
+            }
+          ],
+          "executes": {
+            "bin": [
+              144,
+              0,
+              0,
+              5,
+              0,
+              0,
+              158,
+              0
+            ]
+          },
+          "catches": []
+        }
+      },
+      {
+        "ptr": 4,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Set",
+          "mode": "dynamic",
+          "kind": "invoke",
+          "accepts": [
+            {
+              "slot": 0,
+              "label": "value",
+              "type": "bool"
+            }
+          ],
+          "returns": [],
+          "executes": {
+            "bin": [
+              131,
+              0,
+              144,
+              1,
+              0,
+              30,
+              1,
+              0,
+              4,
+              0,
+              0,
+              155,
+              1,
+              0,
+              159,
+              1
+            ]
+          },
+          "catches": []
+        }
+      },
+      {
+        "ptr": 5,
+        "deps": [
+          0
+        ],
+        "kind": "callable",
+        "data": {
+          "name": "Toggle",
+          "mode": "dynamic",
+          "kind": "invoke",
+          "accepts": [],
+          "returns": [],
+          "executes": {
+            "bin": [
+              131,
+              0,
+              144,
+              1,
+              0,
+              30,
+              1,
+              0,
+              156,
+              0,
+              1,
+              98,
+              0,
+              0,
+              155,
+              1,
+              0,
+              159,
+              1
+            ]
+          },
+          "catches": []
+        }
+      }
+    ]
+  }
+}

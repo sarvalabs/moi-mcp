@@ -53,13 +53,19 @@ Files: `src/applications/launchpad/tools.ts` (the create, register and setup-scr
 
 Found with "Call Get on logic <id>" after the deploy (W6). The preview answered "account not found" twice. Checked from a laptop against the same devnet: with no `MOI_READ_CALLER`, the server's read-only call fails the same way; with it set to any existing account, `Get` returns `{"value": false}`. Same cause as the registry tools (issue noted under "Still owed"): the read-only signer uses a placeholder account the node rejects. Already in the devops request. Not a code bug, but the error the person sees should say which setting is missing, as the registry reads already do (`src/moi/provider.ts`, `src/capabilities/logics/view.ts`).
 
-### 7. The flipper fixture cannot be used to test writes on this devnet
+### 7. State-writing routines fail unless the Cocolang source declares `payer Logic`
 
-Found with "Call Toggle on logic <id>" (W5) and the `Seed` deploy routine. Simulation fails with receipt status 1 while the operation reports status 0 and no error, from the deployer's own account, and also when called through the SDK's own logic driver rather than this server's builder. So it is not the server. The flipper manifest in `test/fixtures/logics/flipper.json` was compiled with PISA engine 0.5.0 (copied from the SDK's test manifests); every logic that works on this devnet (KMOI, the agent registry) is engine 0.8.0. State-writing routines of the old bytecode fail on node 0.13.0; `Init` passed only because it has no code, and `Get` works because it only reads.
+Found with "Call Toggle on logic <id>" (W5) and the `Seed` deploy routine: simulation fails with receipt status 1, operation status 0 and no error, from the deployer's own account, and also through the SDK's own logic driver, so the server is not the cause.
 
-Needed: a manifest compiled with the current Cocolang compiler, from Gokul or by compiling the flipper source, both for `test/fixtures/logics/` and for the W5 test. Until then no state-writing `moi_call_logic` has run for real.
+First diagnosis, wrong: the flipper fixture's engine version (0.5.0). Recompiling the same source with the current compiler (Coco 0.9.0, PISA 0.8.0, the devnet's version) gives byte-identical bytecode and the same failure.
 
-Two things to fix in the server while at it: (a) the refusal text says "op status 0", which reads as success; when the node gives receipt status 1 with no operation error, say that the node gave no reason; (b) the deploy refusal's hint about `payer Logic` (`src/capabilities/logics/deploy.ts`, near line 284) is a guess and led Claude to tell the person to change their Cocolang source. Say that the node gave no reason, and list the known causes as possibilities.
+Real cause, confirmed on 7 October 2026: a state write is billed to the sender unless the source says `payer Logic`, and a sender billed that way needs a storage grant on the logic that it does not have (the SDK says the same in js-moi-logic, logic-base.ts, lines 113 to 120). The agent registry logic works because its source declares the payer. With `payer Logic` on every `mutate`, a deploy with `Seed` passes simulation on the devnet.
+
+The fix is in the Cocolang source, not the server. Working source and manifest are in `test/fixtures/logics/flipper-payer.coco` and `flipper-payer.json`. For the compiler: the nut file needs `version = "0.8.0"` under `[target.pisa]`; state is `state logic:` and is addressed as `<Logic>.Logic.<field>`; endpoints are `endpoint static` and `endpoint dynamic`; the clause is `mutate x -> Flipper.Logic.value payer Logic` and `mutate v <- Flipper.Logic.value payer Logic:`; the compiler leaves `kind: "logic"` out of the manifest and the server requires it, so add it by hand (or relax the server's check, see below).
+
+Still to fix in the server: (a) the refusal text says "op status 0", which reads as success; when the node gives receipt status 1 with no operation error, say that the node gave no reason; (b) the `payer Logic` hint in `src/capabilities/logics/deploy.ts` (near line 284) is right, and the same hint belongs on a failed `moi_call_logic` simulation, which today says nothing; (c) accept a manifest without `kind` by filling in `logic`, since the current compiler writes none. The old `flipper.json` fixture can stay for the deploy tests, since Init deploys fine.
+
+The flipper deployed on 7 October (`0x200000007f84e6f2c0f82142504167b9d762b0d37b689eea56e7001400000000`) has no payer clause, so its Toggle and Set can never be called. A fresh deploy of `flipper-payer.json` with `Seed(initial: true)` is the W5 test.
 
 ### 8. Stale "never run against a node" note on `moi_deploy_logic`
 
@@ -105,7 +111,7 @@ Work: widen `CreateAssetInput.standard` to the four values with the inputs each 
 
 ## Not yet run
 
-Call a state-writing routine (W5), blocked by issue 7 until a manifest compiled with the current compiler is available. Everything else in `docs/preview-test-prompts.md` has been run.
+Call a state-writing routine (W5): deploy `test/fixtures/logics/flipper-payer.json` with `Seed(initial: true)`, then call `Toggle` and read `Get`. Everything else in `docs/preview-test-prompts.md` has been run.
 
 ## Still owed from before
 
