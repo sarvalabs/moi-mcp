@@ -65,6 +65,14 @@ Two things to fix in the server while at it: (a) the refusal text says "op statu
 
 Claude told the person "the deploy tool is new: its own description says it hasn't been run against a node yet". It has now (see Passed). Remove that sentence from the tool description.
 
+### 9. Take `moi_configure_account` off the servers
+
+Found with "add a new key" (W1). claude.ai's Claude refused to call the tool: changing which keys can sign for the account is a security change it does not carry out even with approval. Adithya agrees that adding keys should not be possible from the chat.
+
+Why: adding a key at weight 1000 hands full signing power to that key for good. The phone shows the key as a hex string nobody can check by eye, so a wrong paste or a prompt injection in something Claude read is enough, and the preview and the tap do not guard against it.
+
+Recommendation: do not register `moi_configure_account` on the stdio or hosted server unless an operator turns it on with a setting, off by default. Keep the code (it works and was dry-run on the devnet) and keep the account-keys read. Revoking is lower risk but is also a signing change, so the whole tool goes rather than half of it. Gokul asked for the account operations in his review, so tell him. Files: `src/tools/register.ts`, `src/capabilities/accounts/`, `test/unit/tool-lists.test.ts` and its snapshots, `docs/`.
+
 ## Passed on 6 October 2026
 
 | Test | Result |
@@ -79,7 +87,7 @@ Claude told the person "the deploy tool is new: its own description says it hasn
 
 ## Not yet run
 
-Call a state-writing routine (W5, blocked by issue 7), configure account keys (W1, W2), the dapp refusals for localhost and private addresses (D2, D3), the reads on the read link (R1 to R7), the edge cases (E1 to E3), and a mint to another person's address (to learn whether claude.ai treats it as a transfer). The full prompt list is in `docs/preview-test-prompts.md`.
+Call a state-writing routine (W5, blocked by issue 7), the dapp refusals for localhost and private addresses (D2, D3), the reads on the read link (R1 to R7), the edge cases (E1 to E3), and a mint to another person's address (to learn whether claude.ai treats it as a transfer). The full prompt list is in `docs/preview-test-prompts.md`.
 
 ## Still owed from before
 
