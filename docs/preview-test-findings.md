@@ -99,12 +99,13 @@ Work: widen `CreateAssetInput.standard` to the four values with the inputs each 
 | Show logic (W4), 7 October | Routines listed as on chain. |
 | Storage fund below the floor (A3), 7 October | Refused at the dry run before the phone, naming the floor of about 6.1 KMOI, and offering 10 or 7 KMOI. |
 | Sign in to localhost (D2), 7 October | Refused before the phone: not a public host, with a sensible explanation. |
+| The rest of the list, 7 October | Adithya reports the remaining tests behaved as expected: mint KMOI refused (A6), private-address sign-in refused (D3), the reads (T1, T3, R1 to R7), the reject and timeout tests, and the remaining Launchpad calls (D4, D5, D9, D10). |
 | Launchpad sign-out (D12) and wallet disconnect (E3), 7 October | Both worked. Sign-out ended only the Launchpad session and said the wallet was still paired; disconnect ended the pairing and said reads still work. |
 | Burn through the asset's routine (T2), 7 October | First real `moi_asset_invoke`: preview named the routine and amount, phone, sent; balance 1,100 to 1,095 bobtoken. Interaction `0x088a19c8f956bab593fa09c345becddd5b6ab59277f83ba182a80edc842327f4`. |
 
 ## Not yet run
 
-Call a state-writing routine (W5, blocked by issue 7), the dapp refusals for localhost and private addresses (D2, D3), the reads on the read link (R1 to R7), the edge cases (E1 to E3), and a mint to another person's address (to learn whether claude.ai treats it as a transfer). The full prompt list is in `docs/preview-test-prompts.md`.
+Call a state-writing routine (W5), blocked by issue 7 until a manifest compiled with the current compiler is available. Everything else in `docs/preview-test-prompts.md` has been run.
 
 ## Still owed from before
 
