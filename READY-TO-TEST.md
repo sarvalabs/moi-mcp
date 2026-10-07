@@ -89,7 +89,7 @@ Call the transfer prompt **T**:
 |---|---|---|---|
 | 1 | `what's my MOI wallet status?` | — | `connected: true`, account `0x…1a46…`, `network: voyage`, `chainId: moi:14`, `configOk: true` |
 | 2 | **T** | **Approve** | `{"status":"sent","hash":"0x…","explorerUrl":…}`. Then `did that land?` → `status: success` |
-| 3 | `create an asset called MCPTEST with supply 1000` | **Approve** | `status: sent` + hash — the new asset id is **not** in the write result (only `{status, hash, explorerUrl}`). Get it from `did <hash> land?` and read the ASSET_CREATE operation's payload/receipt, or from the explorerUrl page. Then `look up asset <that id>` → symbol MCPTEST, MAS0 |
+| 3 | `create an asset called MCPTEST with supply 1000` | Approve | `status: sent` + hash. On the hosted server the result also has `created: "yes"` and the new asset id; on the stdio server it has `created: "unknown"` and a note that says how to read the id (`did <hash> land?`, then the first operation's `data.asset_id`, or the explorerUrl page). Then `look up asset <that id>` → symbol MCPTEST, MAS0 |
 | 3b | `mint 1000 of asset <the new id>` | **Approve** | `status: sent`; then `what's in my account?` shows the new asset, and it appears in MOI Wallet. Creating sets a max supply and mints nothing — until you mint, you hold none and the wallet shows nothing |
 | 4 | **T** | **Reject** | `{"status":"rejected","reason":"user_rejected"}` |
 | 5 | **T** | ignore it | After ~60 s the chat shows `MCP error -32001: Request timed out`. The server gives up first at `REQUEST_TIMEOUT_MS` (55000), just under the MCP client's own 60s `DEFAULT_REQUEST_TIMEOUT_MSEC`, so the approval dies with it. Pass = the request ends cleanly, a later tap does nothing, and `npm run status` still shows `connected: true` |

@@ -32,7 +32,13 @@ P5  Look up interaction <hash from P1>.
 A1  Create a new asset with symbol TESTA and supply 1000.
     Expect: preview shows a storage fund of 10 KMOI (7 KMOI if your balance is under 10.001). Confirm, approve. Sent. Keep the asset id.
 A2  Create a MAS1 asset with symbol NFTA.
-    Expect: refused before the phone. Only MAS0 can be created.
+    Expect: a preview that says one unit, identified by token id, with no supply and no decimals, the id the asset will get and a storage fund of 10 KMOI (a MAS1 create is refused with the balance when the account cannot carry 10 KMOI plus the fuel). Confirm, approve. Sent, with created yes and the asset id. Keep the id.
+A2b Create a MAS2 asset with symbol GOLD, supply 1000 and 2 decimals.
+    Expect: a preview that says fungible units under token ids, with the supply and the decimals, and a storage fund of 10 KMOI. Confirm, approve. Sent, with created yes and the asset id.
+A2c Create a MASX asset with symbol TAX and supply 1000000 from test/fixtures/assets/taxtoken-masx.json (the manifest object inside "manifest"), with treasury_addr set to your own address, bps 300 and initial_supply 1000000.
+    Expect: a preview that lists 2 routines, 541 bytes, the SHA-256 aae74411..., the deploy routine Init and its inputs, and a storage fund of 10 KMOI. Confirm, approve. Sent, with created yes and the asset id.
+A2d Create a MAS1 asset with symbol NFTB and supply 5.
+    Expect: refused before the phone, saying a MAS1 asset takes no supply and why. Nothing sent.
 A3  Create an asset with symbol TINY, supply 10, and a storage fund of 1 KMOI.
     Expect: refused at the dry run, naming the floor of about 6.1 KMOI. Nothing sent.
 A4  Mint 100 more TESTA (asset <id from A1>).
@@ -126,7 +132,7 @@ E3  Disconnect my wallet.   (then:)   Send 1 KMOI to my own address.
 - moi_faucet is off (its two settings are not set).
 - moi_list_agents and moi_resolve_agent fail until MOI_READ_CALLER is set (R7 shows this).
 - Encryption at rest moved to the later PR.
-- MAS1 and MAS2 assets: none exist on the devnet.
+- MAS1, MAS2 and MASX assets: none exist on the devnet until prompts A2 to A2c are run.
 
 ## After P1
 Ask devops for the signed-check log line of pm2 app moi-mcp-write-pr-320. It says whether what the phone signed matched the preview, and it is what decides when MOI_SIGNED_CHECK can move from warn to enforce.

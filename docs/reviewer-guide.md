@@ -76,7 +76,7 @@ Top level:
 - `src/server.ts` (681): hosted multi-user entry point. Builds a new McpServer per request, mounts OAuth, pairing, security headers, rate limits, and the journal reconciliation on boot. The header documents claude.ai's lazy auth: only a real 401 with `WWW-Authenticate` triggers the Connect card, never a tool error.
 - `src/cli.ts` (143): the `moi-mcp` pairing CLI.
 - `src/config.ts` (239): environment loading and validation with zod. Lazy so the server can start and report why it is misconfigured. Also maps an injected `PORT` onto `HOSTED_PORT` for platforms that assign ports.
-- `src/schema.ts` (521): the one place tool input and output shapes, WalletConnect payloads, the on-disk session store, and error codes are defined.
+- `src/schema.ts` (521): the one place tool input and output shapes, WalletConnect payloads, the on-disk session store, and error codes are defined. Two pieces live in files of their own and are re-exported from it: `src/schema-amount.ts` (the amount primitives) and `src/schema-create-asset.ts` (the input of `moi_create_asset`).
 - `src/errors.ts` (72): maps the string error codes onto JSON-RPC errors MCP clients understand, keeping the string code at `data.code`.
 - `src/moi-error.ts` (32): framework-free error type so src/moi/ and src/wc/ never import the MCP SDK.
 - `src/journal.ts` (186): append-only write journal at `<dataDir>/journal.jsonl`, one JSON object per line (JSONL). States: proposed, signed, broadcast, confirmed, failed, orphaned (line 16).
@@ -110,7 +110,7 @@ Top level:
 `src/moi/` (chain library, no MCP imports by rule):
 
 - `src/moi/provider.ts` (224): network registry, provider factory, and the ReadOnlySigner (see custody below).
-- `src/moi/ix-builder.ts` (565): builds unsigned interactions, documents the two encodings that are often confused (plain InteractionObject to the wallet, POLO hex to the node), fuel estimation (fuel is the compute cost a transaction may consume), and `quoteChainText`.
+- `src/moi/ix-builder.ts` (565): builds unsigned interactions, documents the two encodings that are often confused (plain InteractionObject to the wallet, POLO hex to the node), fuel estimation (fuel is the compute cost a transaction may consume), and `quoteChainText`. The operations of an asset creation for each standard, and the prediction of the new asset's id, are in `src/moi/ix-build-asset.ts`, which `ix-builder.ts` re-exports and wraps in `buildCreateAsset`.
 - `src/moi/reads.ts` (324): account, asset, interaction, and logic reads returning exactly the schema shapes, plus `clampChainText`.
 
 `src/tools/` (what every tool shares):
@@ -128,7 +128,7 @@ Top level:
 `src/capabilities/` (what the node can do, by capability; imports nothing from `src/applications`):
 
 - `src/capabilities/accounts/create-participant.ts`: `moi_create_account`.
-- `src/capabilities/assets/`: `create.ts` (`moi_create_asset`), `shortcuts.ts` (`moi_transfer`, `moi_mint` and the standard guard), `execute.ts` (the half of `moi_asset_invoke` that needs the node and the write path), and the manifest reading, argument coding and one file per asset standard, which import nothing from `src/tools/`.
+- `src/capabilities/assets/`: `create.ts` (`moi_create_asset`), `create-plan.ts` (what each standard takes, the refusals and the preview words), `create-masx.ts` (the MASX manifest and its deploy routine), `create-receipt.ts` (the new asset's id from the receipt), `shortcuts.ts` (`moi_transfer`, `moi_mint` and the standard guard), `execute.ts` (the half of `moi_asset_invoke` that needs the node and the write path), and the manifest reading, argument coding and one file per asset standard, which import nothing from `src/tools/`.
 - `src/capabilities/logics/`: `invoke.ts` and `view.ts` (`moi_call_logic`).
 - `src/capabilities/reads/`: `tools.ts` (the read tools) and `registry.ts` (agent-registry reads through getLogicDriver, deliberately avoiding `AgentRegistry.init()` because it demands a Signer with keys; it is here because the read gateway serves it).
 

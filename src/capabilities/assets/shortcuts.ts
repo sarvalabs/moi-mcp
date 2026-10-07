@@ -24,7 +24,8 @@ import {
  * (MASNAssetLogic.transfer in js-moi-asset). Mint is MAS0 and MAS2, whose Mint takes {beneficiary, amount} in both
  * (MINT_SCHEMA in mas0-schema and mas2-schema), so the MAS0AssetLogic that buildMint uses writes the same bytes for
  * either. MAS1 and MAS2 transfers name a token id, MAS1 mint takes no amount, and MASX defines its own routines, so
- * nothing here builds those. Widen a list when the builder behind it is right for that standard, and not before.
+ * nothing here builds those; moi_asset_invoke does (a token id goes there, not here), and every refusal below says so.
+ * Widen a list when the builder behind it is right for that standard, and not before.
  */
 const TRANSFERABLE_STANDARDS: readonly string[] = ["MAS0", "MASN"];
 const MINTABLE_STANDARDS: readonly string[] = ["MAS0", "MAS2"];
@@ -44,7 +45,10 @@ export function assertStandardSupported(
   const isKmoi = assetId.toLowerCase() === String(KMOI_ASSET_ID).toLowerCase();
   const label = `${asset.symbol || "(no symbol)"} ${assetId}`;
   const named = standard || "unreadable";
-  const unsupported = "This tool does not recognise that standard.";
+  const unsupported =
+    "This tool does not recognise that standard. If the node has a manifest for the asset, moi_asset_routines lists what it can do and moi_asset_invoke calls a routine.";
+  const ownRoutine = (routine: string): string =>
+    `A MASX asset defines its own ${routine}, and this tool does not know its shape. List its routines with moi_asset_routines and call the one you want with moi_asset_invoke.`;
   let message: string;
   let supported: readonly string[];
 
@@ -53,9 +57,10 @@ export function assertStandardSupported(
     supported = TRANSFERABLE_STANDARDS;
     const why =
       standard === "MAS1" || standard === "MAS2"
-        ? `A ${standard} transfer names a token id, which this tool has no argument for.`
+        ? `A ${standard} transfer names a token id, which this tool has no argument for. To move a token of this asset, call moi_asset_invoke with the routine Transfer, ` +
+          `which takes ${standard === "MAS2" ? "a token_id, a beneficiary and an amount" : "a token_id and a beneficiary"}; it is previewed and approved like any other write.`
         : standard === "MASX"
-          ? "A MASX asset defines its own Transfer, and this tool does not know its shape."
+          ? ownRoutine("Transfer")
           : unsupported;
     message =
       `moi_transfer does not support ${label}: its standard is ${named}, and only MAS0 assets and KMOI can be ` +
@@ -64,15 +69,16 @@ export function assertStandardSupported(
     supported = MINTABLE_STANDARDS;
     message =
       `moi_mint cannot mint ${label}: it is a native asset (standard ${named}), and the chain reserves minting it ` +
-      `for the protocol. Nothing was sent to your wallet.`;
+      `for the protocol. moi_asset_invoke cannot mint it either. Nothing was sent to your wallet.`;
   } else {
     if (MINTABLE_STANDARDS.includes(standard)) return;
     supported = MINTABLE_STANDARDS;
     const why =
       standard === "MAS1"
-        ? "A MAS1 Mint takes only a recipient and no amount, so the call this tool builds does not fit it."
+        ? "A MAS1 Mint takes only a recipient and no amount, so the call this tool builds does not fit it. " +
+          "Call moi_asset_invoke with the routine Mint and the input beneficiary, and no amount."
         : standard === "MASX"
-          ? "A MASX asset defines its own Mint, and this tool does not know its shape."
+          ? ownRoutine("Mint")
           : unsupported;
     message =
       `moi_mint does not support ${label}: its standard is ${named}, and only MAS0 and MAS2 assets can be minted ` +
@@ -169,7 +175,7 @@ export function transferTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
       title: "Transfer a MOI asset",
       description:
         "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first. " +
-        "Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation, before any preview." +
+        "Works for MAS0 assets and KMOI; any other asset standard is refused with an explanation, before any preview; the explanation names moi_asset_invoke, which transfers a MAS1 or MAS2 token by its token id." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...TransferInput.shape, confirm: ConfirmArg },
       outputSchema: WriteOutputShape,
@@ -187,7 +193,7 @@ export function mintTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {
       title: "Mint tokens of a MOI asset",
       description:
         "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone. " +
-        "Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation, before any preview." +
+        "Works for MAS0 and MAS2 assets; the native asset (KMOI) cannot be minted and other standards are refused with an explanation, before any preview; the explanation names moi_asset_invoke, which mints a MAS1 token to a beneficiary with no amount." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...MintInput.shape, confirm: ConfirmArg },
       outputSchema: WriteOutputShape,

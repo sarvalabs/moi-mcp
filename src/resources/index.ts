@@ -46,6 +46,17 @@ burn, an approval, a MAS1 token transfer). A routine that only reads answers at
 once; one that changes state takes the same two calls, a preview and then the
 confirm.
 
+\`moi_create_asset\` makes an asset in one of four standards. MAS0 is the default:
+fungible units, one balance per holder. MAS1 is one unit identified by a token id,
+with no supply and no decimals. MAS2 is fungible units under token ids. MASX is a
+custom asset made from a compiled manifest (the JSON that \`coco compile\` writes
+for a \`coco asset\` module), with a deploy routine that runs when the asset is
+created. The standard is fixed when the asset is created. The result gives the new
+asset's id when the receipt shows it in time (the hosted server waits up to 30
+seconds), and otherwise says how to read it with \`moi_get_interaction\`, which is
+always so on the stdio server. To mint, transfer or burn the tokens of a MAS1 or
+MAS2 asset, or to call a MASX asset's routines, use \`moi_asset_invoke\`.
+
 \`moi_deploy_logic\` deploys a new logic from a compiled manifest you give it (the
 JSON that \`coco compile\` writes) and runs one of its deploy routines. It takes the
 same two calls. This server cannot show what the logic's code does, so deploy only
