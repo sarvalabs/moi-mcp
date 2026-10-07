@@ -49,6 +49,22 @@ Wanted: after an agent is created (and registered), the tool result and the serv
 
 Files: `src/applications/launchpad/tools.ts` (the create, register and setup-script results), `src/instructions.ts`.
 
+### 6. Logic reads fail on the preview until `MOI_READ_CALLER` is set
+
+Found with "Call Get on logic <id>" after the deploy (W6). The preview answered "account not found" twice. Checked from a laptop against the same devnet: with no `MOI_READ_CALLER`, the server's read-only call fails the same way; with it set to any existing account, `Get` returns `{"value": false}`. Same cause as the registry tools (issue noted under "Still owed"): the read-only signer uses a placeholder account the node rejects. Already in the devops request. Not a code bug, but the error the person sees should say which setting is missing, as the registry reads already do (`src/moi/provider.ts`, `src/capabilities/logics/view.ts`).
+
+### 7. The flipper fixture cannot be used to test writes on this devnet
+
+Found with "Call Toggle on logic <id>" (W5) and the `Seed` deploy routine. Simulation fails with receipt status 1 while the operation reports status 0 and no error, from the deployer's own account, and also when called through the SDK's own logic driver rather than this server's builder. So it is not the server. The flipper manifest in `test/fixtures/logics/flipper.json` was compiled with PISA engine 0.5.0 (copied from the SDK's test manifests); every logic that works on this devnet (KMOI, the agent registry) is engine 0.8.0. State-writing routines of the old bytecode fail on node 0.13.0; `Init` passed only because it has no code, and `Get` works because it only reads.
+
+Needed: a manifest compiled with the current Cocolang compiler, from Gokul or by compiling the flipper source, both for `test/fixtures/logics/` and for the W5 test. Until then no state-writing `moi_call_logic` has run for real.
+
+Two things to fix in the server while at it: (a) the refusal text says "op status 0", which reads as success; when the node gives receipt status 1 with no operation error, say that the node gave no reason; (b) the deploy refusal's hint about `payer Logic` (`src/capabilities/logics/deploy.ts`, near line 284) is a guess and led Claude to tell the person to change their Cocolang source. Say that the node gave no reason, and list the known causes as possibilities.
+
+### 8. Stale "never run against a node" note on `moi_deploy_logic`
+
+Claude told the person "the deploy tool is new: its own description says it hasn't been run against a node yet". It has now (see Passed). Remove that sentence from the tool description.
+
 ## Passed on 6 October 2026
 
 | Test | Result |
@@ -58,10 +74,12 @@ Files: `src/applications/launchpad/tools.ts` (the create, register and setup-scr
 | Create asset | Preview (10 KMOI fund, MAS0, decimals 0), confirm, phone, sent. A name change before confirm gave a fresh preview. Asset bobtoken `0x1003000090487ec2e20295bf9dacbc8ee80bcc39294f7664cfb20d1600000000`, interaction `0x1aa5c7ad80d5ed77469dd1cf8a62cb21d3755cd3f175253cf807d46ac6ab3985`. |
 | Mint | Preview, confirm, phone, sent; balance 100 bobtoken. Interaction `0x8f719e5f34944b32a080fe96aa4d841ff5c2137eb2ea57b21cf4493205d15a83`. Run twice; the phone prompted both times. |
 | Launchpad | Sign-in, agent creation and the setup-script download worked (see issue 5). |
+| Deploy logic (W3), 7 October | First real `moi_deploy_logic`: the preview asked which of the two deploy routines to use, refused `Seed` at the dry run, previewed `Init` with the 10 KMOI funding transfer, then phone, sent. Receipt status 0 on both operations. Logic `0x200000007f84e6f2c0f82142504167b9d762b0d37b689eea56e7001400000000`, interaction `0x478208128c3dff11d83f328ab0f4c6019896e7ffb3bd452564f35f5ba395a901`. Attaching the manifest as a file in claude.ai worked. |
+| Show logic (W4), 7 October | Routines listed as on chain. |
 
 ## Not yet run
 
-Deploy a logic (W3), call a routine (W5), configure account keys (W1, W2), the dapp refusals for localhost and private addresses (D2, D3), the reads on the read link (R1 to R7), the edge cases (E1 to E3), and a mint to another person's address (to learn whether claude.ai treats it as a transfer). The full prompt list is in `docs/preview-test-prompts.md`.
+Call a state-writing routine (W5, blocked by issue 7), configure account keys (W1, W2), the dapp refusals for localhost and private addresses (D2, D3), the reads on the read link (R1 to R7), the edge cases (E1 to E3), and a mint to another person's address (to learn whether claude.ai treats it as a transfer). The full prompt list is in `docs/preview-test-prompts.md`.
 
 ## Still owed from before
 
