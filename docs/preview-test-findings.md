@@ -97,6 +97,7 @@ Work: widen `CreateAssetInput.standard` to the four values with the inputs each 
 | Launchpad | Sign-in, agent creation and the setup-script download worked (see issue 5). |
 | Deploy logic (W3), 7 October | First real `moi_deploy_logic`: the preview asked which of the two deploy routines to use, refused `Seed` at the dry run, previewed `Init` with the 10 KMOI funding transfer, then phone, sent. Receipt status 0 on both operations. Logic `0x200000007f84e6f2c0f82142504167b9d762b0d37b689eea56e7001400000000`, interaction `0x478208128c3dff11d83f328ab0f4c6019896e7ffb3bd452564f35f5ba395a901`. Attaching the manifest as a file in claude.ai worked. |
 | Show logic (W4), 7 October | Routines listed as on chain. |
+| Launchpad sign-out (D12) and wallet disconnect (E3), 7 October | Both worked. Sign-out ended only the Launchpad session and said the wallet was still paired; disconnect ended the pairing and said reads still work. |
 | Burn through the asset's routine (T2), 7 October | First real `moi_asset_invoke`: preview named the routine and amount, phone, sent; balance 1,100 to 1,095 bobtoken. Interaction `0x088a19c8f956bab593fa09c345becddd5b6ab59277f83ba182a80edc842327f4`. |
 
 ## Not yet run
