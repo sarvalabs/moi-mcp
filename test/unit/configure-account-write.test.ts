@@ -33,7 +33,8 @@ let wallet: FakeWallet;
 
 beforeEach(async () => {
   node = await startMockNode();
-  h = await startHarness(node.url);
+  // The tool is registered only when the operator turns it on (MOI_ACCOUNT_KEY_TOOLS, src/config.ts), and this file tests the tool.
+  h = await startHarness(node.url, { env: { MOI_ACCOUNT_KEY_TOOLS: "on" } });
   wallet = fakeWallet();
   installWallet(h.home, wallet);
 });

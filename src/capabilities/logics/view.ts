@@ -8,6 +8,7 @@ import type { z } from "zod";
 import { MoiError } from "../../moi-error.js";
 import { assertNotDeployRoutine, type CallsiteReader } from "../../moi/ix-builder.js";
 import { getReadOnlySigner } from "../../moi/provider.js";
+import { rejectedCallerError } from "../../moi/read-caller.js";
 import { ErrorCode, type CallLogicInput, type CallLogicViewOutput } from "../../schema.js";
 import { providerOptions } from "../../tools/write-core.js";
 import { jsonSafe, unwrapRoutineResult } from "../reads/registry.js";
@@ -33,8 +34,15 @@ export async function viewLogicCall(
       `Logic ${params.logicId} has no routine "${params.routine}". Available: ${Object.keys(driver.routines ?? {}).join(", ")}.`,
     );
   }
-  const response = await (await fn(...(params.args ?? []))).call();
-  const outputs = unwrapRoutineResult(await response.result(), `${params.routine} on ${params.logicId}`);
+  let raw: unknown;
+  try {
+    const response = await (await fn(...(params.args ?? []))).call();
+    raw = await response.result();
+  } catch (err) {
+    // The node refusing the placeholder caller says which setting fixes it (src/moi/read-caller.ts); any other failure passes through.
+    throw rejectedCallerError(err) ?? err;
+  }
+  const outputs = unwrapRoutineResult(raw, `${params.routine} on ${params.logicId}`);
   return {
     routine: params.routine,
     outputs: (jsonSafe(outputs) ?? {}) as Record<string, unknown>,

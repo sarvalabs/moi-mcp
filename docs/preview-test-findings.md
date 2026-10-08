@@ -8,6 +8,8 @@ Preview links: `https://pr-320-mcp.preview.voyage.moi.technology/mcp` (write) an
 
 ### 1. Show the wallet QR code in the chat itself
 
+Done on 7 October 2026 on feat/asset-standards: the result text opens with the QR as block characters in a fenced code block, the image stays, the pairing page link is no longer returned or mentioned.
+
 Found with "Connect my MOI wallet." Today `moi_connect_wallet` returns a 320 px PNG image block plus a link to a pairing page. claude.ai shows the image only as a small thumbnail at the top right of the message, so Claude points the person at the link.
 
 Wanted: the QR code visible in the chat, and no link to a separate page.
@@ -15,6 +17,8 @@ Wanted: the QR code visible in the chat, and no link to a separate page.
 Idea on file: also return the QR as block-character text (`qrcode.toString(uri, { type: "utf8", small: true })`, about 35 lines by 69 characters for a real pairing URI), tell Claude in the tool description to print it in a code block, keep the image block, and drop the pairing page. Risk: Claude must copy the block exactly; the QR's error correction covers small slips. Files: `src/tools/wallet-hosted.ts`, `src/wc/qr.ts`, `src/pairing/`.
 
 ### 2. Ask how long the relay connection should stay open
+
+Done on 7 October 2026: moi_connect_wallet takes a required lifetime input, once (15 minutes or the next approved transaction), day or week, and its description tells the model to ask first.
 
 Found with "Connect my MOI wallet." Claude said "you stay connected for a week" without asking. The pairing lifetime is fixed at 7 days in code.
 
@@ -38,6 +42,8 @@ Ways forward: (a) ask Anthropic for written permission and point at the "may rev
 
 ### 5. The agent runtime step must be an explicit, ordered step
 
+Done on 7 October 2026: the create, register and setup-script results and the hosted instructions give the four steps in order; the download link works with curl -fL -o and is spent by the first request, a HEAD included.
+
 Found with the Launchpad flow (sign in, create an agent named Badger, download its setup script). Everything worked, but after creating the agent Claude first said there was nothing left to do, and only gave the setup script when pushed. It also did not know whether the download link works with `curl` or only in a browser, and it had to search the web for where to get a Groq key.
 
 Wanted: after an agent is created (and registered), the tool result and the server instructions tell Claude that the agent runs only once its setup script has been run on a machine, and walk the person through it in this order:
@@ -51,9 +57,13 @@ Files: `src/applications/launchpad/tools.ts` (the create, register and setup-scr
 
 ### 6. Logic reads fail on the preview until `MOI_READ_CALLER` is set
 
+Done on 7 October 2026: registry reads, asset reads and logic views share one message naming MOI_READ_CALLER (src/moi/read-caller.ts).
+
 Found with "Call Get on logic <id>" after the deploy (W6). The preview answered "account not found" twice. Checked from a laptop against the same devnet: with no `MOI_READ_CALLER`, the server's read-only call fails the same way; with it set to any existing account, `Get` returns `{"value": false}`. Same cause as the registry tools (issue noted under "Still owed"): the read-only signer uses a placeholder account the node rejects. Already in the devops request. Not a code bug, but the error the person sees should say which setting is missing, as the registry reads already do (`src/moi/provider.ts`, `src/capabilities/logics/view.ts`).
 
 ### 7. State-writing routines fail unless the Cocolang source declares `payer Logic`
+
+Server parts done on 7 October 2026: the refusal says the node gave no reason instead of op status 0, moi_call_logic refusals carry the payer Logic hint, and a logic manifest with no kind is accepted as logic.
 
 Found with "Call Toggle on logic <id>" (W5) and the `Seed` deploy routine: simulation fails with receipt status 1, operation status 0 and no error, from the deployer's own account, and also through the SDK's own logic driver, so the server is not the cause.
 
@@ -69,6 +79,8 @@ The flipper deployed on 7 October (`0x200000007f84e6f2c0f82142504167b9d762b0d37b
 
 ### 8. Stale "never run against a node" note on `moi_deploy_logic`
 
+Done on 7 October 2026.
+
 Claude told the person "the deploy tool is new: its own description says it hasn't been run against a node yet". It has now (see Passed). Remove that sentence from the tool description.
 
 ### 9. Take `moi_configure_account` off the servers
@@ -79,7 +91,11 @@ Why: adding a key at weight 1000 hands full signing power to that key for good. 
 
 Recommendation: do not register `moi_configure_account` on the stdio or hosted server unless an operator turns it on with a setting, off by default. Keep the code (it works and was dry-run on the devnet) and keep the account-keys read. Revoking is lower risk but is also a signing change, so the whole tool goes rather than half of it. Gokul asked for the account operations in his review, so tell him. Files: `src/tools/register.ts`, `src/capabilities/accounts/`, `test/unit/tool-lists.test.ts` and its snapshots, `docs/`.
 
+Done: moi_configure_account is registered only when MOI_ACCOUNT_KEY_TOOLS is on; the default is off, on the hosted and the stdio server.
+
 ### 10. Add MAS1, MAS2 and MASX asset creation
+
+Done on 7 October 2026 in commits 31c67c5 and f1be945 on feat/asset-standards: see README and the plan; one real creation per standard from a phone is still owed.
 
 Found with "Create a MAS1 asset with symbol NFTA" (A2): the refusal is correct for the code as it stands, and Adithya wants the capability built.
 

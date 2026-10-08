@@ -47,3 +47,5 @@ Not secrets, and not blocking, but the preview and dev deploys are missing them 
 |---|---|---|
 | `MOI_READ_CALLER` | Any participant id that exists on the network, for example the KMOI creator `0x000000005dfd3e93ae09bea907f0d6db965ddfe84d09dfdf868e4e6800000000` on the devnet | Without it, `moi_list_agents` and `moi_resolve_agent` return an error, on both the read and the write service |
 | `MOI_SIGNED_CHECK` | `warn` (the default) for now | Leave it; it moves to `enforce` later |
+
+A third setting, `MOI_ACCOUNT_KEY_TOOLS`, is off by default and should stay unset unless the owner asks for it. With it off, `moi_configure_account` is not offered, so prompts W1 and W2 in docs/preview-test-prompts.md do not apply on that deployment.

@@ -4,10 +4,25 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { accountKeyToolsOn } from "../config.js";
 import { NETWORKS } from "../moi/provider.js";
 import { DEFAULT_REGISTRY_LOGIC_ID, registryLogicId } from "../capabilities/reads/registry.js";
 
-const QUICKSTART = `# MOI MCP — quickstart
+/**
+ * The paragraph on moi_configure_account. It is part of the quickstart only when the tool is registered
+ * (MOI_ACCOUNT_KEY_TOOLS=on, src/tools/register.ts), because the quickstart names the tools the server has.
+ */
+const ACCOUNT_KEYS_PARAGRAPH = `\`moi_configure_account\` adds keys to your account or revokes keys. A key you add
+can sign for your account, so the preview shows every public key in full: read
+them before you say yes. One call adds keys or revokes keys, never both. It reads
+your account's keys first and refuses a change that would leave nothing able to
+sign, and a key you revoked earlier. It takes the same two calls, and it has not
+been run against a node yet, so try it on devnet first.
+
+`;
+
+/** The quickstart text, with the account key tool named only when `accountKeys` says the server registers it. */
+const quickstart = (accountKeys: boolean): string => `# MOI MCP — quickstart
 
 Give your agent a MOI wallet. The server never holds a private key: it reads
 chain state directly, and every state change is signed on your phone in MOI
@@ -36,8 +51,11 @@ Reads need no wallet. Ask your agent:
 ## 3. Pair, then write
 
 \`moi_connect_wallet\` returns a QR code. Scan it with MOI Wallet on your phone.
+On the hosted server Claude first asks how long the pairing should stay open:
+once, day or week. There the code is drawn as text, which Claude prints in the
+chat, and it also comes as an image.
 Then \`moi_transfer\`, \`moi_create_asset\`, \`moi_mint\`, \`moi_call_logic\`,
-\`moi_asset_invoke\`, \`moi_deploy_logic\` and \`moi_configure_account\` build an
+\`moi_asset_invoke\`${accountKeys ? ", \`moi_deploy_logic\` and \`moi_configure_account\`" : " and \`moi_deploy_logic\`"} build an
 interaction here and send it to your phone for approval. Nothing moves until you
 tap Send.
 
@@ -63,24 +81,17 @@ same two calls. This server cannot show what the logic's code does, so deploy on
 a manifest you trust. 10 KMOI moves into the new logic's own account to pay for
 its storage, and nothing here can take that back or remove the logic; the preview
 says so, with the fuel. It returns the new logic's id when the receipt shows it,
-and says where to look otherwise. It has not been run against a node yet, so try
-it on devnet first.
+and says where to look otherwise.
 
-\`moi_configure_account\` adds keys to your account or revokes keys. A key you add
-can sign for your account, so the preview shows every public key in full: read
-them before you say yes. One call adds keys or revokes keys, never both. It reads
-your account's keys first and refuses a change that would leave nothing able to
-sign, and a key you revoked earlier. It takes the same two calls, and it has not
-been run against a node yet, so try it on devnet first.
-
-## 4. Agents on the MOI Agent Launchpad (hosted server only)
+${accountKeys ? ACCOUNT_KEYS_PARAGRAPH : ""}## 4. Agents on the MOI Agent Launchpad (hosted server only)
 
 \`moi_launchpad_templates\` lists what you can build. Sign in to the Launchpad
 with \`moi_dapp_sign_in\` and its address, https://launchpad.moi.technology
 (\`moi_launchpad_status\` says which one this server uses): it signs one message
 with the paired wallet, and the session lasts up to a day. Then
 \`moi_launchpad_create_agent\`, \`moi_launchpad_register_agent\` (one tap on
-the phone, the step that makes the agent live), \`moi_launchpad_telegram_link\`
+the phone; it registers the agent, which runs only once its setup script has
+been run on a machine), \`moi_launchpad_telegram_link\`
 for the bot link, and \`moi_launchpad_setup_script\` for a one-time download
 link to the agent's setup script. \`moi_launchpad_status\` shows where things
 stand. \`moi_list_agents\` reads the on-chain registry itself.
@@ -152,7 +163,8 @@ export function registerResources(server: McpServer): void {
       mimeType: "text/markdown",
     },
     async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: "text/markdown", text: QUICKSTART }],
+      // Read when the resource is asked for, so the text follows the setting the process runs with.
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: quickstart(accountKeyToolsOn()) }],
     }),
   );
 }

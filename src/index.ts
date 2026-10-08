@@ -11,7 +11,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createRequire } from "node:module";
 
-import { getConfig, log, projectIdIssue } from "./config.js";
+import { accountKeyToolsOn, getConfig, log, projectIdIssue } from "./config.js";
 import { messageOf } from "./errors.js";
 import { STDIO_INSTRUCTIONS } from "./instructions.js";
 import { withModernSchemaDialect } from "./json-schema-dialect.js";
@@ -44,6 +44,10 @@ async function main(): Promise<void> {
     log("info", `config ok — network=${cfg.MOI_NETWORK} home=${cfg.home}`);
   } catch (err) {
     log("error", `starting with invalid config — ${messageOf(err)}`);
+  }
+
+  if (accountKeyToolsOn()) {
+    log("info", "account key tools are on (MOI_ACCOUNT_KEY_TOOLS=on): moi_configure_account is registered");
   }
 
   // What the client hands its model about this server: the write rules and the units, in src/instructions.ts.

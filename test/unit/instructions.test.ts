@@ -10,14 +10,18 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildReadOnlyServer } from "../../src/http.js";
+import { GROQ_KEYS_URL } from "../../src/applications/launchpad/run-steps.js";
 import { GATEWAY_INSTRUCTIONS, HOSTED_INSTRUCTIONS, STDIO_INSTRUCTIONS } from "../../src/instructions.js";
 import { startHarness, type Harness } from "../helpers/harness.js";
 import { importGraph } from "../helpers/import-graph.js";
 
-/** About 1,500 characters a text: a short read in every conversation. */
-const MAX_CHARS = 1500;
-
 type Mode = "gateway" | "stdio" | "hosted";
+
+/**
+ * About 1,500 characters a text: a short read in every conversation. The hosted text is the one that explains an
+ * application workflow (the Launchpad's four steps), so its ceiling is higher; the other two do not move.
+ */
+const MAX_CHARS: Record<Mode, number> = { gateway: 1500, stdio: 1500, hosted: 2400 };
 const TEXTS: Record<Mode, string> = {
   gateway: GATEWAY_INSTRUCTIONS,
   stdio: STDIO_INSTRUCTIONS,
@@ -73,7 +77,7 @@ function listed(mode: Mode): string[] {
 describe("the instruction texts", () => {
   it.each(MODES)("%s stays under the length ceiling and is not empty", (mode) => {
     expect(TEXTS[mode].length).toBeGreaterThan(200);
-    expect(TEXTS[mode].length).toBeLessThanOrEqual(MAX_CHARS);
+    expect(TEXTS[mode].length).toBeLessThanOrEqual(MAX_CHARS[mode]);
   });
 
   it.each(MODES)("%s is one paragraph of plain sentences: no markdown, no table, no bullets", (mode) => {
@@ -102,6 +106,38 @@ describe("the instruction texts", () => {
 
   it("the hosted text says what the Connect step is and that approving it links this chat to the paired wallet", () => {
     expect(missing(HOSTED_INSTRUCTIONS, HOSTED_RULES)).toEqual([]);
+  });
+
+  it("the hosted text gives the Launchpad steps in order, in one sentence", () => {
+    const text = HOSTED_INSTRUCTIONS;
+    const patterns = [
+      /runs only once its setup script has been run on a machine/,
+      /once the agent is registered/,
+      /AI API key ready/,
+      /Node\.js 18 or newer/,
+      /moi_launchpad_setup_script/,
+      /curl -fL -o/,
+      /run it with bash/,
+      /delete the script/,
+      /private key/,
+    ];
+    expect(missing(text, patterns)).toEqual([]);
+    expect(text).toContain(GROQ_KEYS_URL);
+    expect(text).toContain("Google AI or OpenAI key");
+    expect(text).toContain("the download link works once and expires after ten minutes");
+    const order = ["AI API key ready", "Node.js 18", "moi_launchpad_setup_script", "delete the script"].map((p) => text.indexOf(p));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    // One sentence: the Launchpad's text starts after a full stop and runs to the end with no full stop inside it
+    // other than in the URL, the version number and the file names.
+    const sentence = text.slice(text.indexOf("An agent made on the MOI Agent Launchpad"));
+    expect(sentence.endsWith("private key.")).toBe(true);
+    expect(sentence.replace(/console\.groq\.com|Node\.js/g, "").slice(0, -1)).not.toContain(".");
+  });
+
+  it("the gateway and stdio texts do not mention the Launchpad, which only the hosted server has", () => {
+    expect(GATEWAY_INSTRUCTIONS).not.toMatch(/Launchpad|moi_launchpad/);
+    expect(STDIO_INSTRUCTIONS).not.toMatch(/Launchpad|moi_launchpad/);
   });
 
   it("the stdio text says nothing about a connector or a Connect step, which only the hosted server has", () => {

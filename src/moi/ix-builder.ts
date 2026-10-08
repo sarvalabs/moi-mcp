@@ -571,6 +571,7 @@ function readQuantity(raw: unknown): number | undefined {
 
 /** Why a dry run that gave no usable receipt status is a failure: it is not known to succeed. */
 const NO_READABLE_STATUS = "the node's dry run came back with no readable receipt status, so it is not known to succeed";
+const NO_REASON = "the node gave no reason, and no operation in its receipt carries an error";
 
 /**
  * Dry-run an interaction against the node before a human is asked to approve it.
@@ -610,17 +611,16 @@ export async function simulate(
   // strings inside so the user reads "builtin.AssetError insufficient funds"
   // rather than a hex blob.
   const ops = Array.isArray(fields["ix_operations"]) ? (fields["ix_operations"] as unknown[]) : [];
-  const opDetail = ops
-    .filter((o): o is Record<string, unknown> => typeof o === "object" && o !== null)
-    .map((o) => {
-      const data = (o["data"] ?? {}) as Record<string, unknown>;
-      const err = String(data["error"] ?? "");
-      if (err && err !== "0x") return decodeErrorHex(err) ?? err;
-      return `op status ${String(o["status"])}`;
-    })
-    .join("; ");
-
-  return { ok: false, status, fuelUsed, detail: opDetail };
+  const parts = ops.flatMap((o, i) => {
+    if (typeof o !== "object" || o === null) return [];
+    const op = o as Record<string, unknown>;
+    const err = String(((op["data"] ?? {}) as Record<string, unknown>)["error"] ?? "");
+    if (err && err !== "0x") return [decodeErrorHex(err) ?? err];
+    // Numbered by place in the receipt. An operation at status 0 did not fail and is not named: "op status 0" read as success.
+    const opStatus = readQuantity(op["status"]);
+    return opStatus ? [`operation ${i + 1} failed with status ${opStatus} and the node gave no reason`] : [];
+  });
+  return { ok: false, status, fuelUsed, detail: parts.length > 0 ? parts.join("; ") : NO_REASON };
 }
 
 /** Pull printable ASCII runs (≥4 chars) out of a POLO-encoded error blob. */

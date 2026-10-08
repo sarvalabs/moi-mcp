@@ -157,6 +157,21 @@ describe("a deploy, end to end", () => {
     for (const line of lines) expect(line).toMatchObject({ kind: "deploy_logic", userId: "local" });
   });
 
+  // Coco 0.9.0 writes no kind into a logic manifest. What is simulated and what the phone signs is the encoding with the kind in it.
+  it("a manifest with no kind is deployed as a logic: simulated, signed and sent with kind logic encoded", async () => {
+    seedSession(h.home);
+    const { kind: _kind, ...noKind } = LOCK_LEDGER;
+    const args = { manifest: noKind, args: LEDGER.args };
+
+    const preview = await h.call("moi_deploy_logic", args);
+    expect(preview.structuredContent).toMatchObject({ status: "preview" });
+    expect(simulatedOps()[0]!.payload).toContain(MANIFEST_HEX.slice(2));
+
+    const sent = await h.send("moi_deploy_logic", args);
+    expect(sent.structuredContent).toMatchObject({ status: "sent", hash: SENT_HASH });
+    expect(opsOf(signedIx())[0]!.payload["manifest"]).toBe(MANIFEST_HEX);
+  });
+
   it("declares the participants given as accounts the new code may move, and runs a deploy routine that takes numbers", async () => {
     seedSession(h.home);
     const args = { manifest: COUNTER, args: { initial_value: 7 }, participants: [{ id: OTHER, lock: "mutate" }] };
@@ -179,6 +194,29 @@ describe("a deploy, end to end", () => {
     expect((preview.structuredContent?.["details"] as Record<string, string>)[FUND_KEY]).toBe(FUND_LINE);
     await h.send("moi_deploy_logic", args);
     expect(funded(opsOf(signedIx())[1]!).amount).toBe(10_000_000_000n);
+  });
+});
+
+describe("what the model is told about the tool", () => {
+  // A deploy ran on the devnet on 7 October 2026 and succeeded, so the tool must not say it is untested (preview finding 8).
+  // The quickstart words it as "has not been run against a node yet, so try it on devnet first", hence the wider pattern.
+  const STALE = /been run against a node|supervised run|try\s+it\s+on\s+devnet/;
+
+  it("the description no longer says the tool is untested, and still ends with the shared approval protocol", async () => {
+    const { tools } = await h.client.listTools();
+    const description = tools.find((t) => t.name === "moi_deploy_logic")?.description ?? "";
+    expect(description).toMatch(/creates a second logic and moves more KMOI\. Two calls, always\./);
+    expect(description).not.toMatch(STALE);
+  });
+
+  it("the quickstart paragraph on the tool does not say so either", async () => {
+    const { contents } = await h.client.readResource({ uri: "moi://docs/quickstart" });
+    const text = (contents[0] as { text?: string }).text ?? "";
+    // The paragraph that starts with the tool's name, up to the next blank line. moi_configure_account has its own.
+    const paragraph = text.split(/\n\s*\n/).find((p) => p.startsWith("`moi_deploy_logic` deploys"));
+    expect(paragraph, "expected a paragraph on moi_deploy_logic in the quickstart").toBeDefined();
+    expect(paragraph).toMatch(/says where to look otherwise\.$/);
+    expect(paragraph).not.toMatch(STALE);
   });
 });
 

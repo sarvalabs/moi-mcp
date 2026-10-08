@@ -43,13 +43,13 @@ One codebase builds three servers and one command-line helper. The `bin` field i
 | `moi-mcp-hosted` | src/server.ts | The hosted gateway on port 8788. This is what claude.ai connects to. It serves OAuth sign-in, per-user wallet pairings, and the write tools. It must run as exactly one process, because sign-in codes live in memory and the process holds one WalletConnect client. |
 | `moi-mcp` | src/cli.ts | A terminal helper for the local server: pair, status, disconnect, config. It starts no server. |
 
-Both HTTP gateways expose MCP at the path `/mcp`. The hosted gateway lists 34 tools, or 35 when the devnet faucet is configured: a `ping` health check, eight read tools, three wallet tools (connect, status, disconnect), eleven write tools (transfer, create account, configure account, create asset, mint, call a logic, deploy a logic, invoke an asset routine, and three agent registry writes), and the eleven Launchpad and dapp tools. The read gateway lists 43: `ping`, the eight read tools and 34 node method tools. README.md, under Tools, has the table.
+Both HTTP gateways expose MCP at the path `/mcp`. The hosted gateway lists 33 tools, or 34 when the devnet faucet is configured: a `ping` health check, eight read tools, three wallet tools (connect, status, disconnect), ten write tools (transfer, create account, create asset, mint, call a logic, deploy a logic, invoke an asset routine, and three agent registry writes), and the eleven Launchpad and dapp tools. With `MOI_ACCOUNT_KEY_TOOLS=on` there is one more write tool, configure account, after create account; it is off by default. The read gateway lists 43: `ping`, the eight read tools and 34 node method tools. README.md, under Tools, has the table.
 
 ## What using it looks like
 
 1. The person adds the server to claude.ai as a custom connector by pasting its URL.
 2. The first wallet-touching tool call returns HTTP 401, and claude.ai shows a Connect button. The person clicks it, lands on the server's consent page, and clicks Approve. There is no account and no password. Identity is a browser cookie named `moi_uid`, and the consent page says so in plain words.
-3. The person asks Claude to connect their wallet. The `moi_connect_wallet` tool returns a QR code inline in the chat. The person scans it with MOI Wallet. The pairing lasts 7 days by default, or 15 minutes and one use if they ask for a one-time pairing.
+3. The person asks Claude to connect their wallet. The `moi_connect_wallet` tool returns a QR code inline in the chat. The person scans it with MOI Wallet. Claude first asks how long the connection should stay open. The pairing lasts as long as the person chose: until the next approved transaction (or 15 minutes), 24 hours, or 7 days.
 4. The person asks for an action: "send 5 KMOI to 0xabc". Claude calls `moi_transfer` with no confirm argument. The server builds the transaction, simulates it against the node, and returns a preview: a one-sentence summary, the exact values the phone will display in the phone's own units, the fuel, and a confirm token.
 5. Claude shows the preview and asks for a yes. On yes, Claude calls the same tool again with the token. The phone buzzes, the person checks that the amount and address match the preview, and taps. The server broadcasts the signed bytes to the node and returns the transaction hash with an explorer link.
 
@@ -63,7 +63,7 @@ The server stores tokens only as SHA-256 hashes, so a copied disk leaks no usabl
 
 ## How pairing works
 
-`moi_connect_wallet` asks the WalletConnect client for a pairing URI and renders it as a QR code. When the phone scans it, the phone and the server meet at the relay and agree on an encrypted topic. The server stores one pairing record per user: the topic, the wallet address, the chain, the mode (persistent or once), and the expiry (src/wc/store.ts, src/wc/lifetime.ts).
+`moi_connect_wallet` asks the WalletConnect client for a pairing URI and renders it as a QR code. When the phone scans it, the phone and the server meet at the relay and agree on an encrypted topic. The server stores one pairing record per user: the topic, the wallet address, the chain, the mode (persistent, day or once), and the expiry (src/wc/store.ts, src/wc/lifetime.ts).
 
 One WalletConnect client exists per process, wrapped by `WalletConnectHub` (src/wc/hub.ts). Every signing request is routed by topic, and the topic comes only from the authenticated user's stored record. Tool inputs carry no topic, no account, and no user id, so one user can never sign on another user's phone. Unpairing from the phone deletes the record on the server; disconnecting in the chat tears down the relay session.
 

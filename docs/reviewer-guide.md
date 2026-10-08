@@ -38,7 +38,7 @@ node -p "require('/Users/adithyaganesh/moi-mcp/package.json').dependencies"
 | `zod` | `^3.23.8` | Every tool input and output schema, config validation, and on-disk record shapes (src/schema.ts). |
 | `dotenv` | `^16.4.5` | Loads `.env` into process.env at startup (src/config.ts). |
 | `js-polo` | `^0.1.4` | POLO serialization, MOI's binary wire encoding, used by the interaction builder. |
-| `qrcode` | `^1.5.4` | Renders the WalletConnect pairing URI as a PNG for the chat and the pairing page. |
+| `qrcode` | `^1.5.4` | Renders the WalletConnect pairing URI as a PNG and as block characters for the chat, and as SVG on the pairing page. |
 | `qrcode-terminal` | `^0.12.0` | ASCII QR for the `moi-mcp pair` CLI command. |
 | `redis` | `^6.2.1` | Optional session backend so a replaced container keeps its pairings (src/wc/redis-store.ts). |
 | `typescript` | `^5.6.0` | Language. Dev dependency; tsup compiles to dist/. |
@@ -101,11 +101,11 @@ Top level:
 
 - `src/wc/client.ts` (561): the single-user WalletConnect transport. The only place that talks to the relay. The header notes the named-import trap: the package's default export is a constants object whose `.init` is undefined.
 - `src/wc/hub.ts` (366): the multi-user hub. One SignClient per process, signing only via `signInteractionFor(topic, ...)`, topic never accepted from tool parameters.
-- `src/wc/lifetime.ts` (47): pairing lifetimes. Persistent is 7 days, "once" is 15 minutes, and records written before lifetimes existed are aged from createdAt, so no record is exempt from expiry.
+- `src/wc/lifetime.ts` (67): pairing lifetimes. The tool offers once, day and week; the record stores once, day and persistent (persistent is the stored word for a week). Week is 7 days (persistent), day is 24 hours, once is 15 minutes, and records written before lifetimes existed are aged from createdAt, so no record is exempt from expiry.
 - `src/wc/store.ts` (152): file-backed per-user session store, filenames are sha256(userId) to block path traversal.
 - `src/wc/redis-store.ts` (176): Redis versions of both the session store and WalletConnect's own key-value storage, so a replacement process holds both the topic and the key material behind it.
 - `src/wc/session.ts` (100): the single-user on-disk session at `$MOI_MCP_HOME/session.json`, 0600.
-- `src/wc/qr.ts` (17): pairing URI to PNG or terminal ASCII.
+- `src/wc/qr.ts` (28): pairing URI to PNG, block-character text for the chat, or terminal ASCII.
 
 `src/moi/` (chain library, no MCP imports by rule):
 
@@ -140,7 +140,7 @@ Top level:
 
 Other directories:
 
-- `src/pairing/index.ts` (353): one-time HTTPS pairing link and page. A raw `wc:` URI embeds a live symmetric relay key, so this module is the only place a link-based URI is resolved and rendered, never logged, never written to disk.
+- `src/pairing/index.ts` (310): one-time HTTPS pairing link and page. A raw `wc:` URI embeds a live symmetric relay key, so this module is the only place a link-based URI is resolved and rendered, never logged, never written to disk. No tool hands out its link at present; it stays mounted.
 - `src/resources/index.ts` (97): MCP resources, reference text an agent can read without a tool call: networks (which includes the registry logic id) and quickstart (registered at src/resources/index.ts:48 and 85).
 
 ## The five flows worth the most review time
@@ -151,7 +151,7 @@ The authorization server is implemented in this repo in src/auth/, and src/auth/
 
 ### b. Pairing
 
-One WalletConnect SignClient exists per hosted process, owned by `WalletConnectHub` (src/wc/hub.ts, invariants in the header, lines 8 to 13). Sessions are keyed by topic, the relay's identifier for one wallet connection, and the topic is only ever resolved from the stored session record, never from tool input. Pairing and signing must run on the same SignClient: the comment at src/wc/hub.ts:149 records that a session paired on any other client is invisible to `signInteractionFor`, and PLAN-HOSTED.md's STATUS section records that manual verification caught exactly this bug before it shipped. The hosted `moi_connect_wallet` (src/server.ts:198) returns the QR image inline in the chat plus the raw URI as fallback text, with a comment at src/server.ts:231 defending the transcript exposure: the proposal expires after about five minutes or first use, and a hijacked pairing can raise prompts on a phone and cannot sign for it. Lifetimes live in src/wc/lifetime.ts: 7 days for a persistent pairing, 15 minutes for "just this once". The mode is picked in two ways. On the pairing page the user picks it directly (src/pairing/index.ts:178). In the hosted `moi_connect_wallet` call the model passes a `remember` argument that maps to the mode (src/server.ts:208 and 222), and the tool description instructs the model to ask the user before calling.
+One WalletConnect SignClient exists per hosted process, owned by `WalletConnectHub` (src/wc/hub.ts, invariants in the header, lines 8 to 13). Sessions are keyed by topic, the relay's identifier for one wallet connection, and the topic is only ever resolved from the stored session record, never from tool input. Pairing and signing must run on the same SignClient: the comment at src/wc/hub.ts:149 records that a session paired on any other client is invisible to `signInteractionFor`, and PLAN-HOSTED.md's STATUS section records that manual verification caught exactly this bug before it shipped. The hosted `moi_connect_wallet` (src/server.ts:198) returns the QR image inline in the chat plus the raw URI as fallback text, with a comment at src/server.ts:231 defending the transcript exposure: the proposal expires after about five minutes or first use, and a hijacked pairing can raise prompts on a phone and cannot sign for it. Lifetimes live in src/wc/lifetime.ts: 7 days for a week (stored as persistent), 24 hours for a day and 15 minutes for once. The lifetime is picked in the chat only. The hosted `moi_connect_wallet` has a required `lifetime` input (once, day or week) in src/tools/wallet-hosted.ts, and its description instructs the model to ask the person before calling and not to assume an answer. A required input proves the field is present, not that the person was asked, so a model could choose a longer lifetime than it was told; the bound is the 7 days of week, and every transaction still needs the phone. The pairing page has no lifetime choice any more.
 
 ### c. The two-call write
 
@@ -163,7 +163,7 @@ The documented wallet call `moi.sendInteractions` crashes MOI Wallet with a SQLi
 
 ### e. Custody
 
-A private key would have to appear in one of three places: the signer used to build and simulate, the WalletConnect layer, or the broadcast path. It appears in none. `getReadOnlySigner` (src/moi/provider.ts:213) returns a `ReadOnlySigner` (line 150) whose `sign` (line 190) and `signInteraction` both throw `WALLET_NOT_CONNECTED` with the message "This MCP server holds no private keys." The interaction builder stops at the unsigned InteractionObject by construction (src/moi/ix-builder.ts header), src/wc/client.ts's header states the module never sees a private key, and `broadcastSigned` only forwards bytes the phone produced. A search confirms it:
+A private key would have to appear in one of three places: the signer used to build and simulate, the WalletConnect layer, or the broadcast path. It appears in none. `getReadOnlySigner` (src/moi/provider.ts:232) returns a `ReadOnlySigner` (line 150) whose `sign` (line 190) and `signInteraction` both throw `WALLET_NOT_CONNECTED` with the message "This MCP server holds no private keys." The interaction builder stops at the unsigned InteractionObject by construction (src/moi/ix-builder.ts header), src/wc/client.ts's header states the module never sees a private key, and `broadcastSigned` only forwards bytes the phone produced. A search confirms it:
 
 ```bash
 grep -rni "privatekey\|mnemonic\|keypair" /Users/adithyaganesh/moi-mcp/src/

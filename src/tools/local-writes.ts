@@ -3,8 +3,8 @@
  *
  * Every write, on every transport, goes through runWrite in hosted-writes.ts: preview, confirm token, journal. That
  * path was written for a server with many users, so it asks its caller for four things the stdio server does not have
- * in that form. Each gets a small local answer here, and registerLocalWriteTools (src/tools/register.ts) registers the eleven
- * write tools with them.
+ * in that form. Each gets a small local answer here, and registerLocalWriteTools (src/tools/register.ts) registers the write
+ * tools with them: ten, and eleven when MOI_ACCOUNT_KEY_TOOLS is on.
  *   - Who: there is one person, so one constant user.
  *   - The pairing: the session.json that WalletConnectClient already keeps. Its format is not touched, so a pairing
  *     made with `moi-mcp pair` or an older version still works.

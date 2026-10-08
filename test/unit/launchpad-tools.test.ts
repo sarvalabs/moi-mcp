@@ -10,33 +10,33 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-
 import { dappOrigin } from "../../src/public-fetch.js";
 import { FileDappSessionStore } from "../../src/applications/dapp/store.js";
 import { LaunchpadClient, type FetchLike } from "../../src/applications/launchpad/client.js";
-import { primeRegistryDriverForTests, resetRegistryCache } from "../../src/capabilities/reads/registry.js";
+import { resetRegistryCache } from "../../src/capabilities/reads/registry.js";
 import { ErrorCode } from "../../src/schema.js";
 import type { runWrite } from "../../src/tools/hosted-writes.js";
 import { PreviewRegistry } from "../../src/tools/preview.js";
-import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, send, session, structured, USER } from "../helpers/hosted.js";
+import { authFor, fakeHub, send, structured, USER } from "../helpers/hosted.js";
 import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import {
   AGENT_WALLET,
+  callTool,
   COOKIE,
   connectDapp,
   connectLaunchpad,
   fakeSessions,
   launchpadDeps,
+  primeRegistry,
   RECORD_ID,
+  REGISTRY,
+  resetFake,
   signedInRecord,
   startFakeLaunchpad,
+  wallet,
   type FakeLaunchpad,
 } from "../helpers/launchpad.js";
 import { ACCOUNT } from "../helpers/mock-node.js";
-
-const REGISTRY = "0x200000002f3e9469d94de695be18fc5839fb9535f543b381f903f7f800000000";
-const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex.slice(2), "hex"));
 
 let fake: FakeLaunchpad;
 beforeAll(async () => {
@@ -47,44 +47,8 @@ afterAll(async () => {
   await fake.close();
   restoreEnv();
 });
-beforeEach(() => {
-  fake.requests.length = 0;
-  fake.state.agentStatus = "pending_grant";
-  fake.state.cookieValid = true;
-  fake.state.keyReadable = true;
-  fake.state.telegramLinked = false;
-  fake.state.verifyOk = true;
-  fake.state.nonceMessage = undefined;
-});
+beforeEach(() => resetFake(fake));
 afterEach(() => resetRegistryCache());
-
-/** Registry that knows the agent's wallet only once `registered` flips. */
-function primeRegistry(registered: () => boolean) {
-  const routine = (impl: (...a: unknown[]) => unknown) =>
-    vi.fn(async (...a: unknown[]) => ({ call: async () => ({ result: async () => impl(...a) }) }));
-  primeRegistryDriverForTests(REGISTRY, {
-    routines: {
-      GetAgentsByOwner: routine(() => ({ output: registered() ? { ids: ["agent_9"], total: 1n } : { ids: [], total: 0n }, error: null })),
-      GetAgentProfile: routine((id) => ({
-        output:
-          id === "agent_9"
-            ? { profile: { agent_id: "agent_9", owner: bytes(ACCOUNT), agent_wallet: bytes(AGENT_WALLET), status: "ACTIVE", url: "", card_uri: "", score: 0n, created_at: 0n, updated_at: 0n }, found: true }
-            : { profile: {}, found: false },
-        error: null,
-      })),
-    },
-  });
-}
-
-function wallet(paired = true, previews?: PreviewRegistry) {
-  const records = new Map([[USER, session()]]);
-  if (!paired) records.clear();
-  return writeDeps(fakeStore(records), fakeHub(), fakeJournal(), previews);
-}
-
-async function callTool(client: Client, name: string, args: Record<string, unknown> = {}) {
-  return client.callTool({ name, arguments: args });
-}
 
 describe("moi_launchpad_status", () => {
   it("says so when not signed in, and lists agents when it is", async () => {

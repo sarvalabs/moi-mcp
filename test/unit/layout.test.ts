@@ -20,6 +20,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { RPC_METHODS } from "../../src/capabilities/reads/rpc-methods.js";
 import { registerTools } from "../../src/tools/register.js";
+import { applyEnv, restoreEnv, tempHome } from "../helpers/harness.js";
 import { importGraph } from "../helpers/import-graph.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -233,6 +234,18 @@ describe("nothing under src/capabilities imports from src/applications", () => {
 });
 
 describe("registerTools", () => {
+  // The stdio list is compared with the pinned file, which is the list with MOI_ACCOUNT_KEY_TOOLS off, so the environment is the
+  // tests' default and never a developer's own.
+  let home: string;
+  beforeAll(() => {
+    home = tempHome();
+    applyEnv("http://127.0.0.1:1", home);
+  });
+  afterAll(() => {
+    restoreEnv();
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("builds the stdio server as the tests' harness does, with ping in front", () => {
     const server = new McpServer({ name: "t", version: "0" });
     registerTools(server, { mode: "stdio" });

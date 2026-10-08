@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { limitDepth, readWhole } from "../../bounds.js";
 import { MoiError, asRpcError } from "../../moi-error.js";
+import { ReadCallerRejected, rejectedCallerError } from "../../moi/read-caller.js";
 import { capRecord, clampChainText } from "../../moi/reads.js";
 import { dappOrigin, publicFetch, type FetchLike } from "../../public-fetch.js";
 import { ErrorCode, type ResolveAgentOutput } from "../../schema.js";
@@ -36,13 +37,16 @@ export function registryLogicId(env: NodeJS.ProcessEnv = process.env): string {
 
 /**
  * The node reports these when the registry logic has no state object yet —
- * i.e. nobody has registered an agent on this network, or the read-only
- * caller identity does not exist on chain. Either way the honest answer to
- * "resolve this agent" is "not found", not a server error.
+ * i.e. nobody has registered an agent on this network. The honest answer to
+ * "resolve this agent" is then "not found", not a server error. A read caller
+ * the node does not know is not that: callRoutine turns it into a
+ * ReadCallerRejected, which is never an empty registry (see below).
  */
 const EMPTY_REGISTRY = /account not found|state object fetch failed|failed to fetch transition objects/i;
 
 export function isEmptyRegistryError(err: unknown): boolean {
+  // Its message quotes the node's "account not found", so the pattern below would match it.
+  if (err instanceof ReadCallerRejected) return false;
   return EMPTY_REGISTRY.test(err instanceof Error ? err.message : String(err));
 }
 
@@ -114,29 +118,6 @@ export function unwrapRoutineResult(raw: unknown, label: string): unknown {
   return raw;
 }
 
-/**
- * The node simulates a read-only routine as some caller and refuses one it
- * has never seen: "failed to fetch acc meta info: account not found". With
- * the placeholder identity that is every call on a network that enforces it.
- * It used to be reported as an empty registry, which is how a live registry
- * holding 153 agents was once declared gone; now it is named.
- */
-const CALLER_REJECTED = /acc meta info: account not found/i;
-
-export function isCallerRejected(err: unknown): boolean {
-  return CALLER_REJECTED.test(err instanceof Error ? err.message : String(err));
-}
-
-export function callerRejected(env: NodeJS.ProcessEnv = process.env): MoiError {
-  const set = env["MOI_READ_CALLER"];
-  return new MoiError(
-    ErrorCode.RPC_ERROR,
-    set
-      ? `The node rejected MOI_READ_CALLER (${set}) as the caller for read-only logic simulation: that participant does not exist on this network. Point it at an account that does.`
-      : "The node rejected the placeholder caller used for read-only logic simulation. Set MOI_READ_CALLER in the server environment to any participant id that exists on this network (a funded account), then retry.",
-  );
-}
-
 /** Invoke a read-only registry routine and unwrap its decoded result. */
 async function callRoutine(
   driver: RegistryDriver,
@@ -155,8 +136,8 @@ async function callRoutine(
     return unwrapRoutineResult(await response.result(), `registry.${name}`);
   } catch (err) {
     if (err instanceof MoiError) throw err;
-    if (isCallerRejected(err)) throw callerRejected();
-    throw asRpcError(err, `registry.${name}`);
+    // The node refusing the placeholder caller is named in src/moi/read-caller.ts, not reported as an empty registry.
+    throw rejectedCallerError(err) ?? asRpcError(err, `registry.${name}`);
   }
 }
 

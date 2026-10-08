@@ -331,13 +331,13 @@ describe("simulate fails closed", () => {
       answering({ receipt: { status: "0x1", ix_operations: [{ status: 1, data: { error: "0x" } }] } }),
       ix,
     );
-    expect(result).toEqual({ ok: false, status: 1, fuelUsed: undefined, detail: "op status 1" });
+    expect(result).toEqual({ ok: false, status: 1, fuelUsed: undefined, detail: "operation 1 failed with status 1 and the node gave no reason" });
   });
 
   it("does not throw on operations it cannot read, once the status is known to be a failure", async () => {
     for (const ix_operations of ["nope", { 0: 1 }, [null, 5, "x"]]) {
       const result = await simulate(answering({ receipt: { status: 1, ix_operations } }), ix);
-      expect(result).toMatchObject({ ok: false, status: 1, detail: "" });
+      expect(result).toMatchObject({ ok: false, status: 1, detail: expect.stringContaining("the node gave no reason") });
     }
   });
 

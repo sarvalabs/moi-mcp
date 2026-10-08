@@ -29,6 +29,7 @@ import { messageOf, toMcpError } from "../../errors.js";
 import type { AgentRecord, LaunchpadClient, RegisterIntent } from "./client.js";
 import * as S from "./schema.js";
 import { isDappSessionExpired, type DappSessionStore, type StoredDappSession } from "../dapp/store.js";
+import { afterCreate, afterRegister, BEFORE_SETUP_SCRIPT, forSetupScript } from "./run-steps.js";
 import { describeSetupScript } from "./setup-script.js";
 import { MoiError } from "../../moi-error.js";
 import { getReadOnlySigner } from "../../moi/provider.js";
@@ -220,14 +221,12 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
     {
       title: "Create an agent on the MOI Agent Launchpad",
       description:
-        "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the " +
-        "agent its own on-chain wallet. The agent does not run until it is registered on chain with " +
-        "moi_launchpad_register_agent. " + needsSession + " A taken name is refused. Two calls, always: " +
-        "the first, without confirm, creates nothing and returns what would be created and a confirm token; show it to " +
-        "the person and get an explicit yes; the second, with the same arguments plus confirm, creates the agent. The " +
-        "token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails " +
-        "or times out the token is spent and the agent may or may not exist: check moi_launchpad_status before " +
-        "previewing again.",
+        "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the agent its own on-chain " +
+        "wallet. The agent does not run until it is registered on chain with moi_launchpad_register_agent and its setup script has been run on a " +
+        "machine. " + needsSession + " A taken name is refused. Two calls, always: the first, without confirm, creates nothing and returns what " +
+        "would be created and a confirm token; show it to the person and get an explicit yes; the second, with the same arguments plus confirm, " +
+        "creates the agent. The token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails or " +
+        "times out the token is spent and the agent may or may not exist: check moi_launchpad_status before previewing again.",
       inputSchema: {
         ...S.LaunchpadCreateAgentInput.shape,
         confirm: ConfirmArg.describe(
@@ -265,7 +264,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
             ...(price !== undefined ? { Price: String(price) } : {}),
             Effect:
               "Creates the agent record and an on-chain wallet for it on the Launchpad. It does not run until registered on " +
-              "chain, which is a separate step with a phone tap.",
+              "chain and its setup script has been run on a machine. Registering is a separate step with a phone tap.",
           };
           const summary = `Create agent "${name}" from template ${templateId} on ${launchpad}`;
           return {
@@ -302,8 +301,8 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
             value: {
               agent,
               next:
-                `Created "${agent.name}" (Launchpad id ${agent.id}, status ${agent.status}). It runs only once registered on chain: ` +
-                `call moi_launchpad_register_agent with agentId ${agent.id}; the person approves one RegisterAgent interaction on the phone.`,
+                `Created "${agent.name}" (Launchpad id ${agent.id}, status ${agent.status}). Next, register it on chain: call moi_launchpad_register_agent ` +
+                `with agentId ${agent.id}; the person approves one RegisterAgent interaction on the phone. ${afterCreate(agent.id)}`,
             },
           };
         } catch (err) {
@@ -318,11 +317,11 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
     {
       title: "Register a Launchpad agent on chain",
       description:
-        "Register an agent created on the MOI Agent Launchpad in the on-chain MOI agent registry, as the paired wallet. " +
-        "This is the step that makes the agent live. Two calls, always. First call without confirm: nothing reaches the phone; " +
-        "you get a summary of the RegisterAgent interaction and a confirm token. Show it and get an explicit yes. Second call " +
-        "with the same agentId plus confirm: the phone asks for the tap, the interaction is broadcast, and the Launchpad is " +
-        "told the agent is registered. Fuel is paid by the paired wallet. " + needsSession,
+        "Register an agent created on the MOI Agent Launchpad in the on-chain MOI agent registry, as the paired wallet. This registers " +
+        "the agent on chain; the agent runs only once its setup script has been run on a machine, and the result says how. Two calls, " +
+        "always. First call without confirm: nothing reaches the phone; you get a summary of the RegisterAgent interaction and a confirm " +
+        "token. Show it and get an explicit yes. Second call with the same agentId plus confirm: the phone asks for the tap, the " +
+        "interaction is broadcast, and the Launchpad is told the agent is registered. Fuel is paid by the paired wallet. " + needsSession,
       inputSchema: {
         ...S.LaunchpadRegisterAgentInput.shape,
         confirm: ConfirmArg,
@@ -381,8 +380,9 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
           registryAgentId: already,
           launchpadStatus: "active",
           note: `"${agent.name}" was already in the registry as ${already}; the Launchpad has now been told. Nothing was sent to the phone.`,
+          next: afterRegister(agentId),
         };
-        return { content: [{ type: "text" as const, text: value.note }], structuredContent: value };
+        return { content: [{ type: "text" as const, text: `${value.note} ${value.next}` }], structuredContent: value };
       }
 
       // The Launchpad's own conventions for where the agent lives and where
@@ -437,7 +437,7 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
         ...(sent.summary ? { summary: sent.summary } : {}),
         ...(registryAgentId ? { registryAgentId } : {}),
         launchpadStatus,
-        ...(note ? { note } : {}),
+        ...(note ? { note } : {}), ...(launchpadStatus === "active" ? { next: afterRegister(agentId) } : {}),
       };
       return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], structuredContent: value };
     },
@@ -493,8 +493,8 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
       description:
         "A one-time download link for the setup script of an active Launchpad agent. The script contains the agent's private " +
         "key, so it is never returned here: the link fetches it from the Launchpad with the person's session when opened, " +
-        "serves it once, and dies after ten minutes. Give the person the link as a clickable URL and tell them to run the " +
-        "script on the machine that will host the agent. " + needsSession,
+        "serves it once, and dies after ten minutes. " + BEFORE_SETUP_SCRIPT + " Give the person the link as a clickable URL only if " +
+        "the host machine is the one they are using. " + needsSession,
       inputSchema: S.LaunchpadSetupScriptInput.shape,
       outputSchema: S.LaunchpadSetupScriptOutput.shape,
       annotations: ACT,
@@ -535,9 +535,9 @@ export function launchpadTools(deps: LaunchpadDeps, auth: AuthInfo | null): Tool
           value,
           text:
             `Download link for "${agent.name}" (works once, for ten minutes): ${link.url}\n` +
-            "It fetches the setup script from the Launchpad with your session and hands it straight to the browser. " +
-            "The script holds the agent's private key, so it is never shown in this chat. Run it with bash on the " +
-            "machine that will host the agent.\n\nWhat the script does:\n" +
+            "It fetches the setup script from the Launchpad with your session and serves it once. " +
+            "The script holds the agent's private key, so it is never shown in this chat.\n" +
+            `${forSetupScript(link.url)}\n\nWhat the script does:\n` +
             script.summary.map((s) => `- ${s}`).join("\n"),
         };
       }),

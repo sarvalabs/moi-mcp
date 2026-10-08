@@ -526,8 +526,7 @@ export const DeployLogicInput = z.object({
   manifest: z
     .record(z.string(), z.unknown())
     .describe(
-      "The compiled logic manifest, as the JSON object `coco compile` writes: syntax, engine, kind \"logic\" and elements. " +
-        "Pass exactly the one the user gave you, as an object and never as a string.",
+      "The compiled logic manifest, as the JSON object `coco compile` writes. Coco 0.9.0 writes no kind for a logic, and a manifest with none is taken as a logic; any other kind is refused. Pass exactly the one the user gave you, as an object and never as a string.",
     ),
   routine: z
     .string()
@@ -861,6 +860,7 @@ export const Config = z.object({
    * never leaves the check weaker than the operator meant.
    */
   MOI_SIGNED_CHECK: z.enum(["warn", "enforce"], { message: "must be warn or enforce" }).default("warn"),
+  MOI_ACCOUNT_KEY_TOOLS: z.enum(["on", "off"], { message: "must be on or off" }).default("off"), // read by accountKeyToolsOn (src/config.ts)
 });
 export type Config = z.infer<typeof Config>;
 

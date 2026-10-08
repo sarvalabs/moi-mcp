@@ -277,14 +277,22 @@ describe("hosted transport", () => {
 
   it("lets a full-scope token call moi_connect_wallet", async () => {
     const auth = { authorization: `Bearer ${VALID_TOKEN}` };
-    const { status, json } = await rpc(baseUrl, toolCall(1, "moi_connect_wallet"), auth);
+    const { status, json } = await rpc(baseUrl, toolCall(1, "moi_connect_wallet", { lifetime: "week" }), auth);
     expect(status).toBe(200);
     expect(json.result.isError).toBeFalsy();
   });
 
-  it("answers with the QR image and the pairing page link, keeping the raw wc: string out of the chat text", async () => {
+  it("refuses moi_connect_wallet without a lifetime, so the person has to be asked", async () => {
     const auth = { authorization: `Bearer ${VALID_TOKEN}` };
-    const { json } = await rpc(baseUrl, toolCall(1, "moi_connect_wallet"), auth);
+    const { status, json } = await rpc(baseUrl, toolCall(1, "moi_connect_wallet"), auth);
+    expect(status).toBe(200);
+    expect(json.result.isError).toBe(true);
+    expect(JSON.stringify(json.result.content)).toContain("lifetime");
+  });
+
+  it("answers with the QR image and the QR code as text in a code block, with no page link and no raw wc: string in the text", async () => {
+    const auth = { authorization: `Bearer ${VALID_TOKEN}` };
+    const { json } = await rpc(baseUrl, toolCall(1, "moi_connect_wallet", { lifetime: "week" }), auth);
     const content = json.result.content as Array<{ type: string; mimeType?: string; data?: string; text?: string }>;
 
     const image = content.find((c) => c.type === "image");
@@ -293,28 +301,25 @@ describe("hosted transport", () => {
     expect(Buffer.from(image?.data ?? "", "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
 
     const text = content.find((c) => c.type === "text")?.text ?? "";
-    // The image is the instruction where it renders. claude.ai never shows it
-    // to the person and hides structuredContent from its model, so the text
-    // must carry an https link to the pairing page, and must not carry the
-    // wc: string, which is noise next to a code and a secret in a transcript.
+    // claude.ai shows the image only as a thumbnail and hides structuredContent from its model, so the content text
+    // carries the code itself, as a fenced block. No page link, and no raw wc: string, which is noise next to a code
+    // and a secret in a transcript.
+    expect(text.startsWith("```")).toBe(true);
+    expect(text).not.toContain("https://example.test/pair/");
+    const uri = json.result.structuredContent.uri as string;
+    expect(uri).toContain("wc:");
     expect(text).not.toContain("wc:");
-    expect(text).toMatch(/scan this qr code/i);
-    expect(text).toContain("https://example.test/pair/");
-    expect(json.result.structuredContent.pairingUrl).toMatch(/^https:\/\/example\.test\/pair\//);
-    expect(json.result.structuredContent.uri).toContain("wc:");
-    expect(json.result.structuredContent.mode).toBe("persistent");
+    expect(text).not.toContain(uri);
+    expect(text).toMatch(/scan it with MOI Wallet/i);
+    expect(json.result.structuredContent.pairingUrl).toBeUndefined();
+    expect(json.result.structuredContent.lifetime).toBe("week");
+    expect(json.result.structuredContent.mode).toBeUndefined();
   });
 
-  it("forgets the pairing after one use when the user asks not to be remembered", async () => {
+  it("pairs for one use when the person chose once", async () => {
     const auth = { authorization: `Bearer ${VALID_TOKEN}` };
-    const body = {
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "moi_connect_wallet", arguments: { remember: false } },
-    };
-    const { json } = await rpc(baseUrl, body, auth);
-    expect(json.result.structuredContent.mode).toBe("once");
+    const { json } = await rpc(baseUrl, toolCall(2, "moi_connect_wallet", { lifetime: "once" }), auth);
+    expect(json.result.structuredContent.lifetime).toBe("once");
   });
 
   // The in-memory transports the tool tests use ignore which stream a notification goes out on, so this is the one place

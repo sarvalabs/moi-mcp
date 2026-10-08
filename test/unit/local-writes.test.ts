@@ -23,6 +23,7 @@ import {
   restoreEnv,
   seedSession,
   signatureFor,
+  startHarness,
   tempHome,
   type FakeWallet,
 } from "../helpers/harness.js";
@@ -187,7 +188,28 @@ describe("the journal adapter", () => {
 });
 
 describe("registration", () => {
-  it("is lazy: a bad config, no wallet client and no journal at registration, and still all eleven tools", () => {
+  /** The names registerLocalWriteTools puts on a fresh server, in order. */
+  function registered(): string[] {
+    const server = new McpServer({ name: "t", version: "0" });
+    registerLocalWriteTools(server);
+    return Object.keys((server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools);
+  }
+
+  const TEN = [
+    "moi_transfer",
+    "moi_create_account",
+    "moi_create_asset",
+    "moi_mint",
+    "moi_call_logic",
+    "moi_deploy_logic",
+    "moi_asset_invoke",
+    "moi_register_agent",
+    "moi_set_agent_status",
+    "moi_transfer_agent",
+  ];
+  const ELEVEN = [...TEN.slice(0, 2), "moi_configure_account", ...TEN.slice(2)];
+
+  it("is lazy: a bad config, no wallet client and no journal at registration, and still the ten tools that need no setting", () => {
     applyEnv("http://127.0.0.1:1", home, { WC_PROJECT_ID: "replace_me" }); // getConfig() now throws
     installWallet(home, wallet); // applyEnv drops the installed client
 
@@ -197,18 +219,45 @@ describe("registration", () => {
 
     expect(wallet.factory).not.toHaveBeenCalled();
     expect(existsSync(join(home, "journal.jsonl"))).toBe(false);
-    expect(Object.keys((server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools)).toEqual([
-      "moi_transfer",
-      "moi_create_account",
-      "moi_configure_account",
-      "moi_create_asset",
-      "moi_mint",
-      "moi_call_logic",
-      "moi_deploy_logic",
-      "moi_asset_invoke",
-      "moi_register_agent",
-      "moi_set_agent_status",
-      "moi_transfer_agent",
-    ]);
+    expect(Object.keys((server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools)).toEqual(TEN);
+  });
+
+  it("is just as lazy with the setting on and the same bad config: registration depends on nothing but its own variable", () => {
+    applyEnv("http://127.0.0.1:1", home, { WC_PROJECT_ID: "replace_me", MOI_ACCOUNT_KEY_TOOLS: "on" });
+    installWallet(home, wallet);
+
+    expect(registered()).toEqual(ELEVEN);
+    expect(wallet.factory).not.toHaveBeenCalled();
+    expect(existsSync(join(home, "journal.jsonl"))).toBe(false);
+  });
+
+  it("with the setting on and a good config registers eleven, in today's order", () => {
+    applyEnv("http://127.0.0.1:1", home, { MOI_ACCOUNT_KEY_TOOLS: "on" });
+    expect(registered()).toEqual(ELEVEN);
+  });
+
+  it("with the setting off, the default, registers ten", () => {
+    expect(registered()).toEqual(TEN);
+  });
+
+  it("a call to moi_configure_account on the stdio server with the setting off is an unknown tool", async () => {
+    // The harness builds the stdio server with the default environment, which sets the account key tools off. Nothing reaches the node.
+    const h = await startHarness("http://127.0.0.1:1");
+    try {
+      const { tools } = await h.client.listTools();
+      expect(tools.map((tool) => tool.name)).not.toContain("moi_configure_account");
+      const result = await h.call("moi_configure_account", { add: ["02" + "aa".repeat(32)] });
+      expect(result.isError).toBe(true);
+      expect(result.text).toMatch(/not found/);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it("with the setting set to anything but on, registers ten (a value the schema refuses never turns the tool on)", () => {
+    for (const value of ["ON", "true", "1", "yes", " on", "on,off"]) {
+      applyEnv("http://127.0.0.1:1", home, { MOI_ACCOUNT_KEY_TOOLS: value });
+      expect(registered(), value).toEqual(TEN);
+    }
   });
 });

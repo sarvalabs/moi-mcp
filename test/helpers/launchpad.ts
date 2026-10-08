@@ -14,13 +14,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
+import { primeRegistryDriverForTests } from "../../src/capabilities/reads/registry.js";
+import type { PreviewRegistry } from "../../src/tools/preview.js";
 import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
 import type { DappSessionStore, StoredDappSession } from "../../src/applications/dapp/store.js";
 import type { DappDeps } from "../../src/applications/dapp/tools.js";
 import type { LaunchpadDeps } from "../../src/applications/launchpad/tools.js";
 import { registerDappTools, registerLaunchpadTools } from "../../src/tools/register.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
-import { authFor, USER } from "./hosted.js";
+import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, session, USER } from "./hosted.js";
+import { ACCOUNT } from "./mock-node.js";
 
 export const COOKIE = "jwt-abc";
 export const AGENT_WALLET = "0x000000002497e599b212a83896919005863b05511d46d0a32ad0af8600000000";
@@ -330,4 +333,48 @@ export async function connectDapp(deps: DappDeps, who: AuthInfo | null = authFor
   const client = new Client({ name: "t", version: "0" });
   await client.connect(b);
   return client;
+}
+
+/** The agent registry logic the Launchpad tools tests prime a fake driver for (MOI_AGENT_REGISTRY_LOGIC_ID). */
+export const REGISTRY = "0x200000002f3e9469d94de695be18fc5839fb9535f543b381f903f7f800000000";
+const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex.slice(2), "hex"));
+
+/** Registry that knows the agent's wallet only once `registered` flips. */
+export function primeRegistry(registered: () => boolean) {
+  const routine = (impl: (...a: unknown[]) => unknown) =>
+    vi.fn(async (...a: unknown[]) => ({ call: async () => ({ result: async () => impl(...a) }) }));
+  primeRegistryDriverForTests(REGISTRY, {
+    routines: {
+      GetAgentsByOwner: routine(() => ({ output: registered() ? { ids: ["agent_9"], total: 1n } : { ids: [], total: 0n }, error: null })),
+      GetAgentProfile: routine((id) => ({
+        output:
+          id === "agent_9"
+            ? { profile: { agent_id: "agent_9", owner: bytes(ACCOUNT), agent_wallet: bytes(AGENT_WALLET), status: "ACTIVE", url: "", card_uri: "", score: 0n, created_at: 0n, updated_at: 0n }, found: true }
+            : { profile: {}, found: false },
+        error: null,
+      })),
+    },
+  });
+}
+
+/** Hosted write deps for the user the tests sign in as: with a paired wallet, or with none. */
+export function wallet(paired = true, previews?: PreviewRegistry) {
+  const records = new Map([[USER, session()]]);
+  if (!paired) records.clear();
+  return writeDeps(fakeStore(records), fakeHub(), fakeJournal(), previews);
+}
+
+export async function callTool(client: Client, name: string, args: Record<string, unknown> = {}) {
+  return client.callTool({ name, arguments: args });
+}
+
+/** Put the fake Launchpad back to where each test expects it: nothing requested, a good session, an agent awaiting registration. */
+export function resetFake(fake: FakeLaunchpad): void {
+  fake.requests.length = 0;
+  fake.state.agentStatus = "pending_grant";
+  fake.state.cookieValid = true;
+  fake.state.keyReadable = true;
+  fake.state.telegramLinked = false;
+  fake.state.verifyOk = true;
+  fake.state.nonceMessage = undefined;
 }

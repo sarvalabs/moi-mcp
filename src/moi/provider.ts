@@ -203,22 +203,35 @@ export class ReadOnlySigner extends Signer {
 }
 
 /**
+ * The value of MOI_READ_CALLER when getReadOnlySigner would actually use it:
+ * set, not empty and a valid participant id. Undefined otherwise. Kept apart
+ * so that the signer and the message that names the setting (read-caller.ts)
+ * cannot disagree about what counts as set.
+ */
+export function readCallerFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const value = env["MOI_READ_CALLER"];
+  if (!value) return undefined;
+  try {
+    // The constructor throws on anything that is not a participant id.
+    void new ParticipantId(value as `0x${string}`);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * A Signer suitable only for reads, bound to the given network.
  *
  * Logic-call simulation asks the node for the caller's account meta info, so
  * on some networks the placeholder identity is rejected with "account not
  * found". Set MOI_READ_CALLER to any participant id that exists on the network
- * to make registry reads work there.
+ * to make reads work there. A value that is not a valid participant id is
+ * ignored and the placeholder is used (see readCallerFromEnv).
  */
 export function getReadOnlySigner(options: ProviderOptions, caller?: Identifier): ReadOnlySigner {
   let identity = caller;
-  const override = process.env["MOI_READ_CALLER"];
-  if (!identity && override) {
-    try {
-      identity = new ParticipantId(override as `0x${string}`);
-    } catch {
-      // Fall through to the placeholder rather than failing every read.
-    }
-  }
+  const override = readCallerFromEnv();
+  if (!identity && override) identity = new ParticipantId(override as `0x${string}`);
   return new ReadOnlySigner(getProvider(options) as unknown as AbstractProvider, identity);
 }

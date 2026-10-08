@@ -177,11 +177,15 @@ describe("a read fails closed", () => {
     refused(await read("BalanceOf", { address: ACCOUNT }), /failed: "receipt status 3"/);
   });
 
-  it("when the node does not know the placeholder caller, with the hint the registry reads give", async () => {
+  it("when the node cannot find an account, with the hint the registry reads give", async () => {
     node.on("moi.Call", () => {
       throw new RpcFailure("failed to fetch acc meta info: account not found");
     });
-    refused(await read("BalanceOf", { address: ACCOUNT }), /rejected MOI_READ_CALLER/);
+    const result = await read("BalanceOf", { address: ACCOUNT });
+    // The wording is shared with the registry reads and the logic view (src/moi/read-caller.ts): it names the setting
+    // and its value (the harness sets one) and does not claim the node rejected it.
+    refused(result, /MOI_READ_CALLER \(0x[0-9a-f]+\)/);
+    refused(result, /MOI_READ_CALLER must be set/);
   });
 
   it("when the node itself fails", async () => {

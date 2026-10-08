@@ -22,12 +22,12 @@
  * manifest that cannot be deployed is refused at once, before the person is asked anything. prepareLogicDeploy does the
  * part that needs the node.
  *
- * HONEST LIMIT. Nothing here has run against a node: the mock node answers moi.Call and moi.FuelEstimate for any
- * interaction, so no test shows that devnet simulates a LOGIC_DEPLOY, estimates its fuel, or shows the phone what it
- * should. The shape of the operation is checked against the SDK's own LogicFactory byte for byte, and the receipt layout
- * (an operation of type LOGIC_DEPLOY whose data carries logic_id) is read from the SDK's source, not seen. A deploy the
- * chain does not accept is refused by the simulation before the phone is asked, and a receipt that does not look exactly
- * like that one leaves the hash and a note, never a guessed id.
+ * HONEST LIMIT. The mock node answers moi.Call and moi.FuelEstimate for any interaction, so no unit test shows that
+ * devnet simulates a LOGIC_DEPLOY, estimates its fuel, or shows the phone what it should. One real deploy ran on the
+ * devnet on 7 October 2026 and succeeded; the receipt layout (an operation of type LOGIC_DEPLOY whose data carries
+ * logic_id) is the one the SDK's source describes. The shape of the operation is checked against the SDK's own
+ * LogicFactory byte for byte. A deploy the chain does not accept is refused by the simulation before the phone is
+ * asked, and a receipt that does not look exactly like that one leaves the hash and a note, never a guessed id.
  */
 
 import { KMOI_ASSET_ID } from "js-moi-sdk";
@@ -231,7 +231,7 @@ export function deployLogicTool(deps: WriteDeps, auth: AuthInfo | null, options:
         `A manifest with no deploy routine, or over ${MAX_MANIFEST_BYTES / 1024} KiB once encoded, is refused. ` +
         "Returns the interaction hash once broadcast, and `deployed`: yes with the new logic's id when the receipt shows it within a short wait, otherwise no or " +
         "unknown with a note. After no or unknown do not call this again until the receipt has been read with moi_get_interaction, because a second call " +
-        "creates a second logic and moves more KMOI. Nothing here has been run against a node yet: the first deploy should be a supervised run on devnet." +
+        "creates a second logic and moves more KMOI." +
         APPROVAL_PROTOCOL,
       inputSchema: { ...DeployLogicInput.shape, confirm: ConfirmArg },
       annotations: WRITE_ANNOTATIONS,

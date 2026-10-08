@@ -127,6 +127,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
   return { ...cfg, home };
 }
 
+/**
+ * Whether the operator has turned on the tool that adds or revokes account keys (MOI_ACCOUNT_KEY_TOOLS in src/schema.ts).
+ * The tool is moi_configure_account, on the stdio and the hosted server. `off`, the default, leaves it out of tools/list, and a
+ * call to it is unknown. A key added at full weight signs for the account alone, for good, and MOI Wallet shows it as a hex
+ * string nobody can check by eye, so the chat does not offer the change unless an operator decides it should.
+ * True for exactly the string `on`; an unset or blank value, `off` and every other value (a typo, another case, a stray
+ * space) read as false, so registration can never turn the tool on by accident. Any other value also fails config load, so a
+ * typo cannot leave the tool on.
+ *
+ * It reads that one variable and not getConfig(), on purpose. The stdio server starts on a bad config so that `ping` can
+ * say why (src/index.ts), and registration happens at that moment, so it must neither throw nor depend on a valid
+ * WC_PROJECT_ID. getConfig() also creates MOI_MCP_HOME on its first successful call, which a registration-only test must not
+ * do to a developer's real home. It needs no dotenv of its own: both entry points call getConfig(), which loads dotenv before
+ * it validates, before they register anything. The accepted values are written once, in the schema, which this reuses, so a
+ * value the schema refuses at load is refused here too and reads as off.
+ */
+export function accountKeyToolsOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Config.shape.MOI_ACCOUNT_KEY_TOOLS.safeParse(env["MOI_ACCOUNT_KEY_TOOLS"]).data === "on";
+}
+
 /** Memoised accessor. First call validates and creates MOI_MCP_HOME. */
 export function getConfig(): LoadedConfig {
   cached ??= loadConfig();

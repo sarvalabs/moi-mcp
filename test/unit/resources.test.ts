@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { DEFAULT_REGISTRY_LOGIC_ID } from "../../src/capabilities/reads/registry.js";
 import { startMockNode, type MockNode } from "../helpers/mock-node.js";
-import { startHarness, type Harness } from "../helpers/harness.js";
+import { applyEnv, startHarness, type Harness } from "../helpers/harness.js";
 
 let node: MockNode;
 let h: Harness;
@@ -79,10 +79,33 @@ describe("resources", () => {
       "moi_call_logic",
       "moi_asset_invoke",
       "moi_deploy_logic",
-      "moi_configure_account",
     ]) {
       expect(item.text).toContain(tool);
     }
+    // The tool is not registered unless the operator turns it on (MOI_ACCOUNT_KEY_TOOLS), so the quickstart does not name it.
+    expect(item.text).not.toContain("moi_configure_account");
+  });
+
+  it("moi://docs/quickstart names moi_configure_account, with its paragraph, only while the setting is on", async () => {
+    const read = async (): Promise<string> => {
+      const { contents } = await h.client.readResource({ uri: "moi://docs/quickstart" });
+      return (contents[0] as { text?: string }).text ?? "";
+    };
+    const off = await read();
+    try {
+      applyEnv(node.url, h.home, { MOI_ACCOUNT_KEY_TOOLS: "on" });
+      const on = await read();
+      expect(on).toContain("`moi_asset_invoke`, `moi_deploy_logic` and `moi_configure_account` build an");
+      const paragraph = on.split(/\n\s*\n/).find((p) => p.startsWith("`moi_configure_account` adds keys"));
+      expect(paragraph, "expected a paragraph on moi_configure_account in the quickstart").toBeDefined();
+      // It sits in section 3, before the heading of section 4, and nothing else about the text moves.
+      expect(on.indexOf("`moi_configure_account` adds keys")).toBeLessThan(on.indexOf("## 4."));
+      expect(on.indexOf("`moi_configure_account` adds keys")).toBeGreaterThan(on.indexOf("`moi_deploy_logic` deploys"));
+      expect(on.replace(paragraph! + "\n\n", "").replace(", `moi_deploy_logic` and `moi_configure_account`", " and `moi_deploy_logic`")).toBe(off);
+    } finally {
+      applyEnv(node.url, h.home); // the defaults again
+    }
+    expect(await read()).toBe(off);
   });
 
   it("moi://docs/quickstart signs in to the Launchpad with the generic dapp tool, and gives its address", async () => {

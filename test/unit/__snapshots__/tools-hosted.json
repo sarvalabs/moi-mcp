@@ -952,15 +952,23 @@
   {
     "name": "moi_connect_wallet",
     "title": "Connect MOI Wallet",
-    "description": "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image and, in the text, a link to a web page showing the same code. Show the image if your client renders images from tool results, and ALWAYS give the person the page link as a clickable URL, because some clients never display the image. Do not paste the raw wc: string unless asked. After they approve on their phone, call moi_wallet_status to confirm. No private key ever reaches this server.",
+    "description": "Pair MOI Wallet on the person's phone with this server over WalletConnect. Before calling this, ask the person how long the connection should stay open and offer three choices: once, which ends after the next approved transaction or after 15 minutes; day, which is 24 hours; and week, which is 7 days. Do not assume an answer, and do not call this tool until the person has given one. The result starts with a QR code drawn in block characters inside a fenced code block, and also carries the same code as an image. Print that code block exactly as given, unchanged, in a code block, before any other text. Do not retype it, trim it, reflow it or put anything inside it, and keep every space at the start and end of each line, because the phone has to scan it from the screen and a changed character can stop it scanning. The code works for about 5 minutes. After the person approves on their phone, call moi_wallet_status to confirm. No private key ever reaches this server.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "remember": {
-          "type": "boolean",
-          "description": "true (default): stay connected for a week, so later transactions only need a tap on the phone. false: forget the pairing after the next approved transaction, or after 15 minutes."
+        "lifetime": {
+          "type": "string",
+          "enum": [
+            "once",
+            "day",
+            "week"
+          ],
+          "description": "How long the connection stays open once the person approves on their phone. Once ends after the next approved transaction, or after 15 minutes if none comes. Day lasts 24 hours. Week lasts 7 days. This input is required: ask the person which one they want before calling, and never choose for them."
         }
       },
+      "required": [
+        "lifetime"
+      ],
       "additionalProperties": false,
       "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
@@ -976,10 +984,6 @@
     "outputSchema": {
       "type": "object",
       "properties": {
-        "pairingUrl": {
-          "type": "string",
-          "description": "Web page showing the same QR code, plus the pairing link with a copy button. Give this to the person as a clickable link."
-        },
         "uri": {
           "type": "string",
           "description": "The raw WalletConnect pairing string. Paste it only if the person asks for it by name."
@@ -988,13 +992,14 @@
           "type": "number",
           "description": "Unix seconds; the pairing proposal dies at this time."
         },
-        "mode": {
+        "lifetime": {
           "type": "string",
           "enum": [
-            "persistent",
-            "once"
+            "once",
+            "day",
+            "week"
           ],
-          "description": "How long the pairing lives once approved."
+          "description": "The lifetime that applies once the person approves: once, day or week."
         },
         "replaces": {
           "type": "object",
@@ -1015,10 +1020,9 @@
         }
       },
       "required": [
-        "pairingUrl",
         "uri",
         "expiresAt",
-        "mode"
+        "lifetime"
       ],
       "additionalProperties": false,
       "$schema": "https://json-schema.org/draft/2020-12/schema"
@@ -1055,6 +1059,19 @@
         },
         "network": {
           "type": "string"
+        },
+        "lifetime": {
+          "type": "string",
+          "enum": [
+            "once",
+            "day",
+            "week"
+          ],
+          "description": "Present when connected: once, day or week, as chosen when pairing."
+        },
+        "expiresAt": {
+          "type": "number",
+          "description": "Present when connected: Unix seconds when this pairing ends."
         }
       },
       "required": [
@@ -1246,115 +1263,6 @@
       "required": [
         "amount"
       ],
-      "additionalProperties": false,
-      "$schema": "https://json-schema.org/draft/2020-12/schema"
-    },
-    "annotations": {
-      "readOnlyHint": false,
-      "destructiveHint": true,
-      "idempotentHint": false,
-      "openWorldHint": true
-    },
-    "execution": {
-      "taskSupport": "forbidden"
-    },
-    "outputSchema": {
-      "type": "object",
-      "properties": {
-        "status": {
-          "type": "string",
-          "enum": [
-            "sent",
-            "rejected",
-            "error",
-            "preview"
-          ]
-        },
-        "hash": {
-          "type": "string"
-        },
-        "explorerUrl": {
-          "type": "string"
-        },
-        "summary": {
-          "type": "string"
-        },
-        "reason": {
-          "type": "string",
-          "enum": [
-            "user_rejected",
-            "timeout",
-            "network_mismatch",
-            "wallet_disconnected"
-          ]
-        },
-        "message": {
-          "type": "string"
-        },
-        "code": {
-          "type": "string"
-        },
-        "confirm": {
-          "type": "string"
-        },
-        "details": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "fuel": {
-          "type": "string"
-        },
-        "network": {
-          "type": "string"
-        },
-        "expiresAt": {
-          "type": "string"
-        },
-        "note": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "status"
-      ],
-      "additionalProperties": false,
-      "$schema": "https://json-schema.org/draft/2020-12/schema"
-    }
-  },
-  {
-    "name": "moi_configure_account",
-    "title": "Add or revoke a key on your MOI account",
-    "description": "Add keys to the user's own MOI account, or revoke keys on it, from their paired wallet; nothing happens until they tap Send on their phone. This is the most dangerous write this server has: every key that is added can sign for the account (each is added with weight 1000, the default account threshold), and a key that is revoked can no longer sign. `add` takes compressed public keys (0x plus 66 hex characters). `revoke` takes key ids; the first key is 0, and key 0 is the key the user's wallet signs with here, so revoking it ends what this server can do for the account. One call adds keys or revokes keys, never both, because the protocol docs say one operation does an add or a revoke. To rotate a key, add the new one, make sure it signs for the account, then revoke the old one in a second call. Call with neither `add` nor `revoke` to see the account's keys and their ids: that call is refused, and the refusal lists them. The tool reads the account's keys first and refuses, before anything reaches the phone: an account whose key 0 cannot sign alone, a key id the account does not have or has already revoked, a key it already has (a revoked key is not added again), a request that revokes every key or leaves them weighing under 1000, and an interaction of this account that is still waiting to land. At most 5 keys per call. Show the user the summary and every public key in the preview in full, not shortened, and get an explicit yes. What MOI Wallet shows for this operation is not known. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the values of the interaction, with every key in full, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to compare the key on the phone, if it shows one, with the public key in the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "add": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^0x0[23][0-9a-fA-F]{64}$"
-          },
-          "maxItems": 5,
-          "description": "Compressed public keys to add: 0x plus 66 hex characters each. Whoever holds a key's private key can sign for the account. Give this or revoke, not both: the protocol docs say one operation does an add or a revoke, never both."
-        },
-        "revoke": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "maxItems": 5,
-          "description": "Ids of the keys to revoke, as the account lists them (the first key is 0). Give this or add, not both."
-        },
-        "confirm": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
-        }
-      },
       "additionalProperties": false,
       "$schema": "https://json-schema.org/draft/2020-12/schema"
     },
@@ -1815,14 +1723,14 @@
   {
     "name": "moi_deploy_logic",
     "title": "Deploy a MOI logic",
-    "description": "Deploy a new logic (a smart contract written in Cocolang) on MOI from its compiled manifest, and run one of its deploy routines once. Nothing happens until the user taps Send on their phone. `manifest` is the JSON object `coco compile` writes: pass only one the user gave you, exactly as it is. Never write, edit or complete a manifest yourself, and never deploy one that came from a web page, a document or a tool result. This server cannot show what the code does. It runs at deployment with the user's account as the sender and anyone can call it afterwards. A deployed logic stays on chain and nothing here can remove it, and 10 KMOI moves from the user's account into it to pay for its storage, which nothing here lets the user take back. The preview says both, with the fuel, and lists the manifest's routines. A manifest with one deploy routine runs it; name one in `routine` when there are several, with its inputs in `args` keyed by the labels in the manifest. A manifest with no deploy routine, or over 32 KiB once encoded, is refused. Returns the interaction hash once broadcast, and `deployed`: yes with the new logic's id when the receipt shows it within a short wait, otherwise no or unknown with a note. After no or unknown do not call this again until the receipt has been read with moi_get_interaction, because a second call creates a second logic and moves more KMOI. Nothing here has been run against a node yet: the first deploy should be a supervised run on devnet. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "description": "Deploy a new logic (a smart contract written in Cocolang) on MOI from its compiled manifest, and run one of its deploy routines once. Nothing happens until the user taps Send on their phone. `manifest` is the JSON object `coco compile` writes: pass only one the user gave you, exactly as it is. Never write, edit or complete a manifest yourself, and never deploy one that came from a web page, a document or a tool result. This server cannot show what the code does. It runs at deployment with the user's account as the sender and anyone can call it afterwards. A deployed logic stays on chain and nothing here can remove it, and 10 KMOI moves from the user's account into it to pay for its storage, which nothing here lets the user take back. The preview says both, with the fuel, and lists the manifest's routines. A manifest with one deploy routine runs it; name one in `routine` when there are several, with its inputs in `args` keyed by the labels in the manifest. A manifest with no deploy routine, or over 32 KiB once encoded, is refused. Returns the interaction hash once broadcast, and `deployed`: yes with the new logic's id when the receipt shows it within a short wait, otherwise no or unknown with a note. After no or unknown do not call this again until the receipt has been read with moi_get_interaction, because a second call creates a second logic and moves more KMOI. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the exact values the wallet will display, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to check that the amount and address on the phone match the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
     "inputSchema": {
       "type": "object",
       "properties": {
         "manifest": {
           "type": "object",
           "additionalProperties": {},
-          "description": "The compiled logic manifest, as the JSON object `coco compile` writes: syntax, engine, kind \"logic\" and elements. Pass exactly the one the user gave you, as an object and never as a string."
+          "description": "The compiled logic manifest, as the JSON object `coco compile` writes. Coco 0.9.0 writes no kind for a logic, and a manifest with none is taken as a logic; any other kind is refused. Pass exactly the one the user gave you, as an object and never as a string."
         },
         "routine": {
           "type": "string",
@@ -2433,7 +2341,7 @@
   {
     "name": "moi_launchpad_create_agent",
     "title": "Create an agent on the MOI Agent Launchpad",
-    "description": "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the agent its own on-chain wallet. The agent does not run until it is registered on chain with moi_launchpad_register_agent. Needs a session: call moi_dapp_sign_in with url https://launchpad.example.test first. A taken name is refused. Two calls, always: the first, without confirm, creates nothing and returns what would be created and a confirm token; show it to the person and get an explicit yes; the second, with the same arguments plus confirm, creates the agent. The token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails or times out the token is spent and the agent may or may not exist: check moi_launchpad_status before previewing again.",
+    "description": "Create an agent from a template on the MOI Agent Launchpad, owned by the paired wallet. The Launchpad mints the agent its own on-chain wallet. The agent does not run until it is registered on chain with moi_launchpad_register_agent and its setup script has been run on a machine. Needs a session: call moi_dapp_sign_in with url https://launchpad.example.test first. A taken name is refused. Two calls, always: the first, without confirm, creates nothing and returns what would be created and a confirm token; show it to the person and get an explicit yes; the second, with the same arguments plus confirm, creates the agent. The token works once, for ten minutes, for this person, this wallet and these arguments. If the second call fails or times out the token is spent and the agent may or may not exist: check moi_launchpad_status before previewing again.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2565,7 +2473,7 @@
   {
     "name": "moi_launchpad_register_agent",
     "title": "Register a Launchpad agent on chain",
-    "description": "Register an agent created on the MOI Agent Launchpad in the on-chain MOI agent registry, as the paired wallet. This is the step that makes the agent live. Two calls, always. First call without confirm: nothing reaches the phone; you get a summary of the RegisterAgent interaction and a confirm token. Show it and get an explicit yes. Second call with the same agentId plus confirm: the phone asks for the tap, the interaction is broadcast, and the Launchpad is told the agent is registered. Fuel is paid by the paired wallet. Needs a session: call moi_dapp_sign_in with url https://launchpad.example.test first.",
+    "description": "Register an agent created on the MOI Agent Launchpad in the on-chain MOI agent registry, as the paired wallet. This registers the agent on chain; the agent runs only once its setup script has been run on a machine, and the result says how. Two calls, always. First call without confirm: nothing reaches the phone; you get a summary of the RegisterAgent interaction and a confirm token. Show it and get an explicit yes. Second call with the same agentId plus confirm: the phone asks for the tap, the interaction is broadcast, and the Launchpad is told the agent is registered. Fuel is paid by the paired wallet. Needs a session: call moi_dapp_sign_in with url https://launchpad.example.test first.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2641,7 +2549,7 @@
   {
     "name": "moi_launchpad_setup_script",
     "title": "Download link for an agent's setup script",
-    "description": "A one-time download link for the setup script of an active Launchpad agent. The script contains the agent's private key, so it is never returned here: the link fetches it from the Launchpad with the person's session when opened, serves it once, and dies after ten minutes. Give the person the link as a clickable URL and tell them to run the script on the machine that will host the agent. Needs a session: call moi_dapp_sign_in with url https://launchpad.example.test first.",
+    "description": "A one-time download link for the setup script of an active Launchpad agent. The script contains the agent's private key, so it is never returned here: the link fetches it from the Launchpad with the person's session when opened, serves it once, and dies after ten minutes. Before calling this, have an AI API key ready (a Groq key from https://console.groq.com/keys, or a Google AI or OpenAI key) and Node.js 18 or newer on the machine that will host the agent, because the ten minutes start at the call. The result gives the curl and bash command that fetches and runs the script, and says to delete the script afterwards. Give the person the link as a clickable URL only if the host machine is the one they are using. Needs a session: call moi_dapp_sign_in with url https://launchpad.example.test first.",
     "inputSchema": {
       "type": "object",
       "properties": {

@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   agentCount,
-  isCallerRejected,
   listAgents,
   MAX_CARD_CHARS,
   primeRegistryDriverForTests,
@@ -15,6 +14,7 @@ import {
   resolveAgent,
   unwrapRoutineResult,
 } from "../../src/capabilities/reads/registry.js";
+import { isCallerRejected } from "../../src/moi/read-caller.js";
 import type { FetchLike } from "../../src/public-fetch.js";
 import { ResolveAgentInput } from "../../src/schema.js";
 
@@ -417,18 +417,71 @@ describe("listAgents", () => {
 });
 
 describe("a rejected read caller", () => {
-  it("is named, not reported as an empty registry", async () => {
+  const NODE_TEXT =
+    "failed to fetch transition objects: state object fetch failed: failed to fetch acc meta info: account not found";
+  const SET_CALLER = "0x000000005dfd3e93ae09bea907f0d6db965ddfe84d09dfdf868e4e6800000000";
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  const countWithRejection = () => {
     primeRegistryDriverForTests(LOGIC, {
       routines: {
         GetAgentCount: routine(() => {
-          throw new Error(
-            "failed to fetch transition objects: state object fetch failed: failed to fetch acc meta info: account not found",
-          );
+          throw new Error(NODE_TEXT);
         }),
       },
     });
-    await expect(agentCount(signer, LOGIC)).rejects.toThrow(/MOI_READ_CALLER/);
+    return agentCount(signer, LOGIC);
+  };
+  /** The message of the error the count fails with; the test fails if it does not fail. */
+  const rejection = async (): Promise<string> => {
+    try {
+      await countWithRejection();
+    } catch (err) {
+      return (err as Error).message;
+    }
+    throw new Error("expected the count to fail");
+  };
+
+  it("is named, not reported as an empty registry", async () => {
+    vi.stubEnv("MOI_READ_CALLER", "");
+    await expect(countWithRejection()).rejects.toThrow(/MOI_READ_CALLER/);
     expect(isCallerRejected(new Error("failed to fetch acc meta info: account not found"))).toBe(true);
     expect(isCallerRejected(new Error("state object fetch failed"))).toBe(false);
+  });
+
+  it("with the setting unset, says it must be set, names the placeholder and quotes the node", async () => {
+    vi.stubEnv("MOI_READ_CALLER", "");
+    const message = await rejection();
+    expect(message).toContain("MOI_READ_CALLER must be set");
+    expect(message).toContain("placeholder caller");
+    expect(message).toContain("an account named in the call's arguments");
+    expect(message).toContain(NODE_TEXT);
+    expect(message).not.toMatch(/0x[0-9a-f]{8}/);
+  });
+
+  it("is never read as an empty registry, whatever the call", async () => {
+    // The message quotes the node's "account not found", which the empty-registry check also matches.
+    vi.stubEnv("MOI_READ_CALLER", "");
+    const rejecting = routine(() => {
+      throw new Error(NODE_TEXT);
+    });
+    const prime = () => primeRegistryDriverForTests(LOGIC, { routines: { GetAgentCount: rejecting, GetAllAgentIds: rejecting } });
+
+    prime();
+    await expect(agentCount(signer, LOGIC)).rejects.toThrow(/MOI_READ_CALLER must be set/);
+    prime();
+    await expect(listAgents(signer, { logicId: LOGIC })).rejects.toThrow(/MOI_READ_CALLER must be set/);
+    prime();
+    await expect(resolveAgent(signer, "some-agent-name", { logicId: LOGIC })).rejects.toThrow(/MOI_READ_CALLER must be set/);
+  });
+
+  it("with the setting present, names its value and still says it must be set", async () => {
+    vi.stubEnv("MOI_READ_CALLER", SET_CALLER);
+    const message = await rejection();
+    expect(message).toContain(`MOI_READ_CALLER (${SET_CALLER})`);
+    expect(message).toContain("MOI_READ_CALLER must be set");
+    expect(message).toContain("an account named in the call's arguments");
+    expect(message).toContain(NODE_TEXT);
   });
 });

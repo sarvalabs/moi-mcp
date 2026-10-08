@@ -8,7 +8,7 @@ Type each prompt into claude.ai with the connector on. Report the number and wha
 ## 0. Setup
 
 S1  Connect my MOI wallet.
-    Expect: a pairing link or QR. Open it in MOI Wallet and approve.
+    Expect: Claude first asks how long the connection should stay open (once, a day or a week). Answer a week. Then a QR code printed in a code block in the chat. Scan it from the screen with MOI Wallet and approve. If it will not scan, say so. Report light and dark theme separately.
 S2  Is my wallet connected, and on which network?
     Expect: your address, network voyage.
 S3  What can you do with MOI through this connector?
@@ -62,17 +62,18 @@ T3  What routines does KMOI support?
 ## 4. New write tools (use a throwaway account for W1 and W2)
 
 W1  Show my account keys.   (then:)   Add this public key to my account: <0x02... or 0x03... compressed key from another wallet>
-    Expect: preview shows the keys before and after, the new key at weight 1000. Confirm, approve. Sent.
+    Expect: moi_configure_account is not offered, because MOI_ACCOUNT_KEY_TOOLS is off by default. With it set to on: preview shows the keys before and after, the new key at weight 1000. Confirm, approve. Sent.
 W2  Revoke key 0 on my account.
-    Expect: refused before the phone. It is the key your wallet signs with.
-W3  Deploy this logic manifest: <paste the whole contents of test/fixtures/logics/flipper.json>
+    Expect: moi_configure_account is not offered, because MOI_ACCOUNT_KEY_TOOLS is off by default. With it set to on: refused before the phone. It is the key your wallet signs with.
+W3  Deploy this logic manifest and run its Seed routine with initial true: <paste the manifest object, the value of the "manifest" key, from test/fixtures/logics/flipper-payer.json>
     Expect: preview shows the deploy and a 10 KMOI funding transfer. Confirm, approve. Sent, with the new logic id within about 30 seconds. Keep the id.
+    The older test/fixtures/logics/flipper.json stays a deploy-only fixture: its Set and Toggle write state without payer Logic, so they can never be called.
 W4  Show logic <id from W3>.
-    Expect: routines Get, Set, Toggle.
+    Expect: the routines of the manifest with their kinds: Init and Seed as deploy routines, and Get, Set and Toggle.
 W5  Call Toggle on logic <id from W3>.
     Expect: preview, confirm, approve. Sent.
 W6  Call Get on logic <id from W3>.
-    Expect: the value, with no phone involved.
+    Expect: the value false (Seed set it to true and Toggle flipped it), with no phone involved.
 
 ## 5. Dapps and the Launchpad
 
@@ -92,13 +93,13 @@ D6  What is my Launchpad status?
 D7  Show the Launchpad agent templates.
     Expect: a list of templates.
 D8  Create an agent on the Launchpad from the first template, named Preview Test Agent.
-    Expect: a preview first, because it is not a read. Confirm. Created.
+    Expect: a preview first, because it is not a read. Confirm. Created. The result names the four steps in order, and says registering does not start the agent.
 D9  Register that agent on chain.
-    Expect: one tap on the phone. Sent. The agent id may be missing from the answer on this preview (MOI_READ_CALLER is not set).
+    Expect: one tap on the phone. Sent. The agent id may be missing from the answer on this preview (MOI_READ_CALLER is not set). The result names the four steps in order, and says the agent is registered but not running yet.
 D10 Give me the Telegram link for that agent.
     Expect: a link that works for 15 minutes.
 D11 Give me the setup script for that agent.
-    Expect: a download link that works once, for 10 minutes.
+    Expect: a download link that works once, for 10 minutes, and the steps in order: AI API key, Node.js 18, the curl command, delete the script.
 D12 Sign out of the Launchpad.   (then:)   Which dapps am I signed in to?
     Expect: signed out, then none.
 

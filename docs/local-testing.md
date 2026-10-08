@@ -18,8 +18,9 @@ is scoped to a **read-only HTTP transport**, which has none of these problems.
 
 ## Which transport
 
-`moi-mcp` (stdio) is the local one your MCP client spawns — all 23 tools
-(`ping`, the eight reads, the three wallet tools and the eleven writes),
+`moi-mcp` (stdio) is the local one your MCP client spawns, with all 22 tools
+(`ping`, the eight reads, the three wallet tools and the ten writes; the
+setting `MOI_ACCOUNT_KEY_TOOLS=on` adds an eleventh, `moi_configure_account`),
 wallet included. `moi-mcp-http` is the read-only service — 43 tools (`ping`, the eight reads and the 34 node method tools), no wallet,
 no `WC_PROJECT_ID`, stateless, hostable. This page covers the stdio one; for
 the HTTP one, `PORT=8787 node dist/http.js` and point a client at
@@ -113,7 +114,7 @@ npm run inspect        # MCP Inspector against src/, no build step
 ```
 
 ```bash
-# Raw protocol — should print a JSON line listing 23 tools
+# Raw protocol — should print a JSON line listing 22 tools
 WC_PROJECT_ID=<id> node -e '
 const {spawn}=require("child_process");
 const c=spawn("node",["dist/index.js"]);

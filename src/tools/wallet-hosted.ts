@@ -9,10 +9,17 @@ import type { AuthInfo } from "../auth/types.js";
 import { toMcpError } from "../errors.js";
 import { MoiError } from "../moi-error.js";
 import { NETWORKS } from "../moi/provider.js";
-import type { PairingSeed } from "../pairing/index.js";
 import { ErrorCode } from "../schema.js";
 import type { WalletConnectHubLike } from "../wc/hub.js";
-import { expiresAtOf, isExpired, type PairingMode } from "../wc/lifetime.js";
+import {
+  expiresAtOf,
+  isExpired,
+  lifetimeOfMode,
+  LIFETIMES,
+  modeOfLifetime,
+  type PairingMode,
+} from "../wc/lifetime.js";
+import { toBlockText } from "../wc/qr.js";
 import type { WalletSessionStore } from "../wc/store.js";
 import { defineTool, type ToolDef } from "./define.js";
 
@@ -20,8 +27,7 @@ import { defineTool, type ToolDef } from "./define.js";
 export interface HostedWalletDeps {
   store: WalletSessionStore;
   hub: WalletConnectHubLike;
-  createPairingLink(userId: string, seed?: PairingSeed): { url: string; expiresAt: number };
-  startPairing(userId: string, mode?: PairingMode): Promise<{ uri: string; expiresAt: number }>;
+  startPairing(userId: string, mode: PairingMode): Promise<{ uri: string; expiresAt: number }>;
 }
 
 /** caip2 -> the network key NETWORKS lists it under, when it matches one we know. */
@@ -30,22 +36,36 @@ function networkForCaip2(caip2: string): string | undefined {
 }
 
 const CONNECT_OUTPUT = {
-  pairingUrl: z
+  uri: z
     .string()
-    .describe("Web page showing the same QR code, plus the pairing link with a copy button. Give this to the person as a clickable link."),
-  uri: z.string().describe("The raw WalletConnect pairing string. Paste it only if the person asks for it by name."),
+    .describe("The raw WalletConnect pairing string. Paste it only if the person asks for it by name."),
   expiresAt: z.number().describe("Unix seconds; the pairing proposal dies at this time."),
-  mode: z.enum(["persistent", "once"]).describe("How long the pairing lives once approved."),
+  lifetime: z.enum(LIFETIMES).describe("The lifetime that applies once the person approves: once, day or week."),
   replaces: z
     .object({ address: z.string(), since: z.string() })
     .optional()
     .describe("Present when a live pairing already exists for this user and will be replaced on approval."),
 };
+
+/**
+ * What the result text tells the person about the lifetime they chose. Every clock starts when they approve on the
+ * phone, which is when the record is written, not when the tool is called.
+ */
+const LIFETIME_SENTENCE = {
+  once:
+    "This pairing ends after your next approved transaction, or 15 minutes after you approve it if none comes. " +
+    'Say "disconnect my wallet" to end it sooner.',
+  day: 'You stay connected for 24 hours after you approve it. Say "disconnect my wallet" to end it sooner.',
+  week: 'You stay connected for 7 days after you approve it. Say "disconnect my wallet" to end it sooner.',
+} as const satisfies Record<(typeof LIFETIMES)[number], string>;
+
 const WALLET_STATUS_OUTPUT = {
   connected: z.boolean(),
   address: z.string().optional(),
   caip2: z.string().optional(),
   network: z.string().optional(),
+  lifetime: z.enum(LIFETIMES).optional().describe("Present when connected: once, day or week, as chosen when pairing."),
+  expiresAt: z.number().optional().describe("Present when connected: Unix seconds when this pairing ends."),
 };
 
 /**
@@ -71,42 +91,40 @@ export function hostedWalletTools(deps: HostedWalletDeps, auth: AuthInfo | null)
     {
       title: "Connect MOI Wallet",
       description:
-        "Pair MOI Wallet on your phone with this server over WalletConnect. Returns a QR code image " +
-        "and, in the text, a link to a web page showing the same code. Show the image if your client " +
-        "renders images from tool results, and ALWAYS give the person the page link as a clickable URL, " +
-        "because some clients never display the image. Do not paste the raw wc: string unless asked. " +
-        "After they approve on their phone, call moi_wallet_status to confirm. No private key ever " +
-        "reaches this server.",
+        "Pair MOI Wallet on the person's phone with this server over WalletConnect. Before calling this, ask the " +
+        "person how long the connection should stay open and offer three choices: once, which ends after the next " +
+        "approved transaction or after 15 minutes; day, which is 24 hours; and week, which is 7 days. Do not assume " +
+        "an answer, and do not call this tool until the person has given one. The result starts with a QR " +
+        "code drawn in block characters inside a fenced code block, and also carries the same code as an image. " +
+        "Print that code block exactly as given, unchanged, in a code block, before any other text. Do not retype " +
+        "it, trim it, reflow it or put anything inside it, and keep every space at the start and end of each line, " +
+        "because the phone has to scan it from the screen and a changed character can stop it scanning. The code " +
+        "works for about 5 minutes. After the person approves on their phone, call moi_wallet_status to " +
+        "confirm. No private key ever reaches this server.",
       inputSchema: {
-        remember: z
-          .boolean()
-          .optional()
+        lifetime: z
+          .enum(LIFETIMES)
           .describe(
-            "true (default): stay connected for a week, so later transactions only need a tap on the " +
-              "phone. false: forget the pairing after the next approved transaction, or after 15 minutes.",
+            "How long the connection stays open once the person approves on their phone. Once ends after the " +
+              "next approved transaction, or after 15 minutes if none comes. Day lasts 24 hours. Week lasts 7 " +
+              "days. This input is required: ask the person which one they want before calling, and never choose " +
+              "for them.",
           ),
       },
       outputSchema: CONNECT_OUTPUT,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ remember }) => {
+    async ({ lifetime }) => {
       try {
         const userId = requireAuth().userId;
-        const mode: PairingMode = remember === false ? "once" : "persistent";
+        const mode = modeOfLifetime(lifetime);
         // Say so when this would replace a wallet that is already paired. A
         // stolen cookie could otherwise swap in an attacker's phone silently,
         // and an honest user reconnecting deserves to know too.
         const existing = await deps.store.get(userId);
         const replaces =
           existing && !isExpired(existing) ? { address: existing.address, since: existing.createdAt } : undefined;
-        // The lifetime goes on the pairing record first, so the page shows
-        // the same choice and the approval handler reads it from one place
-        // (makeStartPairing falls back to modeForUser when mode is omitted).
-        deps.createPairingLink(userId, { mode });
-        const { uri, expiresAt } = await deps.startPairing(userId);
-        // Then the page is seeded with this very proposal, so a person who
-        // cannot see the image in chat opens the link and scans the same code.
-        const link = deps.createPairingLink(userId, { uri });
+        const { uri, expiresAt } = await deps.startPairing(userId, mode);
 
         // The URI lands in the chat transcript, and it carries the key for
         // this pairing proposal. That is a deliberate trade: the proposal is
@@ -115,20 +133,29 @@ export function hostedWalletTools(deps: HostedWalletDeps, auth: AuthInfo | null)
         // chat over a separate page. Funds are never at stake either way; a
         // hijacked pairing can raise prompts on a phone, not sign for it.
         //
-        // claude.ai does not show image blocks from tool results to the
-        // person, and does not give its model structuredContent, so the page
-        // link in the text is the one path that works everywhere.
+        // claude.ai shows an image block from a tool result only as a small
+        // thumbnail, and gives its model the content text and not
+        // structuredContent. So the person sees the code in the chat as text,
+        // which the model prints in a code block. The image is kept for the
+        // clients that do show it. The text code spells the same pairing
+        // string as the image, so the exposure described above is the same for
+        // both. The text itself carries no raw wc: string: spelled out it is a
+        // secret in a transcript and noise next to the code.
         const png = await QRCode.toBuffer(uri, { type: "png", width: 320, margin: 1 });
-        const lifetime =
-          mode === "once"
-            ? "This pairing is forgotten after your next approved transaction, or after 15 minutes."
-            : 'You stay connected for a week. Say "disconnect my wallet" to end it sooner.';
+        const block = await toBlockText(uri);
+        const lifetimeSentence = LIFETIME_SENTENCE[lifetime];
+        // The fence comes first and holds only the code, which is made of spaces, block characters and newlines, so it
+        // cannot close its own fence.
         const text = [
-          "Scan this QR code with MOI Wallet on your phone, then approve the pairing there.",
-          `If the QR code is not showing here, open ${link.url} in your browser. It shows the same code, ` +
-            "with the pairing link and a copy button.",
-          "It expires in about 5 minutes. " + lifetime,
-          "Once approved, moi_wallet_status confirms the pairing.",
+          "```",
+          block,
+          "```",
+          "Show the code block above to the person exactly as it is, unchanged, in a code block, before anything else " +
+            "you say. Keep every space at the start and end of each line.",
+          "Then tell them to scan it with MOI Wallet on their phone and approve the pairing there. " +
+            "It expires in about 5 minutes. " +
+            lifetimeSentence,
+          "Once they approve, call moi_wallet_status to confirm the pairing.",
           ...(replaces
             ? [
                 `Note: a wallet is already paired to this account (${replaces.address}). Approving this replaces it. ` +
@@ -136,7 +163,7 @@ export function hostedWalletTools(deps: HostedWalletDeps, auth: AuthInfo | null)
               ]
             : []),
         ].join("\n");
-        const structuredContent = { pairingUrl: link.url, uri, expiresAt, mode, ...(replaces ? { replaces } : {}) };
+        const structuredContent = { uri, expiresAt, lifetime, ...(replaces ? { replaces } : {}) };
         return {
           content: [
             { type: "image" as const, data: png.toString("base64"), mimeType: "image/png" },
@@ -175,7 +202,7 @@ export function hostedWalletTools(deps: HostedWalletDeps, auth: AuthInfo | null)
               address: record.address,
               caip2: record.caip2,
               ...(networkForCaip2(record.caip2) ? { network: networkForCaip2(record.caip2) } : {}),
-              mode: record.mode ?? "persistent",
+              lifetime: lifetimeOfMode(record.mode),
               expiresAt: expiresAtOf(record),
             }
           : { connected: false };

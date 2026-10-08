@@ -34,9 +34,10 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { mountAuth, type AuthHandle, type AuthInfo } from "./auth/index.js";
-import { getConfig, getHostedConfig, log } from "./config.js";
+import { accountKeyToolsOn, getConfig, getHostedConfig, log } from "./config.js";
 import { messageOf } from "./errors.js";
 import { HOSTED_INSTRUCTIONS } from "./instructions.js";
+import { isSwitchedOff, OPTIONAL_GATED } from "./optional-tools.js";
 import { newHttpServer, MCP_PATH } from "./http.js";
 import { brandAsset, landingHtml } from "./branding.js";
 import { securityHeaders } from "./security-headers.js";
@@ -48,7 +49,6 @@ import { WriteJournal } from "./journal.js";
 import {
   createPairingLink as createPairingLinkFor,
   consumeForUser,
-  modeForUser,
   mountPairing,
   type PairingSeed,
 } from "./pairing/index.js";
@@ -77,7 +77,7 @@ const MAX_BODY_BYTES = 1_000_000;
  * read tool/resource stay public. moi_transfer, moi_create_asset, moi_mint
  * and moi_call_logic are not registered by this file (that is the hosted
  * write path, a later milestone) but are listed here so the gate needs no
- * change when they land.
+ * change when they land. moi_configure_account is listed too and is also in OPTIONAL_GATED (src/optional-tools.ts).
  */
 export const GATED = [
   "moi_transfer",
@@ -106,6 +106,7 @@ export const GATED = [
   "moi_dapp_call",
   "moi_faucet",
 ] as const;
+export { OPTIONAL_GATED };
 
 /**
  * Scope required per gated tool. moi_wallet_status only reads the paired
@@ -152,9 +153,8 @@ export interface HostedDeps {
   /** Whether mountPairing(app, ...) was called on the outer app main() builds this onto. Surfaced at /health only — this app never serves /pair itself. */
   resolveUriMounted: boolean;
   /**
-   * Wrapper over pairing/index.js's createPairingLink(userId, publicUrl, seed)
-   * with the publicUrl baked in by whoever builds this object. The seed lets
-   * moi_connect_wallet make the page show the proposal it just started.
+   * Wrapper over pairing/index.js's createPairingLink(userId, publicUrl, seed) with the publicUrl baked in by whoever builds this
+   * object. No tool calls it now that moi_connect_wallet prints the QR in the chat; the pairing page still mounted in main() keeps it.
    */
   createPairingLink(userId: string, seed?: PairingSeed): { url: string; expiresAt: number };
   /** Public origin, used to advertise absolute icon URLs in serverInfo. */
@@ -162,10 +162,10 @@ export interface HostedDeps {
   /**
    * Start a WalletConnect pairing for this user and persist the session once
    * the phone approves. Returns the wc: URI to show them and when it dies.
-   * `mode` is the lifetime the user asked for in chat; the pairing page's
-   * toggle applies when it is omitted.
+   * `mode` is the lifetime the person chose in the chat. It decides when the
+   * stored pairing expires, counted from the moment the phone approves.
    */
-  startPairing(userId: string, mode?: PairingMode): Promise<{ uri: string; expiresAt: number }>;
+  startPairing(userId: string, mode: PairingMode): Promise<{ uri: string; expiresAt: number }>;
   /** The MOI Agent Launchpad tools; absent when no Launchpad is configured (tests). */
   launchpad?: LaunchpadDeps;
   /** The generic dapp tools; absent in tests that do not need them. */
@@ -209,7 +209,7 @@ function gatedToolNames(body: unknown): Array<(typeof GATED)[number]> {
   const names: Array<(typeof GATED)[number]> = [];
   for (const m of messages) {
     const name = toolCallName(m);
-    if (name !== undefined && (GATED as readonly string[]).includes(name)) {
+    if (name !== undefined && (GATED as readonly string[]).includes(name) && !isSwitchedOff(name)) {
       names.push(name as (typeof GATED)[number]);
     }
   }
@@ -343,10 +343,9 @@ export function buildHostedApp(deps: HostedDeps): Application {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the resolveUri callback mountPairing needs: start a WalletConnect
- * pairing, hand back the URI immediately for the QR page, and — once the
- * phone approves, in the background — persist the paired session and mark
- * the pairing link consumed.
+ * Build the function that starts a pairing for a user: start a WalletConnect pairing and hand back the URI at once. When the
+ * phone approves, in the background, it persists the paired session with the lifetime the person chose and marks the pairing
+ * link consumed. moi_connect_wallet passes the chosen lifetime; mountPairing's resolveUri passes the shortest.
  *
  * Pairing runs on the hub's SignClient, and that is load-bearing rather than
  * hygiene: signInteractionFor() resolves a topic against its own client's
@@ -359,13 +358,13 @@ export function buildHostedApp(deps: HostedDeps): Application {
  * specific user's topic — the relay client itself has no notion of which
  * user paired, so asking it would give whoever paired most recently.
  */
-function makeStartPairing(
+export function makeStartPairing(
   cfg: ReturnType<typeof getConfig>,
   hub: WalletConnectHubLike,
   store: WalletSessionStore,
   journal: WriteJournal,
 ): HostedDeps["startPairing"] {
-  return async (userId: string, mode?: PairingMode) => {
+  return async (userId: string, mode: PairingMode) => {
     const { uri, approval } = await hub.pair(cfg.MOI_NETWORK);
 
     // Do not block the pairing page on the phone tap; it already polls via
@@ -383,11 +382,9 @@ function makeStartPairing(
           address: session.account,
           sessionData: session,
           createdAt: new Date(session.createdAt * 1000).toISOString(),
-          // The chat tool passes the mode the user asked for. The page has no
-          // way to, so its toggle is read here at approval time instead, so a
-          // choice made after the link was issued still counts.
-          mode: mode ?? modeForUser(userId),
-          expiresAt: expiryFor(mode ?? modeForUser(userId), Math.floor(Date.now() / 1000)),
+          // The lifetime the person chose in the chat; its clock starts at approval, not when the pairing was started.
+          mode,
+          expiresAt: expiryFor(mode, Math.floor(Date.now() / 1000)),
         };
         try {
           const previous = await store.get(userId);
@@ -473,6 +470,7 @@ export async function reconcileJournalOnBoot(journal: WriteJournal): Promise<voi
 async function main(): Promise<void> {
   const cfg = getConfig(); // loads dotenv as a side effect; call before getHostedConfig()
   const hosted = getHostedConfig();
+  if (accountKeyToolsOn()) log("info", "account key tools are on (MOI_ACCOUNT_KEY_TOOLS=on): moi_configure_account is registered");
 
   const app = express();
   app.disable("x-powered-by");
@@ -524,7 +522,9 @@ async function main(): Promise<void> {
   await reconcileJournalOnBoot(journal);
 
   const startPairing = makeStartPairing(cfg, hub, store, journal);
-  mountPairing(app, { resolveUri: async (userId) => (await startPairing(userId)).uri });
+  // Still mounted though no tool hands out its link now (moi_connect_wallet prints the QR in the chat): the security headers are
+  // written around this page and the consent page, and removing it is a separate decision. A pairing it starts gets "once".
+  mountPairing(app, { resolveUri: async (userId) => (await startPairing(userId, "once")).uri });
 
   // The Launchpad: its session per user next to the wallet pairing, and the
   // one-time page that hands an agent's setup script to a browser. The Launchpad is signed in to with moi_dapp_sign_in,

@@ -17,12 +17,18 @@
 import { deriveLogicId } from "js-moi-sdk";
 
 import flipperFixture from "../fixtures/logics/flipper.json";
+import flipperPayerFixture from "../fixtures/logics/flipper-payer.json";
 import lockLedgerFixture from "../fixtures/logics/lock-ledger.json";
 import { callable, manifestHex, type ManifestLike } from "./asset-fixtures.js";
 import { ACCOUNT, RpcFailure, SENT_HASH, type MockNode } from "./mock-node.js";
 
 export const LOCK_LEDGER: ManifestLike = lockLedgerFixture.manifest as unknown as ManifestLike;
 export const FLIPPER: ManifestLike = flipperFixture.manifest as unknown as ManifestLike;
+/**
+ * FLIPPER with `payer Logic` on its writes, compiled with Coco 0.9.0. The compiler wrote no `kind`; the fixture has one added by hand,
+ * so a test that needs the compiler's own output takes it out (see noKind in logic-deploy-plan.test.ts).
+ */
+export const FLIPPER_PAYER: ManifestLike = flipperPayerFixture.manifest as unknown as ManifestLike;
 
 const isDeploy = (el: Record<string, unknown>): boolean =>
   el["kind"] === "callable" && (el["data"] as { kind?: string }).kind === "deploy";

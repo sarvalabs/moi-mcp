@@ -105,6 +105,8 @@ export const LaunchpadRegisterAgentOutput = z.object({
   /** The Launchpad record's status after confirmation. */
   launchpadStatus: z.string(),
   note: z.string().optional(),
+  /** The steps that start the agent, for the model to relay. Present only once the Launchpad has recorded the registration. */
+  next: z.string().optional(),
 });
 
 export const LaunchpadTelegramLinkInput = z.object({});

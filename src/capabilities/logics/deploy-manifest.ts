@@ -97,7 +97,14 @@ export function readDeployManifest(manifest: Record<string, unknown>, expected: 
     );
   }
 
-  const kind = manifest["kind"];
+  const declared = manifest["kind"];
+  // Coco 0.9.0 writes no kind into a logic manifest. For a logic that is read as "logic", and the encoder is given a copy with
+  // the kind filled in, so the bytes sent and the bytes on chain are those of a manifest that has it: encoded without a kind
+  // they would differ. Any other kind, an asset's included, is refused below, and so is no kind where an asset is expected
+  // (the same compiler writes kind "asset" for those).
+  const filled = declared === undefined && expected === "logic";
+  const kind = filled ? "logic" : declared;
+  const source = filled ? { ...manifest, kind } : manifest;
   if (expected === "logic" && kind === "asset") {
     throw invalid(
       'This manifest is for an asset (its kind is "asset"), not a logic. moi_deploy_logic deploys logics; an asset is created ' +
@@ -132,7 +139,7 @@ export function readDeployManifest(manifest: Record<string, unknown>, expected: 
 
   let hex: string;
   try {
-    hex = ManifestCoder.encodeManifest(manifest as never);
+    hex = ManifestCoder.encodeManifest(source as never);
   } catch (err) {
     throw invalid(`The manifest could not be encoded: ${reason(err)}. Pass the JSON object coco compile writes, unchanged.`);
   }

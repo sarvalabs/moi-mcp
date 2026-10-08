@@ -73,9 +73,42 @@ describe("a persistent pairing", () => {
   });
 });
 
+describe("a day pairing", () => {
+  it("survives being used", async () => {
+    const records = new Map([[USER, session({ mode: "day", expiresAt: soon() })]]);
+    const store = fakeStore(records);
+    const hub = fakeHub();
+    const client = await connect(deps(store, hub));
+
+    const out = structured<{ hash?: string }>(await send(client, "moi_transfer", TRANSFER));
+    expect(out.hash).toBe(SENT_HASH);
+
+    expect(store.delete).not.toHaveBeenCalled();
+    expect(hub.disconnect).not.toHaveBeenCalled();
+    expect(records.has(USER)).toBe(true);
+  });
+});
+
 describe("an expired pairing", () => {
   it("is refused before anything reaches the phone, and tidied up", async () => {
     const records = new Map([[USER, session({ mode: "persistent", expiresAt: Math.floor(Date.now() / 1000) - 1 })]]);
+    const store = fakeStore(records);
+    const hub = fakeHub();
+    const client = await connect(deps(store, hub));
+
+    const out = structured<{ status?: string; reason?: string; message?: string }>(
+      await send(client, "moi_transfer", TRANSFER),
+    );
+
+    expect(out.status).toBe("rejected");
+    expect(out.reason).toBe("wallet_disconnected");
+    expect(out.message).toMatch(/expired/i);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+    expect(store.delete).toHaveBeenCalledWith(USER);
+  });
+
+  it("of mode day is refused before anything reaches the phone", async () => {
+    const records = new Map([[USER, session({ mode: "day", expiresAt: Math.floor(Date.now() / 1000) - 1 })]]);
     const store = fakeStore(records);
     const hub = fakeHub();
     const client = await connect(deps(store, hub));

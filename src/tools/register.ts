@@ -18,6 +18,7 @@ import { faucetTool, type FaucetDeps } from "../applications/faucet/tools.js";
 import { launchpadTools, type LaunchpadDeps } from "../applications/launchpad/tools.js";
 import { registryWriteTools, type RegistryWriteOptions } from "../applications/registry/tools.js";
 import type { AuthInfo } from "../auth/types.js";
+import { accountKeyToolsOn } from "../config.js";
 import { configureAccountTool } from "../capabilities/accounts/configure.js";
 import { createAccountTool } from "../capabilities/accounts/create-participant.js";
 import { createAssetTool } from "../capabilities/assets/create.js";
@@ -58,6 +59,11 @@ export interface HostedWriteOptions {
  * Registered even when the caller is anonymous, so the tools appear in tools/list and a model knows they exist. Hiding
  * them looked safer but was worse: an unlisted tool is never called, so the 401 that prompts sign-in never fires, and the
  * user is told this server is read-only. Calls are still gated: see requireAuth in src/tools/hosted-writes.ts.
+ *
+ * The one exception is moi_configure_account, which is registered only when the operator sets MOI_ACCOUNT_KEY_TOOLS=on
+ * (accountKeyToolsOn in src/config.ts). A key added at full weight signs for the account alone, for good, and the phone shows
+ * it as a hex string nobody can check by eye, so the chat does not offer the change by default. With the setting off the tool
+ * is not listed and a call to it is unknown. This is the only place that decides it, for the hosted and the stdio server.
  */
 export function registerHostedWrites(
   server: McpServer,
@@ -68,7 +74,7 @@ export function registerHostedWrites(
   install(server, [
     transferTool(deps, auth),
     createAccountTool(deps, auth),
-    configureAccountTool(deps, auth),
+    ...(accountKeyToolsOn() ? [configureAccountTool(deps, auth)] : []),
     createAssetTool(deps, auth, { receiptWaitMs: options.createWaitMs }),
     mintTool(deps, auth),
     callLogicTool(deps, auth),
@@ -88,8 +94,8 @@ export function registerRegistryWrites(
 }
 
 /**
- * The eleven write tools on the stdio server: the hosted tools, run with the local user and the adapters of
- * src/tools/local-writes.ts.
+ * The write tools on the stdio server: ten, and eleven when MOI_ACCOUNT_KEY_TOOLS is on. They are the hosted tools, run with
+ * the local user and the adapters of src/tools/local-writes.ts.
  *
  * registryWaitMs, deployWaitMs and createWaitMs are 0 because a write that waits for the phone already uses most of the MCP
  * client's 60 second budget, and polling afterwards for up to 30 more could lose the hash of a transaction that landed. The

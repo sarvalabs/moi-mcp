@@ -36,8 +36,8 @@ import { boundedResult } from "../../bounds.js";
 import { asRpcError, MoiError } from "../../moi-error.js";
 import { assertSendable, buildAssetInvoke, decodeErrorHex, quoteChainText } from "../../moi/ix-builder.js";
 import { getProvider, getReadOnlySigner } from "../../moi/provider.js";
+import { rejectedCallerError } from "../../moi/read-caller.js";
 import { clampChainText, getAsset } from "../../moi/reads.js";
-import { callerRejected, isCallerRejected } from "../reads/registry.js";
 import { AssetInvokeInput, ErrorCode } from "../../schema.js";
 import { defineTool, type ToolDef } from "../../tools/define.js";
 import { APPROVAL_PROTOCOL, ConfirmArg, runWrite, WRITE_ANNOTATIONS, type WriteDeps } from "../../tools/hosted-writes.js";
@@ -111,8 +111,7 @@ export async function viewAssetRoutine(
   try {
     response = await provider.call(ix);
   } catch (err) {
-    if (isCallerRejected(err)) throw callerRejected();
-    throw asRpcError(err, `moi.Call(${where})`);
+    throw rejectedCallerError(err) ?? asRpcError(err, `moi.Call(${where})`);
   }
 
   // From here every step refuses rather than shows a partial answer: a read that went wrong must not look like a value.

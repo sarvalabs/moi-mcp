@@ -5,13 +5,13 @@
 
 import { createHash } from "node:crypto";
 
-import { DEFAULT_STORAGE_FUND, KMOI_ASSET_ID, ManifestCoder } from "js-moi-sdk";
+import { DEFAULT_STORAGE_FUND, KMOI_ASSET_ID, ManifestCoder, ManifestCoderFormat } from "js-moi-sdk";
 import { describe, expect, it } from "vitest";
 
 import { MAX_MANIFEST_BYTES, MAX_MANIFEST_JSON_CHARS, readDeployManifest } from "../../src/capabilities/logics/deploy-manifest.js";
 import { describeDeploy, planLogicDeploy, type LogicDeployInput } from "../../src/capabilities/logics/deploy.js";
 import { MoiError } from "../../src/moi-error.js";
-import { callable, COUNTER, FLIPPER, LOCK_LEDGER, logicManifest, NO_DEPLOY } from "../helpers/logic-fixtures.js";
+import { callable, COUNTER, FLIPPER, FLIPPER_PAYER, LOCK_LEDGER, logicManifest, NO_DEPLOY } from "../helpers/logic-fixtures.js";
 import { OTHER } from "../helpers/mock-node.js";
 
 const LEDGER_ARGS = { name: "MOI Ledger", symbol: "MOI", supply: "1000" };
@@ -125,8 +125,51 @@ describe("the manifest", () => {
   it("must be a logic: an asset manifest is sent to moi_create_asset, and anything else is named", () => {
     expect(refusal(() => plan({ ...LOCK_LEDGER, kind: "asset" })).message).toMatch(/for an asset.*moi_create_asset/);
     expect(refusal(() => plan({ ...LOCK_LEDGER, kind: "Logic" })).message).toMatch(/kind must be "logic".*got "Logic"/);
+  });
+
+  // Coco 0.9.0 writes no kind into a logic manifest, so a manifest with none is a logic and is encoded as one.
+  it("a logic manifest with no kind is taken as a logic", () => {
     const { kind: _kind, ...noKind } = LOCK_LEDGER;
-    expect(refusal(() => plan(noKind)).message).toMatch(/kind must be "logic".*it has no kind/);
+    const withKind = plan(LOCK_LEDGER, { args: LEDGER_ARGS });
+    const without = plan(noKind, { args: LEDGER_ARGS });
+
+    // The bytes sent are those of the manifest with its kind, not the shorter encoding of one that has none.
+    expect(without.manifestHex).toBe(ManifestCoder.encodeManifest(LOCK_LEDGER as never));
+    expect(without.manifestHex).not.toBe(ManifestCoder.encodeManifest(noKind as never));
+    expect(without.manifestHex).toBe(withKind.manifestHex);
+    expect(without.manifestLine).toBe(withKind.manifestLine);
+    expect(without.manifestLine).toContain(LEDGER_DIGEST);
+    expect(ManifestCoder.decodeManifest(without.manifestHex, ManifestCoderFormat.JSON)).toMatchObject({ kind: "logic" });
+    // The caller's object is not changed.
+    expect("kind" in noKind).toBe(false);
+  });
+
+  it("the compiler's own output is accepted as written", () => {
+    const { kind: _kind, ...asCompiled } = FLIPPER_PAYER;
+    expect("kind" in asCompiled).toBe(false);
+
+    const p = plan(asCompiled, { routine: "Seed", args: { initial: true } });
+
+    expect(p.callsite).toBe("Seed");
+    expect(p.argsLine).toBe('{"initial":true}');
+    // Equal to the manifest the fixture holds with the kind added by hand, byte for byte.
+    expect(p.manifestHex).toBe(ManifestCoder.encodeManifest(FLIPPER_PAYER as never));
+    expect(p.manifestHex).toBe(plan(FLIPPER_PAYER, { routine: "Seed", args: { initial: true } }).manifestHex);
+  });
+
+  it("any other kind is still refused", () => {
+    for (const kind of ["asset", "Logic", "", null, 1]) {
+      const r = refusal(() => plan({ ...LOCK_LEDGER, kind }));
+      expect(r.code).toBe("INVALID_ARGS");
+      expect(r.message).toMatch(kind === "asset" ? /for an asset.*moi_create_asset/ : /kind must be "logic"/);
+      expect(r.message).toMatch(/Nothing was sent to your wallet\.$/);
+    }
+  });
+
+  it("a MASX manifest with no kind is still refused: the compiler writes kind asset for those", () => {
+    const { kind: _kind, ...noKind } = LOCK_LEDGER;
+    const r = refusal(() => readDeployManifest(noKind, "asset"));
+    expect(r.message).toMatch(/kind must be "asset".*it has no kind/);
   });
 
   it("needs a syntax number, an engine with a kind, and some elements", () => {

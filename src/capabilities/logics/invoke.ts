@@ -31,8 +31,23 @@ type EncodedCall = Awaited<ReturnType<typeof encodeLogicCall>>;
 const encode = (params: LogicCall): Promise<EncodedCall> =>
   encodeLogicCall(getReadOnlySigner(providerOptions()), params.logicId, params.routine, params.args ?? []);
 
-/** A routine the manifest declares as invoke: build it as a LOGIC_INVOKE, measure fuel, simulate. */
-async function prepareInvoke(account: string, params: LogicCall, payload: EncodedCall): Promise<PreparedWrite> {
+/**
+ * What a refused call says after the node's reason, for moi_call_logic. It is the cause the findings of 7 October 2026 found for
+ * a routine that writes state, in the words of the hint moi_deploy_logic gives for a deploy (deploy.ts). The agent registry's
+ * writes do not carry it: the registry logic declares its payer, so for it this would point at the wrong cause.
+ */
+export const INVOKE_REFUSAL_HINT =
+  "A routine that writes state fails like this when its Cocolang source lacks `payer Logic` on the write: the write is then billed " +
+  "to the caller, who needs a storage grant on the logic and does not have one. It also fails when the routine's own checks revert, " +
+  "when an argument is wrong, or when the routine moves value for an account that is not listed in `participants`. The reason above " +
+  "is the node's, when it gave one. If the logic was deployed without `payer Logic` on its writes, the fix is in the Cocolang " +
+  "source: add `payer Logic` to each mutate clause, compile it again and deploy a new logic.";
+
+/**
+ * A routine the manifest declares as invoke: build it as a LOGIC_INVOKE, measure fuel, simulate. `hint` is added to the refusal
+ * when the node says the call would fail.
+ */
+async function prepareInvoke(account: string, params: LogicCall, payload: EncodedCall, hint?: string): Promise<PreparedWrite> {
   const ix = await withMeasuredFuel(
     buildLogicInvoke(await senderFor(account), {
       logicId: params.logicId,
@@ -42,7 +57,7 @@ async function prepareInvoke(account: string, params: LogicCall, payload: Encode
     }),
   );
   assertSendable(ix);
-  await assertWillSucceed(ix);
+  await assertWillSucceed(ix, hint);
 
   return {
     ix,
@@ -87,7 +102,7 @@ export async function prepareLogicInvoke(account: string, params: LogicCall): Pr
 export async function prepareLogicCall(account: string, params: LogicCall): Promise<PreparedWrite> {
   const payload = await encode(params);
   if (payload.kind === "enlist") return prepareLogicEnlist(account, { ...params, calldata: payload.calldata });
-  return prepareInvoke(account, params, payload);
+  return prepareInvoke(account, params, payload, INVOKE_REFUSAL_HINT);
 }
 
 export function callLogicTool(deps: WriteDeps, auth: AuthInfo | null): ToolDef {

@@ -61,9 +61,9 @@ prompt from that stored record alone. No tool call can name a wallet,
 account, or session, so one user's request can only ever reach that user's
 own phone.
 
-Pairings expire: a week when the user chooses to stay connected, 15 minutes
-for a one-shot pairing. After expiry the user simply pairs again — expected
-behavior, not a fault.
+Pairings expire at the lifetime the person chose when asked: a week, a day, or
+one transaction (15 minutes at most). After expiry the user simply pairs again, which is
+expected behavior and not a fault.
 
 Everything the auth server needs (cookie secret, token store, wallet
 pairings, write journal) lives under `MOI_DATA_DIR`. That is why the
@@ -198,7 +198,7 @@ curl -X POST https://mcp.voyage.moi.technology/mcp \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-# 34 tools (35 with the faucet configured); the same call on mcp-read lists 43
+# 33 tools (34 with the faucet configured; one more with MOI_ACCOUNT_KEY_TOOLS=on); the same call on mcp-read lists 43
 ```
 
 ## 6. Connect in Claude
@@ -220,8 +220,9 @@ In a Claude chat, in order:
    0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000 on
    voyage"* (that is KMOI, the voyage native asset) — a read returns real
    chain data.
-2. Ask: *"connect my MOI wallet, stay connected for a week"* — sign in when
-   prompted, then a QR code appears in the chat. Scan it with MOI Wallet
+2. Ask: *"connect my MOI wallet"*. Claude asks how long the connection should
+   stay open; answer *"a week"*. Sign in when prompted, then a QR code appears
+   in the chat. Scan it with MOI Wallet
    within 5 minutes and approve the pairing on the phone.
 3. Ask: *"create a test asset called DEPLOYTEST with supply 100"* — Claude
    first shows a preview with the storage fund and fuel cost; confirm it,

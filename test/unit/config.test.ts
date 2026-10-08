@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { expandHome, loadConfig, loadHostedConfig } from "../../src/config.js";
+import { accountKeyToolsOn, expandHome, loadConfig, loadHostedConfig } from "../../src/config.js";
 
 const created: string[] = [];
 
@@ -90,6 +90,46 @@ describe("MOI_SIGNED_CHECK", () => {
   // A refused value fails the whole load, as a bad MOI_NETWORK does, so a typo for enforce cannot quietly leave the check on warn.
   it.each(["enforced", "ENFORCE", "Warn", "off", "none", "true", "1", "warn,enforce"])("rejects %s, naming the variable", (value) => {
     expect(() => loadConfig(baseEnv({ MOI_SIGNED_CHECK: value }))).toThrow(/MOI_SIGNED_CHECK: must be warn or enforce/);
+  });
+});
+
+describe("MOI_ACCOUNT_KEY_TOOLS", () => {
+  it("defaults to off, so the chat does not offer to add or revoke account keys", () => {
+    expect(loadConfig(baseEnv()).MOI_ACCOUNT_KEY_TOOLS).toBe("off");
+  });
+
+  it("treats a blank line in .env as unset", () => {
+    expect(loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: "" })).MOI_ACCOUNT_KEY_TOOLS).toBe("off");
+    expect(loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: "  " })).MOI_ACCOUNT_KEY_TOOLS).toBe("off");
+  });
+
+  it.each(["on", "off"] as const)("accepts %s", (mode) => {
+    expect(loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: mode })).MOI_ACCOUNT_KEY_TOOLS).toBe(mode);
+  });
+
+  // A refused value fails the whole load, as a bad MOI_NETWORK does, so a typo cannot leave the tool on or guess what was meant.
+  it.each(["ON", "On", "true", "1", "yes", "enabled", "on,off"])("rejects %s, naming the variable", (value) => {
+    expect(() => loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: value }))).toThrow(/MOI_ACCOUNT_KEY_TOOLS: must be on or off/);
+  });
+});
+
+describe("accountKeyToolsOn", () => {
+  it("is true for exactly the value on", () => {
+    expect(accountKeyToolsOn({ MOI_ACCOUNT_KEY_TOOLS: "on" })).toBe(true);
+  });
+
+  it.each([undefined, "", "  ", "off", "ON", "On", "yes", "true", "1", " on", "on ", "on,off"])(
+    "is false for %j, so registration never turns the tool on by accident",
+    (value) => {
+      const env: NodeJS.ProcessEnv = value === undefined ? {} : { MOI_ACCOUNT_KEY_TOOLS: value };
+      expect(accountKeyToolsOn(env)).toBe(false);
+    },
+  );
+
+  it("reads its own variable only: true for on even when the rest of the configuration would fail to load", () => {
+    const env: NodeJS.ProcessEnv = { MOI_ACCOUNT_KEY_TOOLS: "on" }; // no WC_PROJECT_ID
+    expect(() => loadConfig(env)).toThrow(/WC_PROJECT_ID/);
+    expect(accountKeyToolsOn(env)).toBe(true);
   });
 });
 

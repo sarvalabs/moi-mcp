@@ -43,7 +43,7 @@ creates the file on first launch. If it already has an `mcpServers` block,
 ```
 
 Restart Claude completely (quit the app, not just the window). `moi` should
-appear in the tools list with 23 tools.
+appear in the tools list with 22 tools.
 
 **Cursor** — same block in `.cursor/mcp.json`. See `examples/cursor.mcp.json`.
 

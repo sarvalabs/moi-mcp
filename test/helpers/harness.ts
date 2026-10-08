@@ -67,6 +67,7 @@ const MANAGED_ENV = [
   "MOI_WC_PARAM_STYLE",
   "MOI_AGENT_REGISTRY_LOGIC_ID",
   "MOI_SIGNED_CHECK",
+  "MOI_ACCOUNT_KEY_TOOLS",
 ] as const;
 
 let savedEnv: Record<string, string | undefined> | undefined;
@@ -99,6 +100,9 @@ export function applyEnv(rpcUrl: string, home: string, overrides: Record<string,
     MOI_READ_CALLER: ACCOUNT,
     // The tests run the strict mode. The shipped default is warn; a test of warn passes it in `overrides`.
     MOI_SIGNED_CHECK: "enforce",
+    // Off, the shipped default, and SET: a developer's .env could otherwise turn moi_configure_account on under test. The tests
+    // of that tool pass "on" in `overrides`.
+    MOI_ACCOUNT_KEY_TOOLS: "off",
     ...overrides,
   });
   resetConfigCache();
