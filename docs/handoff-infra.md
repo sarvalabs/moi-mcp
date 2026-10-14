@@ -4,7 +4,7 @@ This document supersedes docs/deploy-vm.md. Follow this one.
 
 ## What you are deploying
 
-MCP (Model Context Protocol) is the protocol an AI client such as claude.ai uses to list and call tools on a server. You are deploying two Node.js processes built from one repository, github.com/sarvalabs-adithya/moi-mcp. The process definitions live in ecosystem.config.cjs at the repository root. The first process is `moi-mcp-read`, entry file dist/http.js, listening on port 8787. It answers read-only questions about the MOI blockchain over HTTP. It holds no keys, no sessions, and no user state, so you can run several copies of it. The second process is `moi-mcp-write`, entry file dist/server.js, listening on port 8788. It serves OAuth sign-in, wallet pairing, and the transaction tools. OAuth is the sign-in protocol the server runs itself; users need no account and no password.
+MCP (Model Context Protocol) is the protocol an AI client such as claude.ai uses to list and call tools on a server. You are deploying two Node.js processes built from one repository, github.com/sarvalabs/moi-mcp. The process definitions live in ecosystem.config.cjs at the repository root. The first process is `moi-mcp-read`, entry file dist/http.js, listening on port 8787. It answers read-only questions about the MOI blockchain over HTTP. It holds no keys, no sessions, and no user state, so you can run several copies of it. The second process is `moi-mcp-write`, entry file dist/server.js, listening on port 8788. It serves OAuth sign-in, wallet pairing, and the transaction tools. OAuth is the sign-in protocol the server runs itself; users need no account and no password.
 
 The write gateway must stay one pm2 fork instance. ecosystem.config.cjs sets `instances: 1` and `exec_mode: "fork"` for it, with a comment explaining why. Two facts force this shape. First, OAuth authorization codes live only in process memory (src/auth/store.ts, top comment: codes are short-lived and single-use, so they are never written to disk). In pm2 cluster mode, requests spread across copies, and a code issued by one copy is unknown to the next. Second, the process holds one WalletConnect client, created once in main() in src/server.ts. WalletConnect is the protocol that connects the server to the user's phone through a relay, which is a message-passing service run by the relay provider. A request that lands on a copy without the user's pairing cannot reach that user's phone.
 
@@ -24,7 +24,7 @@ pm2, the process manager. Install it globally:
 sudo npm install -g pm2
 ```
 
-A domain with a DNS A record pointing at the VM. The examples below use mcp.moi.technology. Use a hostname dedicated to this service. Do not put an HTTP to HTTPS redirect in front of the MCP path on this hostname: a redirect drops the Authorization header, and the client does not retry with it restored (docs/deploy-vm.md documented this failure; it presents as a connector that looks signed in and fails every call).
+A domain with a DNS A record pointing at the VM. The examples below use mcp.voyage.moi.technology, the production write gateway. Use a hostname dedicated to this service. Do not put an HTTP to HTTPS redirect in front of the MCP path on this hostname: a redirect drops the Authorization header, and the client does not retry with it restored (docs/deploy-vm.md documented this failure; it presents as a connector that looks signed in and fails every call).
 
 Redis is optional. See the Redis section.
 
@@ -44,7 +44,7 @@ The shared Config schema is defined in src/schema.ts lines 465 to 483 and loaded
 |---|---|---|---|---|
 | `PORT` | optional | `8787` | Port the read gateway listens on (src/http.ts, resolvePort, line 189). Default 8787. | A non-numeric value makes the process exit with "Invalid PORT". Blank falls back to 8787. |
 | `HOSTED_PORT` | optional | `8788` | Port the write gateway listens on. Default 8788. When unset, the server falls back to `PORT` because hosting platforms inject that name (src/config.ts, loadHostedConfig). | Wrong value means nginx proxies to a port nobody listens on; you see 502. |
-| `PUBLIC_URL` | required in production | `https://mcp.moi.technology` | The public origin of the write gateway. It is the OAuth issuer, meaning the identity the sign-in endpoints claim in the discovery document. It also decides whether the moi_uid cookie is marked Secure (src/auth/index.ts line 60: Secure only when the value starts with https://). | A mismatch with the real hostname makes sign-in fail in a way that looks like a client bug. Default is http://localhost:8788, which is wrong for any real deployment. |
+| `PUBLIC_URL` | required in production | `https://mcp.voyage.moi.technology` | The public origin of the write gateway. It is the OAuth issuer, meaning the identity the sign-in endpoints claim in the discovery document. It also decides whether the moi_uid cookie is marked Secure (src/auth/index.ts line 60: Secure only when the value starts with https://). | A mismatch with the real hostname makes sign-in fail in a way that looks like a client bug. Default is http://localhost:8788, which is wrong for any real deployment. |
 | `MOI_DATA_DIR` | recommended | `/var/lib/moi-mcp` | Directory for the write gateway's state: OAuth clients and tokens, the cookie secret, wallet sessions, dapp sessions, the write journal. Created 0700 (src/config.ts, loadHostedConfig). Default `~/.moi-mcp-hosted`. | Losing the directory signs everyone out and un-pairs every wallet. See the data directory section. |
 | `MOI_NETWORK` | optional | `voyage` | Which MOI network to talk to: voyage, mainnet, or custom (src/schema.ts line 466). Default voyage. | An invalid value fails config load; /health returns 503 with `ok:false`. `custom` without MOI_RPC_URL throws at load (src/config.ts). |
 | `MOI_RPC_URL` | required when MOI_NETWORK=custom | `https://node.example/jsonrpc` | JSON-RPC endpoint of the MOI node, the HTTP API the server sends read queries and signed transactions to. | Missing while network is custom throws at config load. A wrong URL makes every read tool return an RPC error. |
@@ -76,7 +76,7 @@ sudo mkdir -p /opt/moi-mcp && sudo chown "$USER" /opt/moi-mcp
 ```
 
 ```bash
-git clone https://github.com/sarvalabs-adithya/moi-mcp.git /opt/moi-mcp
+git clone https://github.com/sarvalabs/moi-mcp.git /opt/moi-mcp
 ```
 
 2. Install exact locked dependencies. `npm ci` installs from package-lock.json and fails on any mismatch.
@@ -113,7 +113,7 @@ printf 'WC_PROJECT_ID=your_32_character_id_here\n' > /opt/moi-mcp/.env && chmod 
 sudo mkdir -p /var/lib/moi-mcp && sudo chown "$USER" /var/lib/moi-mcp && chmod 700 /var/lib/moi-mcp
 ```
 
-6. Edit ecosystem.config.cjs and set `PUBLIC_URL` in the moi-mcp-write env block to your real hostname. The committed value is https://mcp.moi.technology.
+6. Edit ecosystem.config.cjs and set `PUBLIC_URL` in the moi-mcp-write env block to your real hostname. The committed value is https://mcp.voyage.moi.technology.
 
 ## Run
 
@@ -152,7 +152,7 @@ Paste this block, replacing the hostname:
 ```nginx
 server {
     listen 80;
-    server_name mcp.moi.technology;
+    server_name mcp.voyage.moi.technology;
 
     location / {
         proxy_pass http://127.0.0.1:8788;
@@ -184,7 +184,7 @@ sudo apt-get install -y certbot python3-certbot-nginx
 ```
 
 ```bash
-sudo certbot --nginx -d mcp.moi.technology
+sudo certbot --nginx -d mcp.voyage.moi.technology
 ```
 
 When certbot adds an HTTP to HTTPS redirect, that is fine for browsers hitting the landing page; the connector URL you hand out must be the https one, so the Authorization header never crosses a redirect.
@@ -226,11 +226,11 @@ curl -s http://localhost:8788/health
 OAuth discovery document (shape from src/auth/routes.ts, mountMetadata):
 
 ```bash
-curl -s https://mcp.moi.technology/.well-known/oauth-authorization-server
+curl -s https://mcp.voyage.moi.technology/.well-known/oauth-authorization-server
 ```
 
 ```
-{"issuer":"https://mcp.moi.technology","authorization_endpoint":"https://mcp.moi.technology/authorize","token_endpoint":"https://mcp.moi.technology/token","registration_endpoint":"https://mcp.moi.technology/register","scopes_supported":["moi:read","moi:write"],"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none","client_secret_post"]}
+{"issuer":"https://mcp.voyage.moi.technology","authorization_endpoint":"https://mcp.voyage.moi.technology/authorize","token_endpoint":"https://mcp.voyage.moi.technology/token","registration_endpoint":"https://mcp.voyage.moi.technology/register","scopes_supported":["moi:read","moi:write"],"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none","client_secret_post"]}
 ```
 
 The issuer must equal your `PUBLIC_URL` exactly. If it shows http://localhost:8788, the env block did not reach the process; check `pm2 env` or restart after fixing ecosystem.config.cjs.
@@ -238,12 +238,12 @@ The issuer must equal your `PUBLIC_URL` exactly. If it shows http://localhost:87
 List the tools. tools/list is public, and so are calls to ping and the read tools. Only calls to the wallet and write tools require a token (src/server.ts lines 375 to 380, the lazy-auth gate; the gated tool list is at src/server.ts lines 70 to 76).
 
 ```bash
-curl -s -X POST https://mcp.moi.technology/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -s -X POST https://mcp.voyage.moi.technology/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 The response lists 33 tools, or 34 when the devnet faucet is configured (`MOI_FAUCET_URL` and `MOI_FAUCET_KEY` set, network voyage): ping, the eight reads, the three wallet tools, the ten write tools, the Launchpad tools, the dapp tools and, with the faucet configured, moi_faucet. With `MOI_ACCOUNT_KEY_TOOLS=on` there is one more write tool, moi_configure_account, after moi_create_account. The list is src/tools/register.ts, README.md under Tools has the table, and test/unit/__snapshots__/tools-hosted.json pins it. The read gateway on 8787 lists 43: ping, the eight reads and the 34 `moi_rpc_*` node method tools.
 
-Finally, in claude.ai: Settings, Connectors, Add custom connector, paste https://mcp.moi.technology/mcp, and choose OAuth as the auth mode. Choosing None on the write gateway makes sign-in impossible.
+Finally, in claude.ai: Settings, Connectors, Add custom connector, paste https://mcp.voyage.moi.technology/mcp, and choose OAuth as the auth mode. Choosing None on the write gateway makes sign-in impossible.
 
 ## The data directory
 
