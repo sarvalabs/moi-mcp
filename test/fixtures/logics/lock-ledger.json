@@ -1,0 +1,376 @@
+{
+ "source": "js-moi-sdk, packages/js-moi-manifest/manifests/lock-ledger.json: compiler output, copied unchanged (the SDK is Apache-2.0 or MIT)",
+ "manifest": {
+  "syntax": 1,
+  "engine": {
+   "kind": "PISA",
+   "flags": [],
+   "version": "0.5.0"
+  },
+  "kind": "logic",
+  "elements": [
+   {
+    "ptr": 0,
+    "kind": "literal",
+    "data": {
+     "type": "string",
+     "value": "0x06696e73756666696369656e742062616c616e6365"
+    }
+   },
+   {
+    "ptr": 1,
+    "kind": "state",
+    "data": {
+     "mode": "logic",
+     "fields": [
+      {
+       "slot": 0,
+       "label": "Name",
+       "type": "string"
+      },
+      {
+       "slot": 1,
+       "label": "Symbol",
+       "type": "string"
+      },
+      {
+       "slot": 2,
+       "label": "Supply",
+       "type": "u256"
+      },
+      {
+       "slot": 3,
+       "label": "Owner",
+       "type": "identifier"
+      }
+     ]
+    }
+   },
+   {
+    "ptr": 2,
+    "kind": "state",
+    "data": {
+     "mode": "actor",
+     "fields": [
+      {
+       "slot": 0,
+       "label": "Spendable",
+       "type": "u256"
+      },
+      {
+       "slot": 1,
+       "label": "Lockedup",
+       "type": "u256"
+      }
+     ]
+    }
+   },
+   {
+    "ptr": 3,
+    "deps": [
+     1,
+     2
+    ],
+    "kind": "callable",
+    "data": {
+     "name": "Seed",
+     "mode": "dynamic",
+     "kind": "deploy",
+     "accepts": [
+      {
+       "slot": 0,
+       "label": "name",
+       "type": "string"
+      },
+      {
+       "slot": 1,
+       "label": "symbol",
+       "type": "string"
+      },
+      {
+       "slot": 2,
+       "label": "supply",
+       "type": "u256"
+      }
+     ],
+     "returns": [],
+     "executes": {
+      "bin": [
+       144,
+       0,
+       0,
+       4,
+       1,
+       0,
+       155,
+       0,
+       1,
+       159,
+       0,
+       144,
+       0,
+       1,
+       4,
+       1,
+       1,
+       155,
+       0,
+       1,
+       159,
+       0,
+       144,
+       0,
+       2,
+       4,
+       1,
+       2,
+       155,
+       0,
+       1,
+       159,
+       0,
+       144,
+       0,
+       3,
+       132,
+       2,
+       155,
+       0,
+       2,
+       159,
+       0,
+       132,
+       0,
+       145,
+       2,
+       0,
+       0,
+       155,
+       2,
+       1,
+       159,
+       2
+      ],
+      "hex": "",
+      "asm": []
+     },
+     "catches": []
+    }
+   },
+   {
+    "ptr": 4,
+    "deps": [
+     2
+    ],
+    "kind": "callable",
+    "data": {
+     "name": "Register",
+     "mode": "dynamic",
+     "kind": "enlist",
+     "accepts": [],
+     "returns": [],
+     "executes": {
+      "bin": [
+       132,
+       0,
+       145,
+       1,
+       0,
+       0,
+       42,
+       2,
+       7,
+       155,
+       1,
+       2,
+       159,
+       1,
+       132,
+       0,
+       145,
+       1,
+       0,
+       1,
+       42,
+       2,
+       7,
+       155,
+       1,
+       2,
+       159,
+       1
+      ],
+      "hex": "",
+      "asm": []
+     },
+     "catches": []
+    }
+   },
+   {
+    "ptr": 5,
+    "deps": [
+     0,
+     2
+    ],
+    "kind": "callable",
+    "data": {
+     "name": "Lockup",
+     "mode": "dynamic",
+     "kind": "invoke",
+     "accepts": [
+      {
+       "slot": 0,
+       "label": "amount",
+       "type": "u256"
+      }
+     ],
+     "returns": [],
+     "executes": {
+      "bin": [
+       132,
+       0,
+       145,
+       1,
+       0,
+       0,
+       156,
+       2,
+       1,
+       4,
+       3,
+       0,
+       68,
+       4,
+       2,
+       3,
+       98,
+       4,
+       4,
+       17,
+       5,
+       11,
+       3,
+       5,
+       4,
+       17,
+       4,
+       0,
+       43,
+       4,
+       4,
+       6,
+       4,
+       1,
+       115,
+       3,
+       2,
+       3,
+       36,
+       2,
+       3,
+       155,
+       1,
+       2,
+       159,
+       1,
+       132,
+       0,
+       145,
+       1,
+       0,
+       1,
+       156,
+       2,
+       1,
+       4,
+       3,
+       0,
+       114,
+       3,
+       2,
+       3,
+       36,
+       2,
+       3,
+       155,
+       1,
+       2,
+       159,
+       1
+      ],
+      "hex": "",
+      "asm": []
+     },
+     "catches": []
+    }
+   },
+   {
+    "ptr": 6,
+    "deps": [
+     1,
+     2
+    ],
+    "kind": "callable",
+    "data": {
+     "name": "Mint",
+     "mode": "dynamic",
+     "kind": "invoke",
+     "accepts": [
+      {
+       "slot": 0,
+       "label": "amount",
+       "type": "u256"
+      }
+     ],
+     "returns": [],
+     "executes": {
+      "bin": [
+       144,
+       0,
+       2,
+       156,
+       1,
+       0,
+       4,
+       2,
+       0,
+       114,
+       1,
+       1,
+       2,
+       155,
+       0,
+       1,
+       159,
+       0,
+       132,
+       0,
+       145,
+       1,
+       0,
+       0,
+       156,
+       2,
+       1,
+       4,
+       3,
+       0,
+       114,
+       2,
+       2,
+       3,
+       155,
+       1,
+       2,
+       159,
+       1
+      ],
+      "hex": "",
+      "asm": []
+     },
+     "catches": []
+    }
+   }
+  ]
+ }
+}

@@ -7,11 +7,16 @@
  *   3. On-disk session store
  *   4. Error codes returned to the agent
  *
- * TODO(adithya): confirm CAIP-2 chain ids + exact ix_args encoding against
- * sarvalabs/moi-wallet-mobile/Dapp-docs (private repo) before Phase 2.
+ * Mainnet has no published CAIP-2 chain id yet; NETWORKS.mainnet in src/moi/provider.ts holds a placeholder.
  */
 
 import { z } from "zod";
+
+import { Amount, WireAmount } from "./schema-amount.js";
+import { CreateAssetInput } from "./schema-create-asset.js";
+
+export { Amount, WireAmount } from "./schema-amount.js";
+export { CREATABLE_STANDARDS, CreateAssetInput, type CreatableStandard } from "./schema-create-asset.js";
 
 // ---------------------------------------------------------------------------
 // 0. Shared primitives
@@ -29,45 +34,9 @@ export const AssetId = HexId;
 /** Logic (Cocolang program) id. */
 export const LogicId = HexId;
 
-/** Human-readable amount as string to avoid float drift. e.g. "12.5" */
-export const Amount = z.string().regex(/^\d+(\.\d+)?$/, "decimal string");
-
 export const InteractionHash = HexId;
 
-/**
- * An amount as it arrives over the wire.
- *
- * Amounts are decimal STRINGS internally so that values beyond 2^53 survive,
- * but an MCP client handed a numeric-looking field sends a JSON number — and
- * a string-only schema then rejects it with no value able to satisfy both.
- * Accept a number too, and normalise it to the canonical string.
- *
- * A number above Number.MAX_SAFE_INTEGER is refused rather than silently
- * rounded; those callers must send a string.
- */
-export const WireAmount = z
-  .union([Amount, z.number()])
-  .transform((value, ctx) => {
-    if (typeof value === "string") return value;
-    if (!Number.isFinite(value) || value < 0) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "amount must be a non-negative number" });
-      return z.NEVER;
-    }
-    if (!Number.isSafeInteger(value) && !Number.isInteger(value)) {
-      // A non-integer is fine (1.5); an unsafe integer is not.
-      return String(value);
-    }
-    if (!Number.isSafeInteger(value)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `amount ${value} exceeds the safe integer range — pass it as a string to keep full precision`,
-      });
-      return z.NEVER;
-    }
-    return String(value);
-  });
-
-/** CAIP-2 chain id used in WalletConnect namespaces. CONFIRM VALUES. */
+/** CAIP-2 chain id used in WalletConnect namespaces. voyage is confirmed; mainnet and custom are placeholders. */
 export const CAIP2 = z.record(Network, z.string()).default({
   voyage: "moi:14",         // verified against MOI Wallet + sarvalabs/wallet-connect-dapp
   mainnet: "moi:mainnet",   // PLACEHOLDER — no published mainnet chain id
@@ -112,17 +81,61 @@ export const DisconnectWalletInput = z.object({
 // 2. Read tools (js-moi-providers, no wallet needed)
 // ---------------------------------------------------------------------------
 
+/** How many balance rows moi_get_account shows when it is not told how many, and the most it will show. */
+export const BALANCES_DEFAULT_LIMIT = 50;
+export const BALANCES_MAX_LIMIT = 100;
+
 export const GetAccountInput = z.object({
   address: HexId.describe("Account address (0x…). Required; ask moi_wallet_status for the paired wallet's address if the user means their own."),
+  assetId: AssetId.optional().describe(
+    "Only this asset's balance rows (0x…). Pass it when you need one balance: on an account that holds many assets, the asset you want may not be on the first page.",
+  ),
+  offset: z.number().int().min(0).default(0).describe("Where to start in the list of balances; pass back nextOffset from the previous page."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(BALANCES_MAX_LIMIT)
+    .default(BALANCES_DEFAULT_LIMIT)
+    .describe(`How many balance rows to return. At most ${BALANCES_MAX_LIMIT}.`),
 });
+
+/** A token's number within its asset, as a decimal string: token ids can pass what a JSON number holds exactly. */
+export const TokenId = z.string().regex(/^\d+$/, "decimal string");
 
 export const GetAccountOutput = z.object({
   address: HexId,
   nonce: z.number(),
   balances: z.array(
-    z.object({ assetId: AssetId, symbol: z.string().optional(), amount: Amount })
+    z.object({
+      assetId: AssetId,
+      symbol: z.string().optional(),
+      tokenId: TokenId.optional().describe(
+        "The token's number within the asset: 0 for a fungible asset. An asset with several token ids has one row for each.",
+      ),
+      amount: Amount,
+    })
   ),
+  total: z
+    .number()
+    .int()
+    .optional()
+    .describe("How many balance rows the account holds that match the request, before paging. Present only when balances does not hold them all."),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe("True when more balance rows follow this page; pass nextOffset back as offset. (deedsTruncated is about deeds.)"),
+  nextOffset: z.number().int().optional().describe("The offset of the next page of balances. Absent on the last page."),
   isRegistered: z.boolean(),
+  deeds: z
+    .array(z.object({ assetId: AssetId, symbol: z.string() }))
+    .optional()
+    .describe("The assets this account created, from the node's Deeds read. Absent when that read failed (see deedsError)."),
+  deedsTruncated: z.boolean().optional().describe("True when the account has more deeds than deeds lists."),
+  deedsError: z
+    .string()
+    .optional()
+    .describe("Says the node's Deeds read failed or did not answer in time, so deeds is absent. The rest of the answer is not affected."),
 });
 
 export const GetAssetInput = z.object({ assetId: AssetId });
@@ -148,11 +161,54 @@ export const GetInteractionOutput = z.object({
   status: z.enum(["pending", "success", "failed", "unknown"]),
   sender: HexId,
   operations: z.array(
-    z.object({ type: z.string(), payload: z.record(z.string(), z.unknown()) })
+    z.object({
+      type: z.string(),
+      payload: z
+        .record(z.string(), z.unknown())
+        .describe(
+          "The operation's payload. One longer than 1000 characters of JSON has every text over 200 characters shortened (ending …); if it is still too long it is replaced by { truncated: true, chars, preview }: chars is its full length, preview its first characters.",
+        ),
+    }),
   ),
   fuelUsed: z.number().optional(),
   blockHeight: z.number().optional(),
-  receipt: z.record(z.string(), z.unknown()).optional(),
+  receipt: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "The receipt. One longer than 2000 characters of JSON has every text over 200 characters shortened (ending …); if it is still too long its participants list is left out (participantsOmitted says how many entries it had); if it is still too long it is replaced by { truncated: true, chars, preview }. status, sender and fuelUsed above are read from the whole receipt.",
+    ),
+  pool: z
+    .object({
+      state: z
+        .enum(["pending", "queued", "not_listed"])
+        .optional()
+        .describe(
+          "Whether the sender's pool entries list this interaction as pending or queued. not_listed means they do not list it: " +
+            "it may have just been included or replaced, or the receipt read may have failed.",
+        ),
+      ahead: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "How many of the sender's interactions in the pool have a lower nonce, so come first. It counts only what the pool " +
+            "holds, not nonces the sender never sent.",
+        ),
+      waitExpired: z.boolean().optional().describe("Whether the pool reports the sender's wait as expired."),
+    })
+    .optional()
+    .describe("Only when the interaction has no receipt yet: what the node's pool says about its sender."),
+  poolError: z
+    .string()
+    .optional()
+    .describe("Says the pool could not be read in full, or did not answer in time, so pool is missing or incomplete. The rest of the answer is not affected."),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe("True when something was cut: the operations list, an operation's payload or the receipt. note says what, and links the whole interaction."),
+  operationCount: z.number().int().optional().describe("How many operations the interaction really has. Present only when operations lists fewer."),
+  note: z.string().optional().describe("Says what was cut and where to read the whole interaction."),
 });
 
 export const GetLogicInput = z.object({ logicId: LogicId });
@@ -166,13 +222,70 @@ export const GetLogicOutput = z.object({
       kind: z.enum(["invoke", "deploy", "enlist", "view"]),
       inputs: z.array(z.object({ name: z.string(), type: z.string() })),
       outputs: z.array(z.object({ name: z.string(), type: z.string() })),
+      truncated: z.boolean().optional().describe("True when this routine has more inputs or outputs than are listed."),
     })
   ),
+  truncated: z.boolean().optional().describe("True when something was cut: routines past the limit, or the inputs or outputs of a routine."),
+  routineCount: z.number().int().optional().describe("How many callable routines the logic has. Present only when routines lists fewer."),
+});
+
+/** How many heights moi_get_history reads when it is not told how many. */
+export const HISTORY_DEFAULT_HEIGHTS = 5;
+/** The most heights it reads in one call. Each height is one node call. */
+export const HISTORY_MAX_HEIGHTS = 20;
+
+export const GetHistoryInput = z.object({
+  address: HexId.describe("Account address (0x…) whose recent interactions to read."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(HISTORY_MAX_HEIGHTS)
+    .default(HISTORY_DEFAULT_HEIGHTS)
+    .describe(`How many of the newest heights to read, one node call each. At most ${HISTORY_MAX_HEIGHTS}.`),
+});
+
+export const GetHistoryOutput = z.object({
+  address: HexId,
+  /** False when the node has no account by this id; there is then no history to read. */
+  isRegistered: z.boolean(),
+  /** The account's newest height, as the node reports it. */
+  latestHeight: z.number().int().optional(),
+  /** The lowest height this answer read. */
+  oldestHeightRead: z.number().int().optional(),
+  /** One entry for each height read, newest first. */
+  heights: z.array(
+    z.object({
+      height: z.number().int(),
+      timeStamp: z
+        .string()
+        .optional()
+        .describe("The tesseract's time stamp exactly as the node gives it, as a decimal string. Its unit is the node's."),
+      interactionCount: z
+        .number()
+        .int()
+        .describe("How many interactions the node lists at this height; interactions holds fewer when it was cut."),
+      interactions: z.array(
+        z.object({
+          hash: z.string(),
+          operationTypes: z.array(z.string()),
+          operationCount: z.number().int(),
+          explorerUrl: z.string(),
+        }),
+      ),
+    }),
+  ),
+  olderHeightsExist: z.boolean().describe("True when heights older than the oldest one read exist and were not read."),
+  truncated: z
+    .boolean()
+    .describe("True when an interaction list or an operation list was cut at its limit; the counts say how many there were."),
+  /** Plain words: what was read, how far it went, what was not read, and why history stops here. */
+  note: z.string(),
 });
 
 export const ResolveAgentInput = z.object({
   /** Agent registry handle, name, or address. */
-  query: z.string().min(1),
+  query: z.string().min(1).max(512).describe("An agent id (agent_<n>), wallet address, service URL or card name, at most 512 characters."),
 });
 
 export const ResolveAgentOutput = z.object({
@@ -183,6 +296,17 @@ export const ResolveAgentOutput = z.object({
   capabilities: z.array(z.string()).default([]),
   endpoint: z.string().url().optional(),   // x402 / service URL
   metadata: z.record(z.string(), z.unknown()).optional(),
+  truncated: z
+    .boolean()
+    .optional()
+    .describe("With found false: the search stopped before it covered the registry, so the agent may still be registered. With found true: some text from the agent's record or card was cut."),
+  note: z.string().optional().describe("Says what truncated means for this answer."),
+  cardNote: z
+    .string()
+    .optional()
+    .describe(
+      "Present only when the agent has a card URL that was not fetched: says why, and what to do next. Without the card, name and capabilities are left out; the registry's own fields are unaffected.",
+    ),
 });
 
 export const ListAgentsInput = z.object({
@@ -261,7 +385,7 @@ export const WriteResult = z.discriminatedUnion("status", [
     message: z.string(),
   }),
   /**
-   * Hosted writes only. Nothing has reached the phone: this is what it will
+   * Every write, hosted or stdio. Nothing has reached the phone: this is what it will
    * be asked to sign, for the user to read in the chat first. Calling again
    * with the same arguments and `confirm` sends it.
    */
@@ -309,26 +433,37 @@ export const CreateAccountInput = z.object({
     ),
   });
 
-export const CreateAssetInput = z.object({
-  symbol: z.string().min(1).max(12),
-  supply: WireAmount,
-  /**
-   * KMOI to fund the new asset with so it can pay its own storage, in BASE
-   * UNITS. KMOI has 9 decimals, so 10000000000 is 10 KMOI. Omitted, this
-   * takes the SDK's default of 10 KMOI. Below about 6.1 KMOI the chain
-   * refuses the create; more than you hold and the funding transfer fails.
-   */
-  storageFund: WireAmount.optional().describe(
-    "KMOI base units, not whole KMOI. 10000000000 is 10 KMOI. Leave it out unless you have a reason.",
-  ),
-  /** How far amounts are scaled: 2 gives cents. Separate from `dimension`. */
-  decimals: z.number().int().min(0).max(18).default(0),
-  /** The asset's kind. The chain accepts only 0 (Economic) or 1 (Possession). */
-  dimension: z.union([z.literal(0), z.literal(1)]).default(0),
-  standard: z.string().default("MAS0"),
-  isStateful: z.boolean().default(false),
-  isFungible: z.boolean().default(true),
+/** Keys one moi_configure_account call may add, or revoke. No document gives a limit: the preview shows every key in full, and this keeps it readable. */
+export const MAX_KEY_CHANGES = 5;
+
+/** The key format MOI Wallet shows and moi_create_account takes: a compressed secp256k1 public key, 33 bytes, which starts 02 or 03. */
+export const CompressedPublicKey = z
+  .string()
+  .regex(/^0x0[23][0-9a-fA-F]{64}$/, "expected a compressed public key: 0x, then 02 or 03, then 64 hex characters (33 bytes in all)");
+
+/**
+ * Adding keys to, or revoking keys on, the paired wallet's own account (src/capabilities/accounts/configure.ts). There is no
+ * field for the account, for a key's weight or for the signature algorithm: the account is always the paired one, every key is
+ * added at weight 1000 (the one weight every source accepts, see the header of configure.ts) and the SDK accepts algorithm 0
+ * only. One call adds keys or revokes keys, never both (the protocol docs say an AccountConfigure operation does one or the
+ * other), and that is checked in code, with a message that says what to do, and not here.
+ */
+export const ConfigureAccountInput = z.object({
+  add: z
+    .array(CompressedPublicKey)
+    .max(MAX_KEY_CHANGES, `At most ${MAX_KEY_CHANGES} keys can be added in one call.`)
+    .optional()
+    .describe(
+      "Compressed public keys to add: 0x plus 66 hex characters each. Whoever holds a key's private key can sign for the account. " +
+        "Give this or revoke, not both: the protocol docs say one operation does an add or a revoke, never both.",
+    ),
+  revoke: z
+    .array(z.number().int("a key id is a whole number").min(0, "a key id is not negative"))
+    .max(MAX_KEY_CHANGES, `At most ${MAX_KEY_CHANGES} keys can be revoked in one call.`)
+    .optional()
+    .describe("Ids of the keys to revoke, as the account lists them (the first key is 0). Give this or add, not both."),
 });
+
 
 /**
  * Mint tokens of an asset you manage.
@@ -377,6 +512,121 @@ export const CallLogicInput = z.object({
 export const CallLogicViewOutput = z.object({
   routine: z.string(),
   outputs: z.record(z.string(), z.unknown()),
+});
+
+/**
+ * Deploying a logic (src/capabilities/logics/deploy.ts). `manifest` is the JSON object the Coco compiler writes; its
+ * shape is checked in code, with messages a person can act on, and not here, where a failure would be an opaque schema
+ * error. `manifest` and `args` are separate z.record instances on purpose: a shared instance makes the JSON Schema
+ * generator emit a $ref, which the dialect rewrite then has to inline. There is no field for the KMOI that funds the new
+ * logic: it is always the SDK's default, and zod strips an unknown field silently, so a caller that passes one gets the
+ * default and the preview says so.
+ */
+export const DeployLogicInput = z.object({
+  manifest: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "The compiled logic manifest, as the JSON object `coco compile` writes. Coco 0.9.0 writes no kind for a logic, and a manifest with none is taken as a logic; any other kind is refused. Pass exactly the one the user gave you, as an object and never as a string.",
+    ),
+  routine: z
+    .string()
+    .min(1)
+    .max(64)
+    .optional()
+    .describe(
+      "The manifest's deploy routine to run once, at deployment, by name. Leave it out when the manifest has exactly one " +
+        "deploy routine (it is used); name one when it has several. A manifest with none is refused.",
+    ),
+  args: z
+    .record(z.string(), z.unknown())
+    .default({})
+    .describe(
+      "The deploy routine's inputs keyed by the labels in the manifest, for example {\"initial_value\": 0}. Integers are whole " +
+        "numbers, as a number or a decimal string, never a fraction. Identifiers are 0x plus 64 hex characters. Leave it out for a " +
+        "routine that takes no inputs.",
+    ),
+  participants: z
+    .array(LogicParticipant)
+    .max(16)
+    .optional()
+    .describe(
+      "Other accounts and assets the deploy routine moves value for, besides you: the new code may move these. Leave it out " +
+        "unless the user said the routine needs them. Never list the new logic, which does not exist yet, or KMOI, which the " +
+        "funding transfer declares.",
+    ),
+});
+
+// ---------------------------------------------------------------------------
+// Asset routines (manifest-driven; src/capabilities/assets)
+// ---------------------------------------------------------------------------
+
+export const AssetRoutinesInput = z.object({
+  assetId: AssetId.describe("The asset to inspect, by asset id."),
+});
+
+/**
+ * inputs and outputs are two separate z.object instances on purpose: a shared instance makes the JSON Schema
+ * generator emit a $ref, which the dialect rewrite then has to inline (GetLogicOutput does the same).
+ */
+export const AssetRoutinesOutput = z.object({
+  assetId: AssetId,
+  symbol: z.string(),
+  standard: z.string(),
+  /** How far amounts of this asset are scaled; integer inputs and outputs of the routines are in base units. */
+  decimals: z.number(),
+  routines: z.array(
+    z.object({
+      name: z.string(),
+      access: z
+        .enum(["read", "write"])
+        .describe("read runs at once with nothing to approve; write changes state and is previewed, then approved on the phone."),
+      inputs: z.array(z.object({ label: z.string(), type: z.string() })),
+      outputs: z.array(z.object({ label: z.string(), type: z.string() })),
+      described: z
+        .boolean()
+        .describe(
+          "True when this server can describe the routine in a preview and knows which accounts it locks. A read routine is always true. A write routine that is false needs `participants` from the caller.",
+        ),
+    }),
+  ),
+  /** Routines this server can use, before the list was cut. */
+  total: z.number().int(),
+  /** Invokable routines left out: a name, label or type that is not plain identifier-shaped text, more than 16 inputs or outputs, or a manifest that gives two routines one table slot. */
+  unlisted: z.number().int(),
+  /** True when the list was cut at 100 routines. */
+  truncated: z.boolean(),
+});
+
+export const AssetInvokeInput = z.object({
+  assetId: AssetId.describe("The asset to call a routine on."),
+  routine: z.string().min(1).max(64).describe("The routine's name exactly as moi_asset_routines lists it, for example Transfer."),
+  args: z
+    .record(z.string(), z.unknown())
+    .default({})
+    .describe(
+      "The routine's inputs keyed by the labels moi_asset_routines lists, for example {\"beneficiary\": \"0x\u2026\", \"amount\": \"5\"}. " +
+        "Integers (amounts, token ids, timestamps) are whole numbers in base units, as a number or a decimal string, never a fraction. " +
+        "Identifiers are 0x plus 64 hex characters. Leave out an input the routine does not list.",
+    ),
+  participants: z
+    .array(LogicParticipant)
+    .max(16)
+    .optional()
+    .describe(
+      "Other accounts and assets a routine that changes state locks, besides the asset and you. Required, as an empty list if there are none, " +
+        "for a routine this server has no description for; not allowed for a routine that only reads.",
+    ),
+});
+
+/** What a routine that only reads answers. Integers are decimal strings in base units. */
+export const AssetViewOutput = z.object({
+  assetId: AssetId,
+  routine: z.string(),
+  outputs: z.record(z.string(), z.unknown()),
+  /** The asset's decimals, to turn an amount in base units into whole tokens. */
+  decimals: z.number(),
+  /** True when a list, a map or a text in the outputs was cut. */
+  truncated: z.boolean(),
 });
 
 // ---------------------------------------------------------------------------
@@ -588,7 +838,7 @@ export const Config = z.object({
   MOI_RPC_URL: z.string().url().optional(),     // override for "custom"
   WC_PROJECT_ID: z.string().min(1),             // ship a default in package
   MOI_MCP_HOME: z.string().default("~/.moi-mcp"),
-  MOI_EXPLORER_URL: z.string().url().default("https://voyage.moi.technology"), // TODO confirm
+  MOI_EXPLORER_URL: z.string().url().default("https://voyage.moi.technology"), // the Voyage explorer, confirmed 3 October 2026 by loading it
   /**
    * How long to wait for the phone.
    *
@@ -601,6 +851,16 @@ export const Config = z.object({
    */
   REQUEST_TIMEOUT_MS: z.coerce.number().default(55_000),
   LOG_LEVEL: z.enum(["silent", "error", "info", "debug"]).default("error"),
+  /**
+   * What to do when the interaction MOI Wallet signed is not byte for byte one of the encodings of the interaction that was
+   * previewed (src/moi/signed-check.ts, applied in broadcastSigned). `warn` logs it and broadcasts as before. `enforce`
+   * refuses: nothing is broadcast and the journal entry ends as orphaned. The default is warn on purpose: the wallet's real
+   * encoding has never been captured, and a false refusal after the person has already approved is the worst outcome. Move
+   * to enforce once one real write has logged a match (docs/handoff-infra.md). Any other value fails config load, so a typo
+   * never leaves the check weaker than the operator meant.
+   */
+  MOI_SIGNED_CHECK: z.enum(["warn", "enforce"], { message: "must be warn or enforce" }).default("warn"),
+  MOI_ACCOUNT_KEY_TOOLS: z.enum(["on", "off"], { message: "must be on or off" }).default("off"), // read by accountKeyToolsOn (src/config.ts)
 });
 export type Config = z.infer<typeof Config>;
 
@@ -617,12 +877,15 @@ export const ErrorCode = {
   INVALID_ARGS: "INVALID_ARGS",
   RPC_ERROR: "RPC_ERROR",
   AGENT_NOT_FOUND: "AGENT_NOT_FOUND",
+  /** A logic or an asset has no routine by that name. */
   LOGIC_ROUTINE_NOT_FOUND: "LOGIC_ROUTINE_NOT_FOUND",
   RELAY_UNAVAILABLE: "RELAY_UNAVAILABLE",
   /** No Launchpad session for this user, or the Launchpad no longer accepts it. */
   LAUNCHPAD_NOT_SIGNED_IN: "LAUNCHPAD_NOT_SIGNED_IN",
   /** The Launchpad answered with an error, or could not be reached. */
   LAUNCHPAD_ERROR: "LAUNCHPAD_ERROR",
+  /** The devnet faucet refused, could not be reached, or answered in a way this server could not use. */
+  FAUCET_ERROR: "FAUCET_ERROR",
 } as const;
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
@@ -635,15 +898,20 @@ export const TOOLS = {
   moi_wallet_status:     { input: WalletStatusInput,     write: false },
   moi_disconnect_wallet: { input: DisconnectWalletInput, write: false },
   moi_get_account:       { input: GetAccountInput,       write: false },
+  moi_get_history:       { input: GetHistoryInput,       write: false },
   moi_get_asset:         { input: GetAssetInput,         write: false },
   moi_get_interaction:   { input: GetInteractionInput,   write: false },
   moi_get_logic:         { input: GetLogicInput,         write: false },
+  moi_asset_routines:    { input: AssetRoutinesInput,    write: false },
   moi_resolve_agent:     { input: ResolveAgentInput,     write: false },
   moi_list_agents:       { input: ListAgentsInput,       write: false },
   moi_transfer:          { input: TransferInput,         write: true  },
   moi_create_account:    { input: CreateAccountInput,    write: true  },
+  moi_configure_account: { input: ConfigureAccountInput, write: true  },
   moi_create_asset:      { input: CreateAssetInput,      write: true  },
   moi_call_logic:        { input: CallLogicInput,        write: true  },
+  moi_deploy_logic:      { input: DeployLogicInput,      write: true  },
+  moi_asset_invoke:      { input: AssetInvokeInput,      write: true  },
   moi_register_agent:    { input: RegisterAgentInput,    write: true  },
   moi_set_agent_status:  { input: SetAgentStatusInput,   write: true  },
   moi_transfer_agent:    { input: TransferAgentInput,    write: true  },

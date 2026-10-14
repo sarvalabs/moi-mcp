@@ -10,8 +10,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
+import { toPoloHex, toWireJson, type UnsignedInteraction } from "../../src/moi/ix-builder.js";
 import type { AuthInfo } from "../../src/auth/types.js";
-import { registerHostedWrites, type HostedWriteDeps } from "../../src/tools/hosted-writes.js";
+import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
+import { registerHostedWrites, type HostedWriteOptions } from "../../src/tools/register.js";
 import type { PreviewRegistry } from "../../src/tools/preview.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
 import type { StoredWalletSession, WalletSessionStore } from "../../src/wc/store.js";
@@ -51,14 +53,47 @@ export function fakeHub(): FakeHub {
       throw new Error("not used here");
     }),
     signMessageFor: vi.fn(async () => ({ signature: "0xfeed" })),
-    signInteractionFor: vi.fn(async () => ({
-      ix_args: "0x" + "1".repeat(64),
+    // An honest phone: the bytes of the interaction it was asked to sign, which the write path checks before it
+    // broadcasts. The real hub returns unprefixed hex (PoloHex in src/schema.ts), so this does too. Not a canned value:
+    // a constant reply would be accepted or refused regardless of the interaction.
+    signInteractionFor: vi.fn(async (_topic: string, ix: UnsignedInteraction) => ({
+      ix_args: toPoloHex(toWireJson(ix) as never),
       signatures: "0x" + "2".repeat(128),
     })),
     onSessionDelete: vi.fn(() => () => {}),
     disconnect: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
   };
+}
+
+/**
+ * A phone that has not answered yet. Both signing calls on `hub` stay pending until tap(), then answer as the hub did
+ * before. fail(err) makes them reject instead (the person refused, or the wait timed out). `asked` resolves the moment
+ * either call is made, so a test knows the wait is open before it moves the clock.
+ */
+export function slowPhone(hub: FakeHub): { asked: Promise<void>; tap: () => void; fail: (err: unknown) => void } {
+  let ask!: () => void;
+  const asked = new Promise<void>((resolve) => (ask = resolve));
+  let tap!: () => void;
+  let fail!: (err: unknown) => void;
+  const settled = new Promise<void>((resolve, reject) => {
+    tap = resolve;
+    fail = reject;
+  });
+  settled.catch(() => {}); // a test that never reaches the hub must not leave an unhandled rejection
+  const answerInteraction = hub.signInteractionFor.getMockImplementation()!;
+  const answerMessage = hub.signMessageFor.getMockImplementation()!;
+  hub.signInteractionFor.mockImplementation(async (...args: unknown[]) => {
+    ask();
+    await settled;
+    return answerInteraction(...args);
+  });
+  hub.signMessageFor.mockImplementation(async (...args: unknown[]) => {
+    ask();
+    await settled;
+    return answerMessage(...args);
+  });
+  return { asked, tap, fail };
 }
 
 export interface FakeJournal {
@@ -88,10 +123,13 @@ export function deps(
   return { store, hub, journal, previews } as unknown as HostedWriteDeps;
 }
 
-/** Wire a real McpServer with the hosted writes and hand back a connected client. */
-export async function connect(d: HostedWriteDeps, who: AuthInfo = authFor(USER)): Promise<Client> {
+/**
+ * Wire a real McpServer with the hosted writes and hand back a connected client. `options` is what registerHostedWrites
+ * takes: a test of moi_deploy_logic passes a short deployWaitMs, because the hosted default watches for the receipt for 30 seconds.
+ */
+export async function connect(d: HostedWriteDeps, who: AuthInfo = authFor(USER), options: HostedWriteOptions = {}): Promise<Client> {
   const server = new McpServer({ name: "t", version: "0" });
-  registerHostedWrites(server, d, who);
+  registerHostedWrites(server, d, who, options);
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: "t", version: "0" });

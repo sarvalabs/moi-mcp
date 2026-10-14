@@ -20,7 +20,7 @@ carries it.
 
 ### 0:00–0:08 — Frame it
 
-Nothing typed. Tools panel open, 12 `moi_*` tools visible.
+Nothing typed. Tools panel open, 22 `moi_*` tools visible.
 
 > "My agent has a MOI wallet. It does not have my keys."
 

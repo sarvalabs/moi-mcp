@@ -4,10 +4,25 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { accountKeyToolsOn } from "../config.js";
 import { NETWORKS } from "../moi/provider.js";
-import { DEFAULT_REGISTRY_LOGIC_ID, registryLogicId } from "../moi/registry.js";
+import { DEFAULT_REGISTRY_LOGIC_ID, registryLogicId } from "../capabilities/reads/registry.js";
 
-const QUICKSTART = `# MOI MCP — quickstart
+/**
+ * The paragraph on moi_configure_account. It is part of the quickstart only when the tool is registered
+ * (MOI_ACCOUNT_KEY_TOOLS=on, src/tools/register.ts), because the quickstart names the tools the server has.
+ */
+const ACCOUNT_KEYS_PARAGRAPH = `\`moi_configure_account\` adds keys to your account or revokes keys. A key you add
+can sign for your account, so the preview shows every public key in full: read
+them before you say yes. One call adds keys or revokes keys, never both. It reads
+your account's keys first and refuses a change that would leave nothing able to
+sign, and a key you revoked earlier. It takes the same two calls, and it has not
+been run against a node yet, so try it on devnet first.
+
+`;
+
+/** The quickstart text, with the account key tool named only when `accountKeys` says the server registers it. */
+const quickstart = (accountKeys: boolean): string => `# MOI MCP — quickstart
 
 Give your agent a MOI wallet. The server never holds a private key: it reads
 chain state directly, and every state change is signed on your phone in MOI
@@ -24,8 +39,10 @@ Wallet over WalletConnect.
 
 Reads need no wallet. Ask your agent:
 
-- "what's in MOI account 0x…" → \`moi_get_account\`
+- "what's in MOI account 0x…" → \`moi_get_account\` (a page of balances; pass \`assetId\` for one asset's balance)
+- "what did MOI account 0x… do recently" → \`moi_get_history\`
 - "what asset is 0x…" → \`moi_get_asset\`
+- "what can asset 0x… do" → \`moi_asset_routines\`
 - "did interaction 0x… land" → \`moi_get_interaction\`
 - "what routines does logic 0x… expose" → \`moi_get_logic\`
 - "find the agent called pricefeed-01" → \`moi_resolve_agent\`
@@ -34,19 +51,52 @@ Reads need no wallet. Ask your agent:
 ## 3. Pair, then write
 
 \`moi_connect_wallet\` returns a QR code. Scan it with MOI Wallet on your phone.
-Then \`moi_transfer\`, \`moi_create_asset\` and \`moi_call_logic\` build an
-interaction here and send it to your phone for approval. Nothing moves until
-you tap Send.
+On the hosted server Claude first asks how long the pairing should stay open:
+once, day or week. There the code is drawn as text, which Claude prints in the
+chat, and it also comes as an image.
+Then \`moi_transfer\`, \`moi_create_asset\`, \`moi_mint\`, \`moi_call_logic\`,
+\`moi_asset_invoke\`${accountKeys ? ", \`moi_deploy_logic\` and \`moi_configure_account\`" : " and \`moi_deploy_logic\`"} build an
+interaction here and send it to your phone for approval. Nothing moves until you
+tap Send.
 
-## 4. Agents on the MOI Agent Launchpad (hosted server only)
+\`moi_asset_invoke\` calls a routine of an asset by name, from its manifest (a
+burn, an approval, a MAS1 token transfer). A routine that only reads answers at
+once; one that changes state takes the same two calls, a preview and then the
+confirm.
 
-\`moi_launchpad_templates\` lists what you can build. \`moi_launchpad_sign_in\`
-signs one message with the paired wallet; the session lasts a week. Then
+\`moi_create_asset\` makes an asset in one of four standards. MAS0 is the default:
+fungible units, one balance per holder. MAS1 is one unit identified by a token id,
+with no supply and no decimals. MAS2 is fungible units under token ids. MASX is a
+custom asset made from a compiled manifest (the JSON that \`coco compile\` writes
+for a \`coco asset\` module), with a deploy routine that runs when the asset is
+created. The standard is fixed when the asset is created. The result gives the new
+asset's id when the receipt shows it in time (the hosted server waits up to 30
+seconds), and otherwise says how to read it with \`moi_get_interaction\`, which is
+always so on the stdio server. To mint, transfer or burn the tokens of a MAS1 or
+MAS2 asset, or to call a MASX asset's routines, use \`moi_asset_invoke\`.
+
+\`moi_deploy_logic\` deploys a new logic from a compiled manifest you give it (the
+JSON that \`coco compile\` writes) and runs one of its deploy routines. It takes the
+same two calls. This server cannot show what the logic's code does, so deploy only
+a manifest you trust. 10 KMOI moves into the new logic's own account to pay for
+its storage, and nothing here can take that back or remove the logic; the preview
+says so, with the fuel. It returns the new logic's id when the receipt shows it,
+and says where to look otherwise.
+
+${accountKeys ? ACCOUNT_KEYS_PARAGRAPH : ""}## 4. Agents on the MOI Agent Launchpad (hosted server only)
+
+\`moi_launchpad_templates\` lists what you can build. Sign in to the Launchpad
+with \`moi_dapp_sign_in\` and its address, https://launchpad.moi.technology
+(\`moi_launchpad_status\` says which one this server uses): it signs one message
+with the paired wallet, and the session lasts up to a day. Then
 \`moi_launchpad_create_agent\`, \`moi_launchpad_register_agent\` (one tap on
-the phone, the step that makes the agent live), \`moi_launchpad_telegram_link\`
+the phone; it registers the agent, which runs only once its setup script has
+been run on a machine), \`moi_launchpad_telegram_link\`
 for the bot link, and \`moi_launchpad_setup_script\` for a one-time download
 link to the agent's setup script. \`moi_launchpad_status\` shows where things
 stand. \`moi_list_agents\` reads the on-chain registry itself.
+\`moi_launchpad_create_agent\` takes two calls: the first previews what would
+be created, the second, with the confirm token, creates it.
 
 \`moi_register_agent\`, \`moi_set_agent_status\` and \`moi_transfer_agent\` write to
 the registry for agents you host yourself.
@@ -56,7 +106,8 @@ the registry for agents you host yourself.
 A dapp that follows the MOI dapp conventions needs no code here:
 \`moi_dapp_sign_in\` signs in with the paired wallet, \`moi_dapp_api\` lists
 the operations it publishes, \`moi_dapp_call\` calls one as the signed-in
-person.
+person. A GET runs at once; any other method takes two calls, a preview of the
+exact request and then the same call with the confirm token.
 
 ## Vocabulary
 
@@ -112,7 +163,8 @@ export function registerResources(server: McpServer): void {
       mimeType: "text/markdown",
     },
     async (uri) => ({
-      contents: [{ uri: uri.href, mimeType: "text/markdown", text: QUICKSTART }],
+      // Read when the resource is asked for, so the text follows the setting the process runs with.
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: quickstart(accountKeyToolsOn()) }],
     }),
   );
 }

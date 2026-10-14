@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 
 import type { AuthInfo } from "../../src/auth/index.js";
 import { WriteJournal } from "../../src/journal.js";
+import { toPoloHex, toWireJson, type UnsignedInteraction } from "../../src/moi/ix-builder.js";
 import { MoiError } from "../../src/moi-error.js";
 import { buildHostedApp, GATED, wireSessionDeleteReconciliation, type HostedDeps } from "../../src/server.js";
 import type { WalletConnectHubLike } from "../../src/wc/hub.js";
@@ -112,9 +113,10 @@ class FakeHub implements WalletConnectHubLike {
     if (topic === TOPIC_B && this.sessionDeleted.has(TOPIC_B)) {
       throw new MoiError("WALLET_NOT_CONNECTED", "Session was deleted");
     }
-    // Normal path: return derived signatures
+    // Normal path: an honest phone. The bytes are those of the interaction it was asked to sign, which the write path checks
+    // before it broadcasts; the signatures stay derived from the topic.
     return {
-      ix_args: `0e5f0300${topic.slice(0, 32)}`,
+      ix_args: toPoloHex(toWireJson(ix as UnsignedInteraction) as never),
       signatures: `0e1f03${topic.slice(0, 32)}`,
     };
   });
@@ -571,16 +573,6 @@ describe("cross-user write tools isolation", () => {
     // signInteractionFor's only routing input is the topic string, enforced
     // by TypeScript at the call site (WalletConnectHubLike's signature).
     expect(typeof realHub.signInteractionFor).toBe("function");
-  });
-
-  // =========================================================================
-  // 11. Stdio path unchanged (already tested via tools-writes.test.ts)
-  // =========================================================================
-  it("11. [note] stdio path regression tested separately in tools-writes.test.ts", () => {
-    // This contract guarantees that write-core.ts extraction does not change
-    // stdio behavior. That is verified by the existing tools-writes.test.ts
-    // running against the refactored src/tools/writes.ts unmodified.
-    expect(true).toBe(true);
   });
 
   // =========================================================================

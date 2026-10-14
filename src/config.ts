@@ -127,6 +127,26 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
   return { ...cfg, home };
 }
 
+/**
+ * Whether the operator has turned on the tool that adds or revokes account keys (MOI_ACCOUNT_KEY_TOOLS in src/schema.ts).
+ * The tool is moi_configure_account, on the stdio and the hosted server. `off`, the default, leaves it out of tools/list, and a
+ * call to it is unknown. A key added at full weight signs for the account alone, for good, and MOI Wallet shows it as a hex
+ * string nobody can check by eye, so the chat does not offer the change unless an operator decides it should.
+ * True for exactly the string `on`; an unset or blank value, `off` and every other value (a typo, another case, a stray
+ * space) read as false, so registration can never turn the tool on by accident. Any other value also fails config load, so a
+ * typo cannot leave the tool on.
+ *
+ * It reads that one variable and not getConfig(), on purpose. The stdio server starts on a bad config so that `ping` can
+ * say why (src/index.ts), and registration happens at that moment, so it must neither throw nor depend on a valid
+ * WC_PROJECT_ID. getConfig() also creates MOI_MCP_HOME on its first successful call, which a registration-only test must not
+ * do to a developer's real home. It needs no dotenv of its own: both entry points call getConfig(), which loads dotenv before
+ * it validates, before they register anything. The accepted values are written once, in the schema, which this reuses, so a
+ * value the schema refuses at load is refused here too and reads as off.
+ */
+export function accountKeyToolsOn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Config.shape.MOI_ACCOUNT_KEY_TOOLS.safeParse(env["MOI_ACCOUNT_KEY_TOOLS"]).data === "on";
+}
+
 /** Memoised accessor. First call validates and creates MOI_MCP_HOME. */
 export function getConfig(): LoadedConfig {
   cached ??= loadConfig();
@@ -141,7 +161,7 @@ export function resetConfigCache(): void {
 
 // ---------------------------------------------------------------------------
 // Hosted transport config (src/server.ts) — additive to the Config above, not
-// part of it. stdio and the read-only HTTP entry point never read these four
+// part of it. stdio and the read-only HTTP entry point never read these
 // keys, and the shared Config's schema and defaults are unchanged by them.
 // ---------------------------------------------------------------------------
 
@@ -157,6 +177,21 @@ const HostedConfigSchema = z.object({
   HOSTED_TIMEOUT_MS: z.coerce.number().positive().default(240_000),
   /** The MOI Agent Launchpad the moi_launchpad_* tools act on. */
   MOI_LAUNCHPAD_URL: z.string().url().default("https://launchpad.moi.technology"),
+  /**
+   * The Voyage devnet faucet the moi_faucet tool claims from (src/applications/faucet): its base address. Plain optional text
+   * on purpose, with no default and no judgement here. Every rule (https only, a public host, no query, fragment or
+   * credentials) is applied once, by FaucetClient's constructor, and faucetDepsFor turns a refused value into "tool off" plus
+   * one fixed error line. Judging it here too would stop the whole write gateway at boot, wallet pairing included, over a typo
+   * in an optional feature. No default, so that a wrong default can never send MOI_FAUCET_KEY to the wrong host.
+   */
+  MOI_FAUCET_URL: z.string().trim().optional(),
+  /**
+   * The faucet's API key. The faucet takes it as a path segment of its address, so the key and the address built from it are
+   * both secrets: HostedConfig carries a secret, so never log or serialise it whole, and server.ts
+   * logs individual fields only. Its real format is not documented, so nothing is assumed of it here; FaucetClient refuses an
+   * empty key, one over 256 characters, and one of only dots.
+   */
+  MOI_FAUCET_KEY: z.string().trim().optional(),
 });
 
 export type HostedConfig = z.infer<typeof HostedConfigSchema> & {
@@ -196,13 +231,12 @@ export function loadHostedConfig(env: NodeJS.ProcessEnv = process.env): HostedCo
   }
 
   const dataDir = expandHome(parsed.data.MOI_DATA_DIR);
-  // 0700: this directory holds per-user WalletConnect session records
-  // (wc/store.ts's sessions/, keyed by sha256(userId)), the OAuth client/token
-  // stores, and the write journal. It also holds wc-relay-scratch/ — the
-  // shared, single-user WalletConnectClient's OWN internal session file
-  // (src/server.ts's makeResolveUri), which is NOT per-user and must never be
-  // read as if it were; per-user lookups always go through the sessions/
-  // store above.
+  // 0700: this directory holds per-user WalletConnect pairing records
+  // (wc/store.ts's sessions/, keyed by sha256(userId)), the WalletConnect
+  // client state (wc.db/, one file per SDK key, which is NOT per-user data and
+  // is never read as if it were: per-user lookups always go through the
+  // sessions/ store above), the dapp sessions (dapps/), the OAuth
+  // client/token stores, and the write journal.
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 
   return { ...parsed.data, dataDir };

@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { log } from "../config.js";
 import { z } from "zod";
 
+import { PAIRING_MODES } from "./lifetime.js";
+
 /**
  * Stored wallet session record, including version and user tracking.
  * Mandates and policy are passed through as unknown to support future extensions.
@@ -26,8 +28,8 @@ export const StoredWalletSession = z.object({
   createdAt: z.string(),      // ISO string
   mandates: z.unknown().optional(),
   policy: z.unknown().optional(),
-  /** Chosen on the pairing page. Absent on records from before lifetimes existed. */
-  mode: z.enum(["persistent", "once"]).optional(),
+  /** Chosen in the chat when pairing. Absent on records from before lifetimes existed. */
+  mode: z.enum(PAIRING_MODES).optional(),
   /** Unix seconds. Absent means: persistent, aged from createdAt (see wc/lifetime.ts). */
   expiresAt: z.number().int().optional(),
 });

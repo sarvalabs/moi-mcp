@@ -11,9 +11,14 @@
  *
  * In memory on purpose. A token that outlives the process is a token nobody
  * is looking at any more; the model previews again and loses a second.
+ *
+ * Writes to a dapp (src/applications/dapp/tools.ts, and create_agent in
+ * src/applications/launchpad/tools.ts) use this same registry through redeemOrIssue below,
+ * with no phone behind them. There the token only proves the call was
+ * previewed with exactly these arguments; it is not proof that a person read it.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 export interface PreviewEntry {
   userId: string;
@@ -113,4 +118,61 @@ function sortKeys(value: unknown): unknown {
     );
   }
   return value;
+}
+
+/** How much of a request body or config a preview shows. The token still binds all of it and all of it is sent. */
+export const PREVIEW_BODY_CHARS = 2000;
+
+/** fingerprint() reduced to a fixed-size digest, for arguments that can be large: a dapp body may be up to the 1 MB request cap, and the registry holds the string for ten minutes. */
+export function fingerprintDigest(value: unknown): string {
+  return createHash("sha256").update(fingerprint(value)).digest("hex");
+}
+
+/** `text` cut to `max` characters, saying how much was left out. */
+export function cut(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}… (${text.length - max} more characters)`;
+}
+
+const NO_MATCH_NOTE =
+  "That confirm token did not match this call: it was expired, already used, or the call changed since the preview " +
+  "(the arguments, the wallet signed in as, or how the dapp defines the operation). Nothing was sent. " +
+  "This is a fresh preview; show it and get the user's yes again.";
+
+/**
+ * The gate for a call that has no phone behind it. With a confirm token that matches this user, this kind and this
+ * fingerprint, the token is spent and undefined comes back: the caller sends. Otherwise a fresh token is issued and
+ * returned, with a note when a confirm was given but did not match. Redeem is synchronous, so two concurrent
+ * confirms with one token let exactly one through. The binding is the fingerprint alone; `details` is stored empty
+ * because nothing compares it here (runWrite compares it because chain numbers drift; an HTTP request does not).
+ */
+export function redeemOrIssue(
+  registry: PreviewRegistry,
+  key: { userId: string; kind: string; fingerprint: string },
+  confirm: string | undefined,
+): { token: string; expiresAt: number; note?: string } | undefined {
+  if (confirm && registry.redeem(confirm, key)) return undefined;
+  const issued = registry.issue({ ...key, details: {} });
+  return confirm ? { ...issued, note: NO_MATCH_NOTE } : issued;
+}
+
+/** The preview as a block the model can paste into the chat; modelled on previewText in write-core.ts but for an HTTP call. */
+export function previewBlock(p: {
+  what: string;
+  summary: string;
+  details: Record<string, string>;
+  token: string;
+  expiresAt: number;
+  note?: string;
+}): string {
+  return [
+    ...(p.note ? [p.note, ""] : []),
+    `PREVIEW. Nothing has been sent to ${p.what}.`,
+    p.summary,
+    "",
+    "What will be sent:",
+    ...Object.entries(p.details).map(([k, v]) => `  ${k}: ${v}`),
+    "",
+    "Show the person this request as written and get an explicit yes. Then call again with the same arguments and " +
+      `confirm="${p.token}" (valid until ${new Date(p.expiresAt).toISOString()}); that sends it, once.`,
+  ].join("\n");
 }

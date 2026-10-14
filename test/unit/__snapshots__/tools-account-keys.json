@@ -1,0 +1,111 @@
+[
+  {
+    "name": "moi_configure_account",
+    "title": "Add or revoke a key on your MOI account",
+    "description": "Add keys to the user's own MOI account, or revoke keys on it, from their paired wallet; nothing happens until they tap Send on their phone. This is the most dangerous write this server has: every key that is added can sign for the account (each is added with weight 1000, the default account threshold), and a key that is revoked can no longer sign. `add` takes compressed public keys (0x plus 66 hex characters). `revoke` takes key ids; the first key is 0, and key 0 is the key the user's wallet signs with here, so revoking it ends what this server can do for the account. One call adds keys or revokes keys, never both, because the protocol docs say one operation does an add or a revoke. To rotate a key, add the new one, make sure it signs for the account, then revoke the old one in a second call. Call with neither `add` nor `revoke` to see the account's keys and their ids: that call is refused, and the refusal lists them. The tool reads the account's keys first and refuses, before anything reaches the phone: an account whose key 0 cannot sign alone, a key id the account does not have or has already revoked, a key it already has (a revoked key is not added again), a request that revokes every key or leaves them weighing under 1000, and an interaction of this account that is still waiting to land. At most 5 keys per call. Show the user the summary and every public key in the preview in full, not shortened, and get an explicit yes. What MOI Wallet shows for this operation is not known. Two calls, always. First call without confirm: nothing reaches the phone; you get a one-sentence summary, the values of the interaction, with every key in full, and a confirm token. Show the user the summary and those values and get an explicit yes to them, even if they already asked for the action. Second call with the same arguments plus confirm: this sends the approval to the phone and waits for the tap, which can take a few minutes. Tell the user to compare the key on the phone, if it shows one, with the public key in the preview before tapping. Returns the interaction hash once broadcast, or a reason it was refused.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^0x0[23][0-9a-fA-F]{64}$"
+          },
+          "maxItems": 5,
+          "description": "Compressed public keys to add: 0x plus 66 hex characters each. Whoever holds a key's private key can sign for the account. Give this or revoke, not both: the protocol docs say one operation does an add or a revoke, never both."
+        },
+        "revoke": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxItems": 5,
+          "description": "Ids of the keys to revoke, as the account lists them (the first key is 0). Give this or add, not both."
+        },
+        "confirm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Token from this tool's preview. Omit it to get the preview; pass it, with the same arguments, to send the approval to the phone."
+        }
+      },
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    },
+    "outputSchema": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "sent",
+            "rejected",
+            "error",
+            "preview"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "explorerUrl": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "user_rejected",
+            "timeout",
+            "network_mismatch",
+            "wallet_disconnected"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "fuel": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "$schema": "https://json-schema.org/draft/2020-12/schema"
+    }
+  }
+]

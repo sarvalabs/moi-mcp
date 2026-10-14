@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { getProvider, getReadOnlySigner, interactionUrl, NETWORKS } from "../../src/moi/provider.js";
 import { getAccount } from "../../src/moi/reads.js";
-import { agentCount, DEFAULT_REGISTRY_LOGIC_ID, getRegistryDriver, resolveAgent } from "../../src/moi/registry.js";
+import { agentCount, DEFAULT_REGISTRY_LOGIC_ID, getRegistryDriver, resolveAgent } from "../../src/capabilities/reads/registry.js";
 
 const live = process.env["MOI_E2E"] === "1";
 const d = live ? describe : describe.skip;

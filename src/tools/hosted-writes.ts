@@ -1,10 +1,12 @@
 /**
- * Multi-user write tools for the hosted MOI MCP server.
+ * The one path every write takes: runWrite. The write tools themselves are built by the capability each belongs to
+ * (src/capabilities) and put on a server by src/tools/register.ts.
  *
- * Hosted-specific implementation of the write tools (moi_transfer,
- * moi_create_asset, moi_mint, moi_call_logic) that routes writes to the
- * authenticated user's WalletConnect session via the WalletConnectHub, then
- * broadcasts the signed interaction.
+ * The hosted server runs it with a signed-in user, the pairing store, the WalletConnect hub and a journal in its data
+ * directory. The stdio server runs the same code with a constant local user and small adapters over its own session
+ * file, WalletConnect client and journal file (src/tools/local-writes.ts). Nothing below knows which of the two it is
+ * under: it asks for a WriteDeps and an AuthInfo. A write routes to the paired wallet's WalletConnect session, then the
+ * signed interaction is broadcast from here.
  *
  * Identity is always auth.userId. The session is looked up via
  * deps.store.get(auth.userId), and signed on that session's topic. No tool
@@ -19,8 +21,9 @@
  * sign.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomUUID } from "node:crypto";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { getConfig, log } from "../config.js";
@@ -28,54 +31,57 @@ import { messageOf } from "../errors.js";
 import { interactionUrl, NETWORKS } from "../moi/provider.js";
 import type { AuthInfo } from "../auth/types.js";
 import { isExpired } from "../wc/lifetime.js";
-import {
-  CallLogicInput,
-  CreateAccountInput,
-  CreateAssetInput,
-  ErrorCode,
-  MintInput,
-  TransferInput,
-  type WriteResult,
-} from "../schema.js";
+import { ErrorCode, type WriteResult } from "../schema.js";
 import { MoiError } from "../moi-error.js";
 import type { StoredWalletSession, WalletSessionStore } from "../wc/store.js";
 import type { WalletConnectHubLike } from "../wc/hub.js";
 import type { WriteJournal } from "../journal.js";
 import { fingerprint, PreviewRegistry } from "./preview.js";
-import {
-  WriteOutputShape,
-  asWriteResult,
-  broadcastSigned,
-  kmoiBalance,
-  ok,
-  prepareCreateAccount,
-  prepareCreateAsset,
-  prepareLogicInvoke,
-  prepareMint,
-  prepareTransfer,
-  viewLogicCall,
-  type PreparedWrite,
-} from "./write-core.js";
+import { asWriteResult, broadcastSigned, ok, type PreparedWrite } from "./write-core.js";
 
 /**
- * Dependencies for hosted write tools.
+ * What the write path uses, and no more. The hosted server satisfies it with its real store, hub and journal
+ * (HostedWriteDeps below); the stdio server with small adapters over its own session file, WalletConnect client and
+ * journal file (src/tools/local-writes.ts). Naming the narrow shape is what lets the second exist without a cast.
  */
-export interface HostedWriteDeps {
-  store: WalletSessionStore;
-  hub: WalletConnectHubLike;
-  journal: WriteJournal;
+export interface WriteDeps {
+  /** get and delete are all the write path needs: it never pairs, lists, or looks a session up by topic. */
+  store: Pick<WalletSessionStore, "get" | "delete">;
+  /** signInteractionFor signs. disconnect runs only for a "once" pairing, which the stdio server never has. */
+  hub: Pick<WalletConnectHubLike, "signInteractionFor" | "disconnect">;
+  journal: Pick<WriteJournal, "append" | "update">;
   /** Confirm tokens. One registry per process by default; injectable for tests. */
   previews?: PreviewRegistry;
 }
 
+/**
+ * Dependencies for the hosted write tools: the full store, hub and journal. The Launchpad and dapp tools need more
+ * than the write path does (the hub signs the dapp tool's sign-in message), so they take this.
+ */
+export interface HostedWriteDeps extends WriteDeps {
+  store: WalletSessionStore;
+  hub: WalletConnectHubLike;
+  journal: WriteJournal;
+}
+
 const defaultPreviews = new PreviewRegistry();
+
+/**
+ * The registry for these deps: one per process unless a test injects one. The hosted server rebuilds McpServer and
+ * re-registers every tool on each request, so a registry created inside a register* function would be empty on the
+ * confirm call. moi_dapp_call and moi_launchpad_create_agent use it too.
+ */
+export const previewsOf = (d: WriteDeps): PreviewRegistry => d.previews ?? defaultPreviews;
 
 export type WriteKind =
   | "transfer"
   | "create_account"
+  | "configure_account"
   | "create_asset"
   | "mint"
   | "call_logic"
+  | "deploy_logic"
+  | "asset_invoke"
   | "register_agent"
   | "set_agent_status"
   | "transfer_agent";
@@ -91,7 +97,7 @@ export type WriteKind =
  * best-effort: a journal I/O error must never mask the real tool error.
  */
 async function markUnwound(
-  journal: WriteJournal,
+  journal: Pick<WriteJournal, "update">,
   id: string,
   wasSigned: boolean,
   err: unknown,
@@ -117,10 +123,11 @@ function assertNetworkMatches(stored: StoredWalletSession, expectedNetwork?: str
 }
 
 /**
- * Load and validate the user's wallet session from the store.
+ * Load and validate the user's wallet session from the store. Takes only the store, so a tool that reads the pairing and
+ * never signs does not need to be handed the hub.
  */
 export async function loadSession(
-  deps: HostedWriteDeps,
+  deps: Pick<WriteDeps, "store">,
   auth: AuthInfo,
   expectedNetwork?: string,
 ): Promise<StoredWalletSession> {
@@ -145,7 +152,7 @@ export async function loadSession(
  * effort: the server-side deletion is the guarantee, the phone's list is
  * cosmetic.
  */
-async function afterSignedUse(deps: HostedWriteDeps, session: StoredWalletSession): Promise<void> {
+async function afterSignedUse(deps: WriteDeps, session: StoredWalletSession): Promise<void> {
   if (session.mode !== "once") return;
   try {
     await deps.store.delete(session.userId);
@@ -230,6 +237,85 @@ function previewOf(
 }
 
 /**
+ * How often a client that asked for progress hears that the phone has not answered yet. It is also how often the SDK's
+ * HTTP transport writes a keep-alive comment. The first notice comes at this mark and not at once, so a wait the hub
+ * refuses straight away (the pairing is gone) ends before anything claims to be waiting.
+ */
+export const PROGRESS_EVERY_MS = 15_000;
+
+/**
+ * The two members of a tool handler's second argument that a wait needs. The whole argument satisfies it, and a test can
+ * hand over a plain object.
+ */
+export type ToolExtra = Pick<RequestHandlerExtra<ServerRequest, ServerNotification>, "_meta" | "sendNotification">;
+
+/**
+ * The words a person may see while the phone has not answered. Fixed text and one number: nothing from the chain, a dapp
+ * or the arguments goes into a notice, because the client shows it as it is.
+ */
+const WAIT_NOTICE = {
+  approval: (seconds: number) =>
+    `Still waiting for your approval in MOI Wallet (${seconds} s). Nothing is sent until you approve.`,
+  "sign-in": (seconds: number) =>
+    `Still waiting for you to approve the sign-in message in MOI Wallet (${seconds} s). Nothing is sent on chain.`,
+} as const;
+
+/**
+ * Wait for the phone, and say so every PROGRESS_EVERY_MS if the client asked to hear it.
+ *
+ * A write or a sign-in can wait minutes for a tap, in silence. A client that put a progress token on its request
+ * (extra._meta.progressToken) gets a notifications/progress on each tick: progress is the seconds waited and there is no
+ * total, because how long the wait may last belongs to the hub and differs by server. A client that sent no token gets
+ * nothing and no timer is armed. The notice goes out on the response stream of the request being served (the SDK sets
+ * relatedRequestId), the only stream the stateless hosted transport has. It does not lengthen any client's own request
+ * timeout; only a client that resets its timeout on progress does that.
+ *
+ * `wait` is the call to the phone, passed in so this knows nothing about the hub and the sign-in tool stays the only
+ * caller of message signing (test/unit/wc-hub.test.ts counts it). A notice that cannot be sent is dropped, since it
+ * must never fail a write. The timer is cleared whatever the wait ends in: a tap, a refusal, a timeout or an error.
+ *
+ * One info line per wait says whether a token came. That is how a real call shows whether a client asks for progress at
+ * all; the token's value is never logged.
+ */
+export async function awaitPhone<T>(
+  extra: ToolExtra | undefined,
+  what: keyof typeof WAIT_NOTICE,
+  wait: () => Promise<T>,
+): Promise<T> {
+  const token = extra?._meta?.progressToken;
+  log(
+    "info",
+    `waiting for the phone (${what}): the client sent ` +
+      (token === undefined
+        ? "no progress token, so no notices"
+        : `a progress token, so a notice every ${PROGRESS_EVERY_MS / 1000} s`),
+  );
+  if (!extra || token === undefined) return wait();
+
+  let ticks = 0;
+  const timer = setInterval(() => {
+    ticks += 1;
+    const seconds = (ticks * PROGRESS_EVERY_MS) / 1000;
+    // Through a promise so that a send that throws at once, or a fake that returns nothing, is caught like one that rejects.
+    void Promise.resolve()
+      .then(() =>
+        extra.sendNotification({
+          method: "notifications/progress",
+          params: { progressToken: token, progress: seconds, message: WAIT_NOTICE[what](seconds) },
+        }),
+      )
+      .catch(() => {});
+  }, PROGRESS_EVERY_MS);
+  // Like the SDK's own keep-alive timer: never the reason a process stays up.
+  timer.unref?.();
+  try {
+    return await wait();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+/**
  * The one write path. Loads the caller's session, builds and simulates the
  * interaction, and then either previews it or, given a confirm token that
  * matches this user, this tool, these arguments and these numbers, sends it
@@ -237,17 +323,20 @@ function previewOf(
  *
  * The preview does the full build and simulation on purpose: a balance
  * shortfall or a reverting call is reported before the user is asked for a
- * yes, not after.
+ * yes, not after. The wait for the phone goes through awaitPhone, so a client
+ * that asked for progress hears that it is still waiting.
  */
 export async function runWrite(
-  deps: HostedWriteDeps,
+  deps: WriteDeps,
   auth: AuthInfo | null,
   kind: WriteKind,
   args: unknown,
   confirm: string | undefined,
   prepare: (session: StoredWalletSession) => Promise<PreparedWrite>,
+  /** The tool handler's second argument, for progress notices while the phone is asked. undefined sends none. */
+  extra: ToolExtra | undefined,
 ) {
-  const previews = deps.previews ?? defaultPreviews;
+  const previews = previewsOf(deps);
   const id = randomUUID();
   let proposed = false;
   let signed = false;
@@ -272,16 +361,19 @@ export async function runWrite(
     await deps.journal.append({ id, userId: who.userId, kind, state: "proposed" });
     proposed = true;
 
-    const { ix_args, signatures } = await deps.hub.signInteractionFor(session.topic, prepared.ix, {
-      description: prepared.description,
-    });
+    const { ix_args, signatures } = await awaitPhone(extra, "approval", () =>
+      deps.hub.signInteractionFor(session.topic, prepared.ix, { description: prepared.description }),
+    );
     // The phone HAS signed, whatever happens next. Setting the flag after
     // the journal write meant a failed write demoted a live signature to
     // "failed"; it must land as "orphaned" so someone looks at it.
     signed = true;
     await deps.journal.update(id, "signed");
 
-    const hash = await broadcastSigned(ix_args, signatures);
+    // prepared.ix is the interaction that was simulated, previewed and handed to the phone. What came back is compared with
+    // it before anything is broadcast (MOI_SIGNED_CHECK). A refusal throws from here, after the journal says "signed", so
+    // the catch below records the entry as orphaned.
+    const hash = await broadcastSigned(ix_args, signatures, prepared.ix);
     // From here the interaction is on the chain. Nothing below may turn that
     // into an error the caller sees: cleanup and journaling are best-effort,
     // and reconcileJournalOnBoot finalizes an entry a crash leaves behind.
@@ -306,112 +398,4 @@ export async function runWrite(
     if (proposed) await markUnwound(deps.journal, id, signed, err);
     return ok(asWriteResult(err));
   }
-}
-
-/**
- * Register hosted write tools on the given server.
- *
- * Registered even when the caller is anonymous, so the tools appear in
- * tools/list and a model knows they exist. Hiding them looked safer but was
- * worse: an unlisted tool is never called, so the 401 that prompts sign-in
- * never fires, and the user is told this server is read-only. Calls are
- * still gated — see requireAuth.
- */
-export function registerHostedWrites(
-  server: McpServer,
-  deps: HostedWriteDeps,
-  auth: AuthInfo | null,
-): void {
-  server.registerTool(
-    "moi_transfer",
-    {
-      title: "Transfer a MOI asset",
-      description:
-        "Propose a transfer of a MOI asset from the user's paired wallet; nothing moves until they tap Send on their phone. The balance is checked first." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...TransferInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "transfer", args, confirm, (s) => prepareTransfer(s.address, args)),
-  );
-
-  server.registerTool(
-    "moi_create_account",
-    {
-      title: "Create a MOI account",
-      description:
-        "Register a brand-new MOI account on chain and fund it with KMOI from the user's paired wallet; nothing happens until they tap Send on their phone. " +
-        "Needed because a transfer to an address that has never existed is refused by the node. Takes the new account's address and its public key, " +
-        "which MOI Wallet or the SDK shows for a freshly generated account; the tool refuses a key that does not produce that address." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...CreateAccountInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "create_account", args, confirm, (s) => prepareCreateAccount(s.address, args)),
-  );
-
-  server.registerTool(
-    "moi_create_asset",
-    {
-      title: "Create a MOI asset",
-      description:
-        "Propose creating a new MOI asset owned by the user's paired wallet; nothing happens until they tap Send on their phone. Funds the asset's storage automatically, and the preview shows how much." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...CreateAssetInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "create_asset", args, confirm, async (s) =>
-        prepareCreateAsset(s.address, { ...args, balance: await kmoiBalance(s.address) }),
-      ),
-  );
-
-  server.registerTool(
-    "moi_mint",
-    {
-      title: "Mint tokens of a MOI asset",
-      description:
-        "Propose minting more of an asset the user's paired wallet manages; nothing happens until they tap Send on their phone." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...MintInput.shape, confirm: ConfirmArg },
-      outputSchema: WriteOutputShape,
-      annotations: WRITE_ANNOTATIONS,
-    },
-    async ({ confirm, ...args }) =>
-      runWrite(deps, auth, "mint", args, confirm, (s) => prepareMint(s.address, args)),
-  );
-
-  server.registerTool(
-    "moi_call_logic",
-    {
-      title: "Call a MOI logic routine",
-      description:
-        "Call a routine on a MOI logic. kind=view reads and needs no wallet, no preview, no confirm. kind=invoke changes state and nothing happens until the user taps Send on their phone. " +
-        "If the routine moves value for accounts other than the user (a swap against a pool owner, a payout), list them in `participants`; the node refuses undeclared ones at execution." +
-        APPROVAL_PROTOCOL,
-      inputSchema: { ...CallLogicInput.shape, confirm: ConfirmArg },
-      annotations: { ...WRITE_ANNOTATIONS, readOnlyHint: false },
-    },
-    async ({ confirm, kind, ...call }) => {
-      // A view runs against the node directly — no wallet, no approval, no
-      // signed interaction, and so nothing for the journal to track.
-      if (kind === "view") {
-        try {
-          const value = await viewLogicCall({ ...call, kind: "view" });
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-            structuredContent: value,
-          };
-        } catch (err) {
-          return ok(asWriteResult(err));
-        }
-      }
-      return runWrite(deps, auth, "call_logic", call, confirm, (s) => prepareLogicInvoke(s.address, call));
-    },
-  );
 }

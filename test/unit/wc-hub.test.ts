@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { MoiError } from "../../src/moi-error.js";
 import { ErrorCode } from "../../src/schema.js";
@@ -853,5 +856,63 @@ describe("signing derives the chain from a real-shaped session", () => {
       session: { keys: ["t"], get: () => ({ topic: "t", namespaces: {} }) },
     } as Partial<SignClientLike>);
     await expect(new WalletConnectHub(client).signInteractionFor("t", testInteraction())).rejects.toThrow(MoiError);
+  });
+});
+
+// A tripwire on structure, not a security boundary: a computed property name
+// or a string built at run time would slip past a text scan. It exists so that
+// a new caller of the hub's message signing, or a second route to `moi.sign`,
+// fails a test and has to be argued for in review. A second sign-in tool, or a
+// shared helper that replaces the handler, is meant to edit the expected table
+// here on purpose.
+describe("message signing is reachable only from the sign-in tool", () => {
+  const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
+
+  /** Every .ts file under src/, keyed by its path below src/, with whole-line comments removed. */
+  function sources(): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const rel of readdirSync(SRC, { recursive: true, encoding: "utf8" })) {
+      if (!rel.endsWith(".ts")) continue;
+      const text = readFileSync(join(SRC, rel), "utf8")
+        .replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, "")
+        .replace(/^[ \t]*\/\/.*$/gm, "");
+      out.set(rel.split(sep).join("/"), text);
+    }
+    return out;
+  }
+
+  /** How many times `pattern` matches in each file that has any match. */
+  function countsOf(pattern: RegExp): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [file, text] of sources()) {
+      const n = text.match(pattern)?.length ?? 0;
+      if (n > 0) out[file] = n;
+    }
+    return out;
+  }
+
+  it("names signMessageFor only in the sign-in tool and in the hub that defines it", () => {
+    // The hub counts twice: the interface member and the class method.
+    expect(countsOf(/\bsignMessageFor\b/g)).toEqual({
+      "applications/dapp/tools.ts": 1,
+      "wc/hub.ts": 2,
+    });
+  });
+
+  it("calls it in applications/dapp/tools.ts from inside moi_dapp_sign_in and no other tool", () => {
+    const text = sources().get("applications/dapp/tools.ts")!;
+    const call = text.search(/\bsignMessageFor\b/);
+    expect(call).toBeGreaterThan(-1);
+    // The tool being defined at that point is the last defineTool before it. A sign-in tool can change something, so
+    // layout.test.ts requires it to be built with defineTool and never registered by name: this test and that rule
+    // rely on each other.
+    const registered = [...text.slice(0, call).matchAll(/defineTool\(\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(registered.at(-1)).toBe("moi_dapp_sign_in");
+  });
+
+  it("sends moi.sign from the hub only", () => {
+    expect(countsOf(/method:\s*["'`]moi\.sign["'`]/g)).toEqual({ "wc/hub.ts": 1 });
+    // The only other mention is the list of methods the pairing asks the phone to approve.
+    expect(countsOf(/["'`]moi\.sign["'`]/g)).toEqual({ "schema.ts": 1, "wc/hub.ts": 1 });
   });
 });

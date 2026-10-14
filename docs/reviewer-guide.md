@@ -38,7 +38,7 @@ node -p "require('/Users/adithyaganesh/moi-mcp/package.json').dependencies"
 | `zod` | `^3.23.8` | Every tool input and output schema, config validation, and on-disk record shapes (src/schema.ts). |
 | `dotenv` | `^16.4.5` | Loads `.env` into process.env at startup (src/config.ts). |
 | `js-polo` | `^0.1.4` | POLO serialization, MOI's binary wire encoding, used by the interaction builder. |
-| `qrcode` | `^1.5.4` | Renders the WalletConnect pairing URI as a PNG for the chat and the pairing page. |
+| `qrcode` | `^1.5.4` | Renders the WalletConnect pairing URI as a PNG and as block characters for the chat, and as SVG on the pairing page. |
 | `qrcode-terminal` | `^0.12.0` | ASCII QR for the `moi-mcp pair` CLI command. |
 | `redis` | `^6.2.1` | Optional session backend so a replaced container keeps its pairings (src/wc/redis-store.ts). |
 | `typescript` | `^5.6.0` | Language. Dev dependency; tsup compiles to dist/. |
@@ -76,13 +76,14 @@ Top level:
 - `src/server.ts` (681): hosted multi-user entry point. Builds a new McpServer per request, mounts OAuth, pairing, security headers, rate limits, and the journal reconciliation on boot. The header documents claude.ai's lazy auth: only a real 401 with `WWW-Authenticate` triggers the Connect card, never a tool error.
 - `src/cli.ts` (143): the `moi-mcp` pairing CLI.
 - `src/config.ts` (239): environment loading and validation with zod. Lazy so the server can start and report why it is misconfigured. Also maps an injected `PORT` onto `HOSTED_PORT` for platforms that assign ports.
-- `src/schema.ts` (521): the one place tool input and output shapes, WalletConnect payloads, the on-disk session store, and error codes are defined.
+- `src/schema.ts` (521): the one place tool input and output shapes, WalletConnect payloads, the on-disk session store, and error codes are defined. Two pieces live in files of their own and are re-exported from it: `src/schema-amount.ts` (the amount primitives) and `src/schema-create-asset.ts` (the input of `moi_create_asset`).
 - `src/errors.ts` (72): maps the string error codes onto JSON-RPC errors MCP clients understand, keeping the string code at `data.code`.
 - `src/moi-error.ts` (32): framework-free error type so src/moi/ and src/wc/ never import the MCP SDK.
 - `src/journal.ts` (186): append-only write journal at `<dataDir>/journal.jsonl`, one JSON object per line (JSONL). States: proposed, signed, broadcast, confirmed, failed, orphaned (line 16).
 - `src/json-schema-dialect.ts` (150): rewrites the SDK's draft-07 `$schema` stamp to JSON Schema 2020-12 on the way out, because strict clients reject draft-07 tools before they run.
 - `src/security-headers.ts` (28): the response headers, aimed at clickjacking on the consent and pairing pages.
 - `src/clean-errors.ts` (23): replaces Express's stack-printing error handler with plain 400 and 500 JSON bodies.
+- `src/public-fetch.ts` (143): the address guard for any host somebody else chose: a dapp's origin, the faucet, an agent's card. `dappOrigin` refuses http, IP addresses and local names; `publicFetch` resolves the name on every connection, refuses a loopback, private, link-local, unique-local or unspecified answer, and connects only to the address it checked. It imports no wallet, write or application code, so the read gateway can use it (an agent's card is read through it).
 - `src/branding.ts` (97): serves the server's own icon and landing page so connector lists do not show a tunnel provider's favicon.
 
 `src/auth/` (the OAuth 2.1 authorization server):
@@ -100,31 +101,46 @@ Top level:
 
 - `src/wc/client.ts` (561): the single-user WalletConnect transport. The only place that talks to the relay. The header notes the named-import trap: the package's default export is a constants object whose `.init` is undefined.
 - `src/wc/hub.ts` (366): the multi-user hub. One SignClient per process, signing only via `signInteractionFor(topic, ...)`, topic never accepted from tool parameters.
-- `src/wc/lifetime.ts` (47): pairing lifetimes. Persistent is 7 days, "once" is 15 minutes, and records written before lifetimes existed are aged from createdAt, so no record is exempt from expiry.
+- `src/wc/lifetime.ts` (67): pairing lifetimes. The tool offers once, day and week; the record stores once, day and persistent (persistent is the stored word for a week). Week is 7 days (persistent), day is 24 hours, once is 15 minutes, and records written before lifetimes existed are aged from createdAt, so no record is exempt from expiry.
 - `src/wc/store.ts` (152): file-backed per-user session store, filenames are sha256(userId) to block path traversal.
 - `src/wc/redis-store.ts` (176): Redis versions of both the session store and WalletConnect's own key-value storage, so a replacement process holds both the topic and the key material behind it.
 - `src/wc/session.ts` (100): the single-user on-disk session at `$MOI_MCP_HOME/session.json`, 0600.
-- `src/wc/qr.ts` (17): pairing URI to PNG or terminal ASCII.
+- `src/wc/qr.ts` (28): pairing URI to PNG, block-character text for the chat, or terminal ASCII.
 
 `src/moi/` (chain library, no MCP imports by rule):
 
 - `src/moi/provider.ts` (224): network registry, provider factory, and the ReadOnlySigner (see custody below).
-- `src/moi/ix-builder.ts` (565): builds unsigned interactions, documents the two encodings that are often confused (plain InteractionObject to the wallet, POLO hex to the node), fuel estimation (fuel is the compute cost a transaction may consume), and `quoteChainText`.
+- `src/moi/ix-builder.ts` (565): builds unsigned interactions, documents the two encodings that are often confused (plain InteractionObject to the wallet, POLO hex to the node), fuel estimation (fuel is the compute cost a transaction may consume), and `quoteChainText`. The operations of an asset creation for each standard, and the prediction of the new asset's id, are in `src/moi/ix-build-asset.ts`, which `ix-builder.ts` re-exports and wraps in `buildCreateAsset`.
 - `src/moi/reads.ts` (324): account, asset, interaction, and logic reads returning exactly the schema shapes, plus `clampChainText`.
-- `src/moi/registry.ts` (285): agent-registry reads through getLogicDriver, deliberately avoiding `AgentRegistry.init()` because it demands a Signer with keys.
 
-`src/tools/` (MCP tool layer):
+`src/tools/` (what every tool shares):
 
-- `src/tools/reads.ts` (134): the five read tools: `moi_get_account`, `moi_get_asset`, `moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent` (lines 51 to 119).
-- `src/tools/wallet.ts` (214): stdio pairing tools: `moi_connect_wallet`, `moi_wallet_status`, `moi_disconnect_wallet`.
-- `src/tools/writes.ts` (219): stdio write tools with the guard sequence: session exists, session on our network, balance covers a transfer.
-- `src/tools/write-core.ts` (444): shared build, simulate, fuel-measure, and broadcast helpers used by both write paths. Handles no signing and no session routing.
-- `src/tools/hosted-writes.ts` (371): the hosted write tools and `runWrite`, the one write path.
-- `src/tools/preview.ts` (116): the confirm-token registry for hosted writes.
+- `src/tools/register.ts`: the one place a tool that can change something is put on a server, for the stdio and hosted servers. `registerTools(server, { mode })` is the whole list of each mode.
+- `src/tools/register-gateway.ts`: the read gateway's list (its ping, the read tools, the resources). Imports no wallet, write or application code; the hosted server reuses it for its read half.
+- `src/tools/define.ts`: `defineTool`, which builds a tool as data so only register.ts can put it on a server.
+- `src/tools/ping.ts`: the stdio and HTTP health-check tools.
+- `src/tools/wallet.ts` (stdio) and `src/tools/wallet-hosted.ts` (hosted): the pairing tools `moi_connect_wallet`, `moi_wallet_status`, `moi_disconnect_wallet`.
+- `src/tools/local-writes.ts`: what the stdio server supplies to the write path: a constant local user, a store over `session.json`, a hub over the WalletConnect client, and a journal in `MOI_MCP_HOME`.
+- `src/tools/write-core.ts`: the helpers every write shares: simulation, fuel measurement, the result envelope and the broadcast. Handles no signing and no session routing.
+- `src/tools/hosted-writes.ts`: `runWrite`, the one write path.
+- `src/tools/preview.ts`: the confirm-token registry for hosted writes.
+
+`src/capabilities/` (what the node can do, by capability; imports nothing from `src/applications`):
+
+- `src/capabilities/accounts/create-participant.ts`: `moi_create_account`.
+- `src/capabilities/assets/`: `create.ts` (`moi_create_asset`), `create-plan.ts` (what each standard takes, the refusals and the preview words), `create-masx.ts` (the MASX manifest and its deploy routine), `create-receipt.ts` (the new asset's id from the receipt), `shortcuts.ts` (`moi_transfer`, `moi_mint` and the standard guard), `execute.ts` (the half of `moi_asset_invoke` that needs the node and the write path), and the manifest reading, argument coding and one file per asset standard, which import nothing from `src/tools/`.
+- `src/capabilities/logics/`: `invoke.ts` and `view.ts` (`moi_call_logic`).
+- `src/capabilities/reads/`: `tools.ts` (the read tools) and `registry.ts` (agent-registry reads through getLogicDriver, deliberately avoiding `AgentRegistry.init()` because it demands a Signer with keys; it is here because the read gateway serves it).
+
+`src/applications/` (products built on the write path; the core has none):
+
+- `src/applications/registry/`: the agent registry's write tools (`tools.ts`) and what they prepare (`core.ts`).
+- `src/applications/launchpad/`: the Agent Launchpad client, one-time download links, setup-script handling and tools.
+- `src/applications/dapp/`: the generic dapp client, session store and tools. Its address guard lives in `src/public-fetch.ts`.
 
 Other directories:
 
-- `src/pairing/index.ts` (353): one-time HTTPS pairing link and page. A raw `wc:` URI embeds a live symmetric relay key, so this module is the only place a link-based URI is resolved and rendered, never logged, never written to disk.
+- `src/pairing/index.ts` (310): one-time HTTPS pairing link and page. A raw `wc:` URI embeds a live symmetric relay key, so this module is the only place a link-based URI is resolved and rendered, never logged, never written to disk. No tool hands out its link at present; it stays mounted.
 - `src/resources/index.ts` (97): MCP resources, reference text an agent can read without a tool call: networks (which includes the registry logic id) and quickstart (registered at src/resources/index.ts:48 and 85).
 
 ## The five flows worth the most review time
@@ -135,7 +151,7 @@ The authorization server is implemented in this repo in src/auth/, and src/auth/
 
 ### b. Pairing
 
-One WalletConnect SignClient exists per hosted process, owned by `WalletConnectHub` (src/wc/hub.ts, invariants in the header, lines 8 to 13). Sessions are keyed by topic, the relay's identifier for one wallet connection, and the topic is only ever resolved from the stored session record, never from tool input. Pairing and signing must run on the same SignClient: the comment at src/wc/hub.ts:149 records that a session paired on any other client is invisible to `signInteractionFor`, and PLAN-HOSTED.md's STATUS section records that manual verification caught exactly this bug before it shipped. The hosted `moi_connect_wallet` (src/server.ts:198) returns the QR image inline in the chat plus the raw URI as fallback text, with a comment at src/server.ts:231 defending the transcript exposure: the proposal expires after about five minutes or first use, and a hijacked pairing can raise prompts on a phone and cannot sign for it. Lifetimes live in src/wc/lifetime.ts: 7 days for a persistent pairing, 15 minutes for "just this once". The mode is picked in two ways. On the pairing page the user picks it directly (src/pairing/index.ts:178). In the hosted `moi_connect_wallet` call the model passes a `remember` argument that maps to the mode (src/server.ts:208 and 222), and the tool description instructs the model to ask the user before calling.
+One WalletConnect SignClient exists per hosted process, owned by `WalletConnectHub` (src/wc/hub.ts, invariants in the header, lines 8 to 13). Sessions are keyed by topic, the relay's identifier for one wallet connection, and the topic is only ever resolved from the stored session record, never from tool input. Pairing and signing must run on the same SignClient: the comment at src/wc/hub.ts:149 records that a session paired on any other client is invisible to `signInteractionFor`, and PLAN-HOSTED.md's STATUS section records that manual verification caught exactly this bug before it shipped. The hosted `moi_connect_wallet` (src/server.ts:198) returns the QR image inline in the chat plus the raw URI as fallback text, with a comment at src/server.ts:231 defending the transcript exposure: the proposal expires after about five minutes or first use, and a hijacked pairing can raise prompts on a phone and cannot sign for it. Lifetimes live in src/wc/lifetime.ts: 7 days for a week (stored as persistent), 24 hours for a day and 15 minutes for once. The lifetime is picked in the chat only. The hosted `moi_connect_wallet` has a required `lifetime` input (once, day or week) in src/tools/wallet-hosted.ts, and its description instructs the model to ask the person before calling and not to assume an answer. A required input proves the field is present, not that the person was asked, so a model could choose a longer lifetime than it was told; the bound is the 7 days of week, and every transaction still needs the phone. The pairing page has no lifetime choice any more.
 
 ### c. The two-call write
 
@@ -147,7 +163,7 @@ The documented wallet call `moi.sendInteractions` crashes MOI Wallet with a SQLi
 
 ### e. Custody
 
-A private key would have to appear in one of three places: the signer used to build and simulate, the WalletConnect layer, or the broadcast path. It appears in none. `getReadOnlySigner` (src/moi/provider.ts:213) returns a `ReadOnlySigner` (line 150) whose `sign` (line 190) and `signInteraction` both throw `WALLET_NOT_CONNECTED` with the message "This MCP server holds no private keys." The interaction builder stops at the unsigned InteractionObject by construction (src/moi/ix-builder.ts header), src/wc/client.ts's header states the module never sees a private key, and `broadcastSigned` only forwards bytes the phone produced. A search confirms it:
+A private key would have to appear in one of three places: the signer used to build and simulate, the WalletConnect layer, or the broadcast path. It appears in none. `getReadOnlySigner` (src/moi/provider.ts:232) returns a `ReadOnlySigner` (line 150) whose `sign` (line 190) and `signInteraction` both throw `WALLET_NOT_CONNECTED` with the message "This MCP server holds no private keys." The interaction builder stops at the unsigned InteractionObject by construction (src/moi/ix-builder.ts header), src/wc/client.ts's header states the module never sees a private key, and `broadcastSigned` only forwards bytes the phone produced. A search confirms it:
 
 ```bash
 grep -rni "privatekey\|mnemonic\|keypair" /Users/adithyaganesh/moi-mcp/src/
@@ -167,7 +183,7 @@ Headers (src/security-headers.ts): nosniff, `X-Frame-Options: DENY`, no-referrer
 
 Chain text is treated as untrusted input to the model. `clampChainText` (src/moi/reads.ts:85) strips control characters and caps symbols and names at 64 characters, because asset symbols are chosen by whoever creates the asset. `quoteChainText` (src/moi/ix-builder.ts:426) does the same at 240 characters for revert reasons and wraps the result in quotes so it reads as something said, and never as an instruction. `cleanErrors` (src/clean-errors.ts) keeps stack traces and filesystem paths out of HTTP responses.
 
-One recorded oddity worth knowing while reviewing writes: the storage fund deposited when creating an asset goes into the asset's own account and is not spent (src/tools/write-core.ts:339 labels it exactly that way in the preview).
+One recorded oddity worth knowing while reviewing writes: the storage fund deposited when creating an asset goes into the asset's own account and is not spent (src/capabilities/assets/create.ts labels it exactly that way in the preview).
 
 ## Tests
 
@@ -214,6 +230,6 @@ Roughly two and a half hours of reading time.
 8. src/moi/ix-builder.ts, 15 min, and src/moi/provider.ts for the ReadOnlySigner, 5 min.
 9. src/pairing/index.ts, 10 min. The URI-handling rules.
 10. src/journal.ts, 5 min.
-11. src/moi/reads.ts and src/moi/registry.ts, 10 min.
-12. src/index.ts, src/http.ts, src/tools/reads.ts, src/tools/wallet.ts, src/tools/writes.ts, 10 min. The stdio and read-only paths reuse everything above.
+11. src/moi/reads.ts and src/capabilities/reads/registry.ts, 10 min.
+12. src/index.ts, src/http.ts, src/tools/register.ts, src/tools/register-gateway.ts, src/capabilities/reads/tools.ts, src/tools/wallet.ts, src/tools/local-writes.ts, 10 min. The stdio and read-only paths reuse everything above.
 13. test/helpers/ and the hosted-writes test trio, 15 min, reading hosted-writes.test.ts with the weak-test note above in hand.

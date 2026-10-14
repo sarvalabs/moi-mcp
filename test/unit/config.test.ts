@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { expandHome, loadConfig } from "../../src/config.js";
+import { accountKeyToolsOn, expandHome, loadConfig, loadHostedConfig } from "../../src/config.js";
 
 const created: string[] = [];
 
@@ -73,6 +73,66 @@ describe("loadConfig", () => {
   });
 });
 
+describe("MOI_SIGNED_CHECK", () => {
+  it("defaults to warn, so a real phone is never refused before one write has shown what it signs", () => {
+    expect(loadConfig(baseEnv()).MOI_SIGNED_CHECK).toBe("warn");
+  });
+
+  it("treats a blank line in .env as unset", () => {
+    expect(loadConfig(baseEnv({ MOI_SIGNED_CHECK: "" })).MOI_SIGNED_CHECK).toBe("warn");
+    expect(loadConfig(baseEnv({ MOI_SIGNED_CHECK: "  " })).MOI_SIGNED_CHECK).toBe("warn");
+  });
+
+  it.each(["warn", "enforce"] as const)("accepts %s", (mode) => {
+    expect(loadConfig(baseEnv({ MOI_SIGNED_CHECK: mode })).MOI_SIGNED_CHECK).toBe(mode);
+  });
+
+  // A refused value fails the whole load, as a bad MOI_NETWORK does, so a typo for enforce cannot quietly leave the check on warn.
+  it.each(["enforced", "ENFORCE", "Warn", "off", "none", "true", "1", "warn,enforce"])("rejects %s, naming the variable", (value) => {
+    expect(() => loadConfig(baseEnv({ MOI_SIGNED_CHECK: value }))).toThrow(/MOI_SIGNED_CHECK: must be warn or enforce/);
+  });
+});
+
+describe("MOI_ACCOUNT_KEY_TOOLS", () => {
+  it("defaults to off, so the chat does not offer to add or revoke account keys", () => {
+    expect(loadConfig(baseEnv()).MOI_ACCOUNT_KEY_TOOLS).toBe("off");
+  });
+
+  it("treats a blank line in .env as unset", () => {
+    expect(loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: "" })).MOI_ACCOUNT_KEY_TOOLS).toBe("off");
+    expect(loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: "  " })).MOI_ACCOUNT_KEY_TOOLS).toBe("off");
+  });
+
+  it.each(["on", "off"] as const)("accepts %s", (mode) => {
+    expect(loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: mode })).MOI_ACCOUNT_KEY_TOOLS).toBe(mode);
+  });
+
+  // A refused value fails the whole load, as a bad MOI_NETWORK does, so a typo cannot leave the tool on or guess what was meant.
+  it.each(["ON", "On", "true", "1", "yes", "enabled", "on,off"])("rejects %s, naming the variable", (value) => {
+    expect(() => loadConfig(baseEnv({ MOI_ACCOUNT_KEY_TOOLS: value }))).toThrow(/MOI_ACCOUNT_KEY_TOOLS: must be on or off/);
+  });
+});
+
+describe("accountKeyToolsOn", () => {
+  it("is true for exactly the value on", () => {
+    expect(accountKeyToolsOn({ MOI_ACCOUNT_KEY_TOOLS: "on" })).toBe(true);
+  });
+
+  it.each([undefined, "", "  ", "off", "ON", "On", "yes", "true", "1", " on", "on ", "on,off"])(
+    "is false for %j, so registration never turns the tool on by accident",
+    (value) => {
+      const env: NodeJS.ProcessEnv = value === undefined ? {} : { MOI_ACCOUNT_KEY_TOOLS: value };
+      expect(accountKeyToolsOn(env)).toBe(false);
+    },
+  );
+
+  it("reads its own variable only: true for on even when the rest of the configuration would fail to load", () => {
+    const env: NodeJS.ProcessEnv = { MOI_ACCOUNT_KEY_TOOLS: "on" }; // no WC_PROJECT_ID
+    expect(() => loadConfig(env)).toThrow(/WC_PROJECT_ID/);
+    expect(accountKeyToolsOn(env)).toBe(true);
+  });
+});
+
 describe("expandHome", () => {
   it("expands a bare tilde", () => {
     expect(expandHome("~")).toBe(process.env.HOME);
@@ -102,5 +162,43 @@ describe("request timeout stays under the client's", () => {
   it("still allows an explicit longer wait for non-MCP callers like the CLI", () => {
     const cfg = loadConfig(baseEnv({ REQUEST_TIMEOUT_MS: "300000" }));
     expect(cfg.REQUEST_TIMEOUT_MS).toBe(300_000);
+  });
+});
+
+describe("loadHostedConfig: the faucet settings", () => {
+  /** A MOI_DATA_DIR in a temp dir, because a successful load creates it. */
+  const env = (over: Record<string, string> = {}) => ({ MOI_DATA_DIR: tempHome(), ...over });
+
+  it("has no default for either: both are undefined when unset", () => {
+    // No default for the address in particular: a wrong default would send MOI_FAUCET_KEY to the wrong host.
+    const cfg = loadHostedConfig(env());
+    expect(cfg.MOI_FAUCET_URL).toBeUndefined();
+    expect(cfg.MOI_FAUCET_KEY).toBeUndefined();
+  });
+
+  it("treats a blank or whitespace-only value as unset", () => {
+    for (const value of ["", "   ", "\n"]) {
+      const cfg = loadHostedConfig(env({ MOI_FAUCET_URL: value, MOI_FAUCET_KEY: value }));
+      expect(cfg.MOI_FAUCET_URL, JSON.stringify(value)).toBeUndefined();
+      expect(cfg.MOI_FAUCET_KEY, JSON.stringify(value)).toBeUndefined();
+    }
+  });
+
+  it("returns both, trimmed, and does not judge them", () => {
+    // The rules (https only, a public host, no query or credentials, a usable key) belong to FaucetClient and faucetDepsFor,
+    // which turn a bad value into "tool off" plus one log line. If config.ts judged them too, a typo in an optional feature
+    // would stop the whole write gateway at boot. This test is what stops that strictness coming back by accident.
+    for (const url of ["http://example.test/x", "not a url", "https://u:p@example.test/"]) {
+      expect(loadHostedConfig(env({ MOI_FAUCET_URL: `  ${url}\n` })).MOI_FAUCET_URL, url).toBe(url);
+    }
+    for (const key of ["..", ".", "k".repeat(300)]) {
+      expect(loadHostedConfig(env({ MOI_FAUCET_KEY: ` ${key} ` })).MOI_FAUCET_KEY).toBe(key);
+    }
+  });
+
+  it("leaves the shared config alone: loadConfig has neither key", () => {
+    const keys = Object.keys(loadConfig(baseEnv({ MOI_FAUCET_URL: "https://faucet.example.test/x", MOI_FAUCET_KEY: "k" })));
+    expect(keys).not.toContain("MOI_FAUCET_URL");
+    expect(keys).not.toContain("MOI_FAUCET_KEY");
   });
 });

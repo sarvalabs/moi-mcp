@@ -76,7 +76,7 @@ describe("pairing", () => {
       mountPairing(app, { resolveUri });
       const { server, base } = await listen(app);
       try {
-        const { url } = createPairingLink("alice", PUBLIC_URL, { uri: URI, mode: "once" });
+        const { url } = createPairingLink("alice", PUBLIC_URL, { uri: URI });
         const res = await fetch(`${base}${url.slice(PUBLIC_URL.length)}`);
         expect(res.status).toBe(200);
         const html = await res.text();
@@ -88,16 +88,15 @@ describe("pairing", () => {
       }
     });
 
-    it("a seed updates the lifetime of a live link but never replaces a uri the page already has", async () => {
-      const { createPairingLink, modeForUser, mountPairing } = createPairingModule(now);
+    it("a second seed never replaces a uri the page already has", async () => {
+      const { createPairingLink, mountPairing } = createPairingModule(now);
       const app = express();
       mountPairing(app, { resolveUri: vi.fn() });
       const { server, base } = await listen(app);
       try {
         const first = createPairingLink("alice", PUBLIC_URL, { uri: URI });
-        const second = createPairingLink("alice", PUBLIC_URL, { uri: "wc:second@2?relay-protocol=irn", mode: "once" });
+        const second = createPairingLink("alice", PUBLIC_URL, { uri: "wc:second@2?relay-protocol=irn" });
         expect(second.url).toBe(first.url);
-        expect(modeForUser("alice")).toBe("once");
         const html = await (await fetch(`${base}${first.url.slice(PUBLIC_URL.length)}`)).text();
         // The first proposal stays: the page keeps showing what it already showed.
         expect(html).toContain("wc:7f2a@2");

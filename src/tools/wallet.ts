@@ -1,6 +1,5 @@
 /** Pairing and session tools. */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { getConfig, log, projectIdIssue } from "../config.js";
@@ -15,6 +14,7 @@ import {
 } from "../schema.js";
 import { WalletConnectClient, type SignClientLike, type WcConfig } from "../wc/client.js";
 import { checkValidity } from "../wc/session.js";
+import { defineTool, type ToolDef } from "./define.js";
 
 let client: WalletConnectClient | undefined;
 
@@ -56,8 +56,9 @@ const StatusOutput = WalletStatusOutput.extend({
   caip2Verified: z.boolean().optional(),
 });
 
-export function registerWalletTools(server: McpServer): void {
-  server.registerTool(
+export function walletTools(): ToolDef[] {
+  const tools: ToolDef[] = [];
+  tools.push(defineTool(
     "moi_connect_wallet",
     {
       title: "Connect MOI Wallet",
@@ -125,9 +126,9 @@ export function registerWalletTools(server: McpServer): void {
         throw toMcpError(err);
       }
     },
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_wallet_status",
     {
       title: "MOI Wallet status",
@@ -188,9 +189,9 @@ export function registerWalletTools(server: McpServer): void {
         structuredContent,
       };
     },
-  );
+  ));
 
-  server.registerTool(
+  tools.push(defineTool(
     "moi_disconnect_wallet",
     {
       title: "Disconnect MOI Wallet",
@@ -210,5 +211,6 @@ export function registerWalletTools(server: McpServer): void {
         throw toMcpError(err);
       }
     },
-  );
+  ));
+  return tools;
 }

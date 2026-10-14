@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { accountIdForPublicKey } from "../../src/tools/write-core.js";
+import { accountIdForPublicKey } from "../../src/capabilities/accounts/create-participant.js";
 
 // A throwaway devnet key pair: the address is what js-moi-wallet derives for it.
 const PUB = "0x03a27d9a3e793f6b548f7553dd4a0ea52846f59bc94d9a0d1f679e9b37c57edb9f";
@@ -25,7 +25,7 @@ describe("accountIdForPublicKey", () => {
 
 import { documentEncode } from "js-polo";
 import { bytesToHex } from "js-moi-sdk";
-import { decodeRegistrationHash } from "../../src/tools/write-core.js";
+import { decodeRegistrationHash } from "../../src/capabilities/accounts/create-participant.js";
 
 /** A registration hash the way MOI Wallet emits one: a POLO-encoded participant-create operation. */
 function fakeRegistrationHash(address: string, publicKey: string): string {

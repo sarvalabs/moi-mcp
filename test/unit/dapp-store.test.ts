@@ -1,9 +1,16 @@
-import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import type { RedisClientType } from "redis";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FileDappSessionStore, isDappSessionExpired, type StoredDappSession } from "../../src/dapp/store.js";
+import {
+  FileDappSessionStore,
+  isDappSessionExpired,
+  RedisDappSessionStore,
+  type StoredDappSession,
+} from "../../src/applications/dapp/store.js";
 
 const dirs: string[] = [];
 function freshDir(): string {
@@ -14,6 +21,13 @@ function freshDir(): string {
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
+
+const BASE = "https://launchpad.example";
+
+/** The slot a record lives in: the same hash the store files it under. */
+function slotOf(userId: string, baseUrl: string): string {
+  return createHash("sha256").update(`${userId}\n${baseUrl.replace(/\/+$/, "")}`).digest("hex");
+}
 
 function record(over: Partial<StoredDappSession> = {}): StoredDappSession {
   return {
@@ -69,5 +83,117 @@ describe("FileDappSessionStore", () => {
     const now = Date.now();
     expect(isDappSessionExpired(record({ expiresAt: Math.floor(now / 1000) - 1 }), now)).toBe(true);
     expect(isDappSessionExpired(record({ expiresAt: Math.floor(now / 1000) + 60 }), now)).toBe(false);
+  });
+
+  it("leaves no temporary file behind", async () => {
+    const dir = freshDir();
+    const store = new FileDappSessionStore(dir);
+    await store.set(record());
+    await store.set(record({ cookie: "second" }));
+    expect(readdirSync(join(dir, "dapps")).filter((n) => n.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("reads damaged and empty files as signed out without throwing", async () => {
+    const dir = freshDir();
+    const store = new FileDappSessionStore(dir);
+    const slot = slotOf("user-a", BASE);
+    for (const text of ["", "{", "null", "[]", '"x"', "42", '{"version":1}']) {
+      writeFileSync(join(dir, "dapps", `${slot}.json`), text);
+      expect(await store.get("user-a", BASE), JSON.stringify(text)).toBeUndefined();
+      expect(await store.listFor("user-a"), JSON.stringify(text)).toEqual([]);
+    }
+  });
+
+  it("skips what it cannot read and still lists the rest", async () => {
+    const dir = freshDir();
+    const store = new FileDappSessionStore(dir);
+    await store.set(record({ cookie: "good" }));
+    writeFileSync(join(dir, "dapps", "junk.json"), "{");
+    writeFileSync(join(dir, "dapps", "note.txt"), "not a record");
+    expect((await store.listFor("user-a")).map((r) => r.cookie)).toEqual(["good"]);
+  });
+});
+
+/**
+ * A stand-in for the node-redis client with just the calls this store makes,
+ * recording the expiry each set was given. node-redis 4 yields keys one at a
+ * time from scanIterator and 5 yields batches; both shapes are exercised.
+ */
+function fakeRedis(batched: boolean) {
+  const data = new Map<string, string>();
+  const ttls = new Map<string, number>();
+  const client = {
+    get: vi.fn(async (key: string) => data.get(key) ?? null),
+    set: vi.fn(async (key: string, value: string, opts?: { EX?: number }) => {
+      data.set(key, value);
+      if (opts?.EX !== undefined) ttls.set(key, opts.EX);
+      return "OK";
+    }),
+    del: vi.fn(async (key: string) => (data.delete(key) ? 1 : 0)),
+    scanIterator: vi.fn(async function* (opts: { MATCH: string }) {
+      const prefix = opts.MATCH.replace(/\*$/, "");
+      const keys = [...data.keys()].filter((k) => k.startsWith(prefix));
+      if (batched) yield keys;
+      else yield* keys;
+    }),
+  };
+  return { client: client as unknown as RedisClientType, mocks: client, data, ttls };
+}
+
+describe.each([
+  ["one key at a time", false],
+  ["in batches", true],
+])("RedisDappSessionStore (scan %s)", (_label, batched) => {
+  const redisKey = (userId: string, baseUrl = BASE) => `moi:dapp:${slotOf(userId, baseUrl)}`;
+
+  it("round-trips a record under a hashed key, expiring with the session", async () => {
+    const { client, data, ttls } = fakeRedis(batched);
+    const store = new RedisDappSessionStore(client);
+    await store.set(record({ cookie: "COOKIE-VALUE-123", expiresAt: Math.floor(Date.now() / 1000) + 3600 }));
+
+    expect([...data.keys()]).toEqual([redisKey("user-a")]);
+    // The expiry follows expiresAt.
+    expect(ttls.get(redisKey("user-a"))).toBeGreaterThan(3590);
+    expect(ttls.get(redisKey("user-a"))).toBeLessThanOrEqual(3600);
+
+    expect((await store.get("user-a", BASE))?.cookie).toBe("COOKIE-VALUE-123");
+    expect(await store.get("user-a", "https://other.example")).toBeUndefined();
+    await store.delete("user-a", BASE);
+    expect(await store.get("user-a", BASE)).toBeUndefined();
+  });
+
+  it("expires an already-past record in at least a second rather than never", async () => {
+    const { client, ttls } = fakeRedis(batched);
+    await new RedisDappSessionStore(client).set(record({ expiresAt: 1 }));
+    expect(ttls.get(redisKey("user-a"))).toBe(1);
+  });
+
+  it("lists only one person's sessions", async () => {
+    const { client } = fakeRedis(batched);
+    const store = new RedisDappSessionStore(client);
+    await store.set(record({ userId: "a", cookie: "cookie-a" }));
+    await store.set(record({ userId: "a", baseUrl: "https://other.example", cookie: "cookie-a2" }));
+    await store.set(record({ userId: "b", cookie: "cookie-b" }));
+    expect((await store.listFor("a")).map((r) => r.cookie).sort()).toEqual(["cookie-a", "cookie-a2"]);
+    expect((await store.listFor("b")).map((r) => r.cookie)).toEqual(["cookie-b"]);
+  });
+
+  it("reads damaged values as signed out without throwing", async () => {
+    const { client, data } = fakeRedis(batched);
+    const store = new RedisDappSessionStore(client);
+    for (const text of ["", "{", "null", "[]"]) {
+      data.set(redisKey("user-a"), text);
+      expect(await store.get("user-a", BASE), JSON.stringify(text)).toBeUndefined();
+      expect(await store.listFor("user-a"), JSON.stringify(text)).toEqual([]);
+    }
+  });
+
+  it("skips a value that expired between the scan and the read", async () => {
+    const { client, mocks, data } = fakeRedis(batched);
+    const store = new RedisDappSessionStore(client);
+    await store.set(record({ userId: "a", cookie: "cookie-a" }));
+    await store.set(record({ userId: "gone", cookie: "cookie-gone" }));
+    mocks.get.mockImplementation(async (key: string) => (key === redisKey("gone") ? null : (data.get(key) ?? null)));
+    expect((await store.listFor("a")).map((r) => r.cookie)).toEqual(["cookie-a"]);
   });
 });

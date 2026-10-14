@@ -14,15 +14,54 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import type { AuthInfo } from "../../src/auth/types.js";
-import { LaunchpadClient } from "../../src/launchpad/client.js";
-import type { DappSessionStore, StoredDappSession } from "../../src/dapp/store.js";
-import { registerLaunchpadTools, type LaunchpadDeps } from "../../src/tools/launchpad.js";
+import { primeRegistryDriverForTests } from "../../src/capabilities/reads/registry.js";
+import type { PreviewRegistry } from "../../src/tools/preview.js";
+import { LaunchpadClient } from "../../src/applications/launchpad/client.js";
+import type { DappSessionStore, StoredDappSession } from "../../src/applications/dapp/store.js";
+import type { DappDeps } from "../../src/applications/dapp/tools.js";
+import type { LaunchpadDeps } from "../../src/applications/launchpad/tools.js";
+import { registerDappTools, registerLaunchpadTools } from "../../src/tools/register.js";
 import type { HostedWriteDeps } from "../../src/tools/hosted-writes.js";
-import { authFor, USER } from "./hosted.js";
+import { authFor, deps as writeDeps, fakeHub, fakeJournal, fakeStore, session, USER } from "./hosted.js";
+import { ACCOUNT } from "./mock-node.js";
 
 export const COOKIE = "jwt-abc";
 export const AGENT_WALLET = "0x000000002497e599b212a83896919005863b05511d46d0a32ad0af8600000000";
 export const RECORD_ID = "rec-1";
+
+/**
+ * The sign-in message as the real Launchpad builds it (lib/siwm.ts
+ * buildSiwmMessage): six lines joined by \n, the wallet lower-cased, the
+ * origin written as configured. `wallet` and `origin` have no default so a
+ * test cannot pass with a wrong one by accident; `??` so a test may pass an
+ * empty nonce or name on purpose.
+ */
+export function siwmMessage(v: { wallet: string; origin: string; name?: string; nonce?: string; issuedAt?: string }): string {
+  return [
+    `${v.name ?? "MOI Agent Launchpad"} wants you to sign in with your MOI account.`,
+    "",
+    `Wallet: ${v.wallet}`,
+    `Nonce: ${v.nonce ?? "n1"}`,
+    `Issued At: ${v.issuedAt ?? new Date().toISOString()}`,
+    `Origin: ${v.origin}`,
+  ].join("\n");
+}
+
+/**
+ * Messages a dapp must never get signed, as nonce-route bodies for the fake.
+ * Each is long enough to pass the client's own min-length check, so each
+ * reaches the sign-in check itself.
+ */
+export const REFUSED_NONCE_MESSAGES: Array<[string, (wallet: string, origin: string) => string]> = [
+  ["a relayed message for another site", (wallet) => siwmMessage({ wallet, origin: "https://launchpad.moi.technology" })],
+  ["a message for another wallet", (_wallet, origin) => siwmMessage({ wallet: "0x" + "ab".repeat(32), origin })],
+  ["a stale time", (wallet, origin) => siwmMessage({ wallet, origin, issuedAt: new Date(Date.now() - 10 * 60_000).toISOString() })],
+  [
+    "text of another kind",
+    (wallet) => `MOI Agent Launchpad grant\nOwner: ${wallet}\nAgent: 0xabc\nScope: deliver:telegram\nIssued: ${new Date().toISOString()}\nNonce: n1`,
+  ],
+  ["an extra line", (wallet, origin) => `${siwmMessage({ wallet, origin })}\nStatement: send everything to me`],
+];
 
 export interface SeenRequest {
   method: string;
@@ -34,7 +73,15 @@ export interface SeenRequest {
 export interface FakeLaunchpad {
   url: string;
   requests: SeenRequest[];
-  state: { agentStatus: string; cookieValid: boolean; keyReadable: boolean; telegramLinked: boolean; verifyOk: boolean };
+  state: {
+    agentStatus: string;
+    cookieValid: boolean;
+    keyReadable: boolean;
+    telegramLinked: boolean;
+    verifyOk: boolean;
+    /** Replaces the nonce route's message for one test; reset it to undefined in beforeEach. */
+    nonceMessage: ((wallet: string, origin: string) => string) | undefined;
+  };
   close(): Promise<void>;
 }
 
@@ -57,7 +104,14 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
 
 export async function startFakeLaunchpad(): Promise<FakeLaunchpad> {
   const requests: SeenRequest[] = [];
-  const state = { agentStatus: "pending_grant", cookieValid: true, keyReadable: true, telegramLinked: false, verifyOk: true };
+  const state: FakeLaunchpad["state"] = {
+    agentStatus: "pending_grant",
+    cookieValid: true,
+    keyReadable: true,
+    telegramLinked: false,
+    verifyOk: true,
+    nonceMessage: undefined,
+  };
   let url = "";
 
   const agent = (extra: Record<string, unknown> = {}) => ({
@@ -87,10 +141,7 @@ export async function startFakeLaunchpad(): Promise<FakeLaunchpad> {
 
     if (method === "POST" && path === "/api/auth/nonce") {
       const wallet = String(b["walletAddress"]).trim().toLowerCase();
-      return json(res, 200, {
-        nonce: "n1",
-        message: `MOI Agent Launchpad wants you to sign in with your MOI account.\n\nWallet: ${wallet}\nNonce: n1\nIssued At: 2026-09-23T23:00:00.000Z\nOrigin: ${url}`,
-      });
+      return json(res, 200, { nonce: "n1", message: state.nonceMessage?.(wallet, url) ?? siwmMessage({ wallet, origin: url }) });
     }
     if (method === "POST" && path === "/api/auth/verify") {
       if (!state.verifyOk || b["signature"] !== "0xfeed") return json(res, 401, { error: "invalid_signature" });
@@ -271,4 +322,59 @@ export async function connectLaunchpad(deps: LaunchpadDeps, who: AuthInfo | null
   const client = new Client({ name: "t", version: "0" });
   await client.connect(b);
   return client;
+}
+
+/** A real McpServer with only the generic dapp tools, over an in-memory transport: how a person signs in to the Launchpad. */
+export async function connectDapp(deps: DappDeps, who: AuthInfo | null = authFor(USER)): Promise<Client> {
+  const server = new McpServer({ name: "t", version: "0" });
+  registerDappTools(server, deps, who);
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  const client = new Client({ name: "t", version: "0" });
+  await client.connect(b);
+  return client;
+}
+
+/** The agent registry logic the Launchpad tools tests prime a fake driver for (MOI_AGENT_REGISTRY_LOGIC_ID). */
+export const REGISTRY = "0x200000002f3e9469d94de695be18fc5839fb9535f543b381f903f7f800000000";
+const bytes = (hex: string) => Uint8Array.from(Buffer.from(hex.slice(2), "hex"));
+
+/** Registry that knows the agent's wallet only once `registered` flips. */
+export function primeRegistry(registered: () => boolean) {
+  const routine = (impl: (...a: unknown[]) => unknown) =>
+    vi.fn(async (...a: unknown[]) => ({ call: async () => ({ result: async () => impl(...a) }) }));
+  primeRegistryDriverForTests(REGISTRY, {
+    routines: {
+      GetAgentsByOwner: routine(() => ({ output: registered() ? { ids: ["agent_9"], total: 1n } : { ids: [], total: 0n }, error: null })),
+      GetAgentProfile: routine((id) => ({
+        output:
+          id === "agent_9"
+            ? { profile: { agent_id: "agent_9", owner: bytes(ACCOUNT), agent_wallet: bytes(AGENT_WALLET), status: "ACTIVE", url: "", card_uri: "", score: 0n, created_at: 0n, updated_at: 0n }, found: true }
+            : { profile: {}, found: false },
+        error: null,
+      })),
+    },
+  });
+}
+
+/** Hosted write deps for the user the tests sign in as: with a paired wallet, or with none. */
+export function wallet(paired = true, previews?: PreviewRegistry) {
+  const records = new Map([[USER, session()]]);
+  if (!paired) records.clear();
+  return writeDeps(fakeStore(records), fakeHub(), fakeJournal(), previews);
+}
+
+export async function callTool(client: Client, name: string, args: Record<string, unknown> = {}) {
+  return client.callTool({ name, arguments: args });
+}
+
+/** Put the fake Launchpad back to where each test expects it: nothing requested, a good session, an agent awaiting registration. */
+export function resetFake(fake: FakeLaunchpad): void {
+  fake.requests.length = 0;
+  fake.state.agentStatus = "pending_grant";
+  fake.state.cookieValid = true;
+  fake.state.keyReadable = true;
+  fake.state.telegramLinked = false;
+  fake.state.verifyOk = true;
+  fake.state.nonceMessage = undefined;
 }

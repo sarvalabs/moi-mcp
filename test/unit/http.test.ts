@@ -24,7 +24,15 @@ describe("read-only HTTP server", () => {
       .filter((line) => /^\s*import\b/.test(line) || /\bfrom\s+"/.test(line))
       .join("\n");
 
-    for (const forbidden of ["tools/writes", "tools/wallet", "wc/client", "wc/session"]) {
+    for (const forbidden of [
+      "tools/writes",
+      "tools/wallet",
+      "tools/hosted-writes",
+      "tools/local-writes",
+      "applications/registry/tools",
+      "wc/client",
+      "wc/session",
+    ]) {
       expect(imports, `http.ts must not import ${forbidden}`).not.toContain(forbidden);
     }
   });
@@ -37,9 +45,17 @@ describe("read-only HTTP server", () => {
     for (const name of Object.keys(server._registeredTools ?? {})) registered.push(name);
 
     expect(registered).toContain("moi_get_account");
+    expect(registered).toContain("moi_get_history");
+    expect(registered).toContain("moi_asset_routines");
+    expect(registered).toContain("moi_rpc_account_state");
+    expect(registered).not.toContain("moi_rpc_send_interactions");
+    expect(registered).not.toContain("moi_asset_invoke");
+    expect(registered).not.toContain("moi_deploy_logic");
+    expect(registered).not.toContain("moi_configure_account");
     expect(registered).not.toContain("moi_transfer");
     expect(registered).not.toContain("moi_create_asset");
     expect(registered).not.toContain("moi_connect_wallet");
+    expect(registered).not.toContain("moi_faucet");
   });
 });
 

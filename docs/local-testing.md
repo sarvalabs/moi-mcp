@@ -18,8 +18,10 @@ is scoped to a **read-only HTTP transport**, which has none of these problems.
 
 ## Which transport
 
-`moi-mcp` (stdio) is the local one your MCP client spawns — all 13 tools,
-wallet included. `moi-mcp-http` is the read-only service — 6 tools, no wallet,
+`moi-mcp` (stdio) is the local one your MCP client spawns, with all 22 tools
+(`ping`, the eight reads, the three wallet tools and the ten writes; the
+setting `MOI_ACCOUNT_KEY_TOOLS=on` adds an eleventh, `moi_configure_account`),
+wallet included. `moi-mcp-http` is the read-only service — 43 tools (`ping`, the eight reads and the 34 node method tools), no wallet,
 no `WC_PROJECT_ID`, stateless, hostable. This page covers the stdio one; for
 the HTTP one, `PORT=8787 node dist/http.js` and point a client at
 `http://localhost:8787/mcp`. It needs no `WC_PROJECT_ID` — it registers no
@@ -35,6 +37,14 @@ npm run build
 
 That produces `dist/index.js`. Rebuild after any source change — your client
 runs the built file, not the TypeScript.
+
+## How a write works here
+
+Every write is two tool calls, the same as on the hosted server (`src/tools/hosted-writes.ts`). The first call, without `confirm`, builds the interaction, simulates it against the node and answers `status: "preview"`: one sentence, the values your phone will show, the fuel and a `confirm` token. Nothing has reached the phone, and a preview is not a failure. The second call, with the same arguments and the token, asks the phone and waits for the tap. A token works once, for those arguments, for ten minutes; if the numbers moved in between, the second call answers with a fresh preview instead.
+
+A write tool is marked destructive, so a client that asks before running destructive tools will ask for each of the two calls.
+
+Every confirmed write is recorded in `$MOI_MCP_HOME/journal.jsonl` (mode 0600), one line per step: `proposed`, `signed`, `broadcast`, `confirmed`, or `failed` / `orphaned` when it stopped early. `orphaned` means the phone signed and the node did not take it. Previews, refusals and views write nothing.
 
 ## Point Claude Desktop at the local build
 
@@ -104,7 +114,7 @@ npm run inspect        # MCP Inspector against src/, no build step
 ```
 
 ```bash
-# Raw protocol — should print a JSON line listing 13 tools
+# Raw protocol — should print a JSON line listing 22 tools
 WC_PROJECT_ID=<id> node -e '
 const {spawn}=require("child_process");
 const c=spawn("node",["dist/index.js"]);
@@ -195,7 +205,8 @@ Reads are unaffected either way.
 Expected before pairing — reads never need a wallet. If you *are* paired, check
 in this order: `moi_wallet_status` (connected? config ok?), then the balance
 (`moi_get_account`), then whether your phone is showing an approval you haven't
-tapped.
+tapped. A write that answers `status: "preview"` has not failed: it is waiting
+for a yes, then a second call with its `confirm` token.
 
 ### Everything looks right and the first send still fails
 
@@ -203,8 +214,13 @@ Read the tool's message first — it says which stage failed:
 
 - **"The node says this interaction would fail (receipt status N)"** — the
   simulation refused it before anything reached the phone. For
-  `moi_create_asset` this is nearly always the default `storageFund`
-  (1,000,000 KMOI) exceeding your balance; pass `storageFund: "50000"`.
+  `moi_create_asset` this is almost always a `storageFund` you passed that is
+  below what the chain needs to store a new asset, about 6.1 KMOI. Leave
+  `storageFund` out: with none, the server funds 10 KMOI when the balance
+  allows and 7 KMOI otherwise, and refuses (`INSUFFICIENT_BALANCE`) when the
+  account holds less than 7.001 KMOI. If you do pass it, it is in base units, so
+  `storageFund: "7000000000"` is 7 KMOI. The older advice (1,000,000, then
+  50000) dates from before KMOI had 9 decimals and is now far below the floor.
 - **"holds X of … but the transfer needs Y"** — balance pre-check, local.
 - **"You approved the interaction but broadcasting it failed"** — the phone
   signed, the node rejected `moi.SendInteractions`. Usually a stale sequence

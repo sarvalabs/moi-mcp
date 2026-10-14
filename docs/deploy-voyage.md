@@ -17,8 +17,9 @@ written to disk. Scale it horizontally like any other stateless service.
 It cannot write to the chain. The write code is not disabled by a flag, it is
 not compiled into this binary, which is why it needs no secrets.
 
-Five read tools: `moi_get_account`, `moi_get_asset`, `moi_get_interaction`,
-`moi_get_logic`, `moi_resolve_agent`, plus `ping`.
+43 tools: `ping`, eight combined reads (`moi_get_account`, `moi_get_history`, `moi_get_asset`,
+`moi_asset_routines`, `moi_get_interaction`, `moi_get_logic`, `moi_resolve_agent`,
+`moi_list_agents`), and 34 node method tools (`moi_rpc_*`), one for each question the node answers.
 
 ## Configuration
 
@@ -88,7 +89,7 @@ nobody can debug from the client side.
       -H 'accept: application/json, text/event-stream' \
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 
-The second should list six tools. Then paste `https://HOST/mcp` into an
+The second should list 43 tools. Then paste `https://HOST/mcp` into an
 assistant's connector settings and ask it something about a MOI asset.
 
 ## Two things to decide

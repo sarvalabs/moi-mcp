@@ -20,12 +20,11 @@
  */
 
 import {
-  AssetStandard,
   DEFAULT_FUEL_PRICE as SDK_DEFAULT_FUEL_PRICE,
   DEFAULT_STORAGE_FUND as SDK_DEFAULT_STORAGE_FUND,
   bytesToHex,
   buildTransferPayload,
-  deriveAssetId,
+  deriveLogicId,
   KMOI_ASSET_ID,
   ixObjectSchema,
   LockType,
@@ -36,6 +35,10 @@ import { Polorizer } from "js-polo";
 
 import { MoiError } from "../moi-error.js";
 import { ErrorCode } from "../schema.js";
+import { buildCreateAssetOperations, type CreateAssetParams } from "./ix-build-asset.js";
+
+export { BUILDABLE_STANDARDS, predictAssetId } from "./ix-build-asset.js";
+export type { CreateAssetParams, MasxCreate } from "./ix-build-asset.js";
 
 /** The node rejects interactions carrying more than three operations. */
 export const MAX_OPERATIONS = 3;
@@ -223,13 +226,59 @@ export function asKmoi(baseUnits: bigint): string {
 export const DEFAULT_STORAGE_FUND = BigInt(SDK_DEFAULT_STORAGE_FUND);
 
 /**
- * Least that actually covers a new asset's storage, in KMOI base units.
+ * The smallest storage fund the chain accepted for a new asset when it was
+ * measured, in KMOI base units: 6,082,031,250, about 6.08 KMOI. A measurement,
+ * not a computation. The refusal text quotes it (as about 6.1 KMOI), a unit
+ * test keeps MIN_STORAGE_FUND within 110 to 130 percent of it, and the nightly
+ * chain canary (test/e2e/chain-canary.test.ts) watches it. How much a create is
+ * actually funded with is decided by MIN_STORAGE_FUND and DEFAULT_STORAGE_FUND.
  *
- * Measured against voyage devnet by binary search: the floor is 6,072,387,694
- * base units (about 6.072 KMOI) for a short symbol, and 6,082,031,250 (about
- * 6.082) for the 12-character maximum, so it DOES move with symbol length,
- * contrary to what this comment said before the upgrade. 7 KMOI is the floor
- * plus roughly 15% for pricing changes.
+ * What was measured, where and when. Binary search on voyage devnet, after the
+ * September 2026 chain upgrade, on the receipt status of a simulated create: a
+ * fund the chain accepts simulates to status 0, a smaller one to status 1. The
+ * result was recorded on 22 September 2026 (commit 9e73772): 6,072,387,694 for
+ * a short symbol and 6,082,031,250 for the 12-character maximum, so the floor
+ * moves with the length of the symbol and this constant is the larger figure.
+ * That figure is exactly 1557/256 KMOI, a round binary fraction, so it may be
+ * where a bisection stopped and not the true floor: read it as an upper bound.
+ * The figures are for a create like the canary's (MAS0, not stateful, decimals
+ * 0, dimension 0). The record does not say whether another shape costs more. A dry run on 7 October 2026 showed that a MAS1
+ * and a MAS2 create do: both were refused with a fund of 7 KMOI and accepted with 8 KMOI, so their floor lies above 7 KMOI
+ * and MIN_STORAGE_FUND below is a MAS0 margin only.
+ *
+ * Why it is not read from the node. getStoragePricing (moi.StoragePricing)
+ * answers a price per byte, a multiplier and a second per-byte figure. It does
+ * not say how many bytes a new asset account takes or how the three combine,
+ * and js-moi-sdk says in its own comments that a client cannot know what a
+ * create's storage costs (js-moi-constants, storage.ts). A formula built on
+ * those numbers would be a guess, and a wrong guess lowers the floor without
+ * anyone noticing, where a stale constant fails loudly: assertWillSucceed
+ * (src/tools/write-core.ts) refuses the create at its simulation.
+ *
+ * What watches it. The canary simulates a create funded 5 percent above this
+ * constant (it must pass) and one funded 10 percent below it (it must fail), and
+ * checks that the storage pricing still equals the three raw strings read from
+ * devnet on 2 October 2026. That is when the pricing began to be watched, ten
+ * days after the floor was recorded.
+ *
+ * To re-measure, when one of those fails. There is no script, so write a
+ * throwaway one: build the canary's create with a 1-character and a 12-character
+ * symbol, simulate it with provider.call over a range of storageFund, and
+ * bisect on receipt.status === 0 down to one base unit (about 35 simulations
+ * per symbol, nothing is signed, no fuel is spent). Then, in one commit: set
+ * this constant to the larger result, keep MIN_STORAGE_FUND within 110 to 130
+ * percent of it, copy getStoragePricing's three raw strings into
+ * PRICING_WHEN_FLOOR_MEASURED in the canary, and correct the figure the docs
+ * quote (docs/local-testing.md and docs/testing-plan.md say about 6.1 KMOI).
+ */
+export const MEASURED_STORAGE_FLOOR = 6_082_031_250n;
+
+/**
+ * What a MAS0 create is funded with when the caller gives no storageFund and the
+ * balance cannot carry DEFAULT_STORAGE_FUND, in KMOI base units: the measured
+ * floor plus about 15 percent, so that a small repricing does not turn every
+ * automatic create into a failure. This is this server's margin, not the
+ * chain's floor, and no message may present it as the chain's.
  */
 export const MIN_STORAGE_FUND = 7_000_000_000n;
 
@@ -242,7 +291,8 @@ export const MIN_STORAGE_FUND = 7_000_000_000n;
 export const FUEL_RESERVE = 1_000_000n;
 
 /**
- * Choose a storage fund the caller can actually afford, in KMOI base units.
+ * Choose a storage fund the caller can actually afford, in KMOI base units. For a MAS0 create only: MAS1, MAS2 and MASX
+ * are funded with exactly DEFAULT_STORAGE_FUND (src/capabilities/assets/create.ts says why).
  *
  * Nobody creating a token should have to reason about storage funding, and
  * the failure when it is wrong is opaque: the ASSET_CREATE operation reports
@@ -273,86 +323,14 @@ export function chooseStorageFund(balance: bigint): bigint {
 }
 
 /**
- * Build an asset creation.
- *
- * A bare ASSET_CREATE operation does NOT work: MOI makes a new asset self-pay
- * for its storage the moment it is created, and a freshly derived asset
- * account holds no KMOI. The create must be bundled with a transfer funding
- * the asset id it is about to produce — which means predicting that id, via
- * deriveAssetId, before it exists.
- *
- * Symptom if you skip it: the ASSET_CREATE operation reports success and
- * returns a valid asset_id while the interaction as a whole fails with
- * status 1 and no diagnostic.
+ * Build an asset creation, for MAS0, MAS1, MAS2 or MASX: the operations are built by src/moi/ix-build-asset.ts, which says
+ * what each standard sends and why the create is bundled with a KMOI transfer to the asset's own account. Without a
+ * storageFund the SDK's default is sent.
  */
-export function buildCreateAsset(
-  sender: SenderInfo,
-  params: {
-    symbol: string;
-    supply: bigint;
-    decimals: number;
-    dimension: number;
-    standard: string;
-    isStateful: boolean;
-    isFungible: boolean;
-    /** KMOI to fund the new asset with. Too little and storage fails. */
-    storageFund?: bigint;
-  },
-  options: BuildOptions = {},
-): UnsignedInteraction {
-  const standardCode = (AssetStandard as unknown as Record<string, number>)[params.standard];
-  if (standardCode === undefined) {
-    throw new MoiError(
-      ErrorCode.INVALID_ARGS,
-      `Unknown asset standard "${params.standard}". Expected one of MAS0, MAS1, MAS2, MASX.`,
-      { standard: params.standard },
-    );
-  }
-
-  // Predict the asset id this create will produce so the funding transfer can
-  // address it. deriveAssetId mirrors the chain's own derivation — a wrong
-  // prediction sends the funds to an account that will never exist.
-  const assetId = deriveAssetId(
-    { id: sender.id as `0x${string}`, sequence: sender.sequence, key_id: sender.keyId ?? 0 },
-    standardCode,
-  ).toHex();
-
-  const fund = params.storageFund ?? DEFAULT_STORAGE_FUND;
-  const funding = buildTransferPayload(
-    KMOI_ASSET_ID as `0x${string}`,
-    assetId as `0x${string}`,
-    fund <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(fund) : fund,
-  ) as unknown as Record<string, unknown>;
-
+export function buildCreateAsset(sender: SenderInfo, params: CreateAssetParams, options: BuildOptions = {}): UnsignedInteraction {
   return {
     ...base(sender, options),
-    ix_operations: [
-      {
-        type: OpType.ASSET_CREATE,
-        // Field names and types come from js-moi-sdk's AssetCreatePayload.
-        // max_supply must be a number|bigint — a decimal string fails POLO
-        // serialisation inside the wallet with "Failed to sign interaction",
-        // and there is no `supply` field at all.
-        payload: {
-          symbol: params.symbol,
-          max_supply: params.supply,
-          decimals: params.decimals,
-          dimension: params.dimension,
-          standard: standardCode,
-          enable_events: params.isStateful,
-          manager: sender.id,
-        },
-      },
-      // Without this the ASSET_CREATE operation succeeds and the interaction
-      // still fails: the new asset has no KMOI to pay its own storage.
-      {
-        type: OpType.ASSET_INVOKE,
-        payload: {
-          ...funding,
-          calldata: String(funding["calldata"] ?? "").replace(/^0x/, ""),
-        },
-      },
-    ],
+    ix_operations: buildCreateAssetOperations(sender, params, params.storageFund ?? DEFAULT_STORAGE_FUND),
   };
 }
 
@@ -463,44 +441,186 @@ export function buildLogicInvoke(
 }
 
 /**
+ * One asset routine call: a single ASSET_INVOKE operation, the shape the SDK's own AssetDriver and asset classes
+ * produce. `calldata` is what ManifestCoder.encodeArguments returned for the routine's inputs; it is left out for a
+ * routine that takes none, as the SDK does (it refuses an empty one), and a 0x prefix is stripped so the payload is
+ * byte-identical to what buildTransfer and buildMint emit. The same id named twice keeps its first spelling and the
+ * strongest lock. The order given is not the order signed: js-moi-providers rebuilds the list asset-first when the
+ * interaction is estimated, called or encoded (processParticipants). Nothing is added for the sender or the asset
+ * here; that normalisation does it.
+ */
+export function buildAssetInvoke(
+  sender: SenderInfo,
+  params: {
+    assetId: string;
+    callsite: string;
+    calldata?: string;
+    participants?: Array<{ id: string; lock: "mutate" | "read" | "none" }>;
+  },
+  options: BuildOptions = {},
+): UnsignedInteraction {
+  const declared = new Map<string, { id: string; lock_type: number }>();
+  for (const p of params.participants ?? []) {
+    const key = p.id.toLowerCase();
+    const lock = LOCK_BY_NAME[p.lock];
+    const seen = declared.get(key);
+    if (!seen) declared.set(key, { id: p.id, lock_type: lock });
+    else if (lock < seen.lock_type) seen.lock_type = lock; // MUTATE 0 < READ 1 < NO_LOCK 2: the strongest wins
+  }
+  const calldata = (params.calldata ?? "").replace(/^0x/, "");
+  return {
+    ...base(sender, options),
+    ix_operations: [
+      {
+        type: OpType.ASSET_INVOKE,
+        payload: { asset_id: params.assetId, callsite: params.callsite, ...(calldata ? { calldata } : {}) },
+      },
+    ],
+    ...(declared.size > 0 ? { participants: [...declared.values()] } : {}),
+  };
+}
+
+/**
+ * The id a logic deployed by this sender at this sequence will get. deriveLogicId mirrors the chain's own derivation, and
+ * the id depends on the exact sequence, so it changes if another interaction from the sender lands first.
+ */
+export function predictLogicId(sender: SenderInfo): string {
+  return deriveLogicId({
+    id: sender.id as `0x${string}`,
+    sequence: sender.sequence,
+    key_id: sender.keyId ?? 0,
+  }).toHex();
+}
+
+/**
+ * Deploy a logic: one LOGIC_DEPLOY operation and, bundled with it, a KMOI transfer of the SDK's default storage fund
+ * (10 KMOI) to the logic's own account.
+ *
+ * A new logic pays for its own account-creation storage the moment it is created and a freshly derived logic account holds
+ * no KMOI, so a bare LOGIC_DEPLOY reverts. The SDK's LogicFactory.deploy bundles the same funding operation
+ * (node_modules/js-moi-logic, logic-base.ts, createIxObject) and this builder is checked against it byte for byte
+ * (test/unit/ix-builder-deploy.test.ts). The funding names the id the deploy will produce, derived by predictLogicId: a
+ * wrong prediction sends the funds to an account that never exists. The amount is not a parameter: a deploy always funds
+ * the default, so no caller can move more of the person's KMOI into code the caller wrote.
+ *
+ * `manifest` is the POLO hex ManifestCoder.encodeManifest returns, 0x prefix included, and `calldata` is the encoded
+ * input of the deploy routine, left out for a routine that takes none; both go into the payload as they are, as the SDK's
+ * LogicFactory puts them. `callsite` is the deploy routine's name. The new logic is never declared as a participant: it
+ * does not exist yet, and declaring an account that does not exist fails with "account not found". KMOI is declared by the
+ * funding operation (the SDK's processParticipants adds it). Participants the caller names are kept as they are named: the
+ * same id twice keeps its first spelling and the strongest lock, as buildAssetInvoke does.
+ */
+export function buildLogicDeploy(
+  sender: SenderInfo,
+  params: {
+    manifest: string;
+    callsite: string;
+    calldata?: string;
+    participants?: Array<{ id: string; lock: "mutate" | "read" | "none" }>;
+  },
+  options: BuildOptions = {},
+): UnsignedInteraction {
+  const funding = buildTransferPayload(
+    KMOI_ASSET_ID as `0x${string}`,
+    predictLogicId(sender) as `0x${string}`,
+    DEFAULT_STORAGE_FUND <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(DEFAULT_STORAGE_FUND) : DEFAULT_STORAGE_FUND,
+  ) as unknown as Record<string, unknown>;
+
+  const declared = new Map<string, { id: string; lock_type: number }>();
+  for (const p of params.participants ?? []) {
+    const key = p.id.toLowerCase();
+    const lock = LOCK_BY_NAME[p.lock];
+    const seen = declared.get(key);
+    if (!seen) declared.set(key, { id: p.id, lock_type: lock });
+    else if (lock < seen.lock_type) seen.lock_type = lock; // MUTATE 0 < READ 1 < NO_LOCK 2: the strongest wins
+  }
+
+  return {
+    ...base(sender, options),
+    ix_operations: [
+      {
+        type: OpType.LOGIC_DEPLOY,
+        payload: {
+          manifest: params.manifest,
+          callsite: params.callsite,
+          ...(params.calldata ? { calldata: params.calldata } : {}),
+        },
+      },
+      {
+        type: OpType.ASSET_INVOKE,
+        payload: { ...funding, calldata: String(funding["calldata"] ?? "").replace(/^0x/, "") },
+      },
+    ],
+    ...(declared.size > 0 ? { participants: [...declared.values()] } : {}),
+  };
+}
+
+/**
+ * A node quantity as a non-negative integer that fits a number, or undefined when it cannot be read as one. The node sends
+ * quantities as numbers or as 0x-hex or decimal strings, and the SDK may hand over a bigint; anything else (missing, null,
+ * empty, text, a float, a negative, an object, an array, a value past 2^53) is unreadable. Never throws: BigInt("abc") does.
+ */
+function readQuantity(raw: unknown): number | undefined {
+  if (typeof raw === "number") return Number.isSafeInteger(raw) && raw >= 0 ? raw : undefined;
+  let value: bigint;
+  if (typeof raw === "bigint") value = raw;
+  else if (typeof raw === "string" && /^(0x[0-9a-f]+|[0-9]+)$/i.test(raw)) value = BigInt(raw);
+  else return undefined;
+  return value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
+}
+
+/** Why a dry run that gave no usable receipt status is a failure: it is not known to succeed. */
+const NO_READABLE_STATUS = "the node's dry run came back with no readable receipt status, so it is not known to succeed";
+const NO_REASON = "the node gave no reason, and no operation in its receipt carries an error";
+
+/**
  * Dry-run an interaction against the node before a human is asked to approve it.
  *
  * `provider.call` executes the interaction in simulation and returns a receipt.
  * A receipt status other than 0 means it would revert on chain — burning fuel
  * and achieving nothing. Catching that here means the user is never shown an
  * approval for an interaction that cannot succeed.
+ *
+ * Fails closed: only a status that reads as 0 passes. A call that throws, a reply with no receipt, and a receipt whose
+ * status is missing, null, empty or unreadable all come back ok: false, never as a pass and never as a throw. `status` is
+ * undefined in those cases, which is how a caller tells "the node said no" from "the node said nothing usable".
  */
 export async function simulate(
   caller: { call: (ix: unknown) => Promise<unknown> },
   ix: UnsignedInteraction,
 ): Promise<{ ok: boolean; status?: number; fuelUsed?: number; detail?: string }> {
-  let receipt: Record<string, unknown>;
+  let receipt: unknown;
   try {
-    const response = (await caller.call(ix)) as { receipt?: Record<string, unknown> };
-    receipt = response?.receipt ?? {};
+    const response = (await caller.call(ix)) as { receipt?: unknown } | null | undefined;
+    receipt = response?.receipt;
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message.slice(0, 200) : String(err) };
   }
 
-  const status = Number(BigInt(String(receipt["status"] ?? 0)));
-  const fuelUsed = Number(BigInt(String(receipt["fuel_used"] ?? 0)));
+  if (typeof receipt !== "object" || receipt === null || Array.isArray(receipt)) {
+    return { ok: false, detail: NO_READABLE_STATUS };
+  }
+  const fields = receipt as Record<string, unknown>;
+  const status = readQuantity(fields["status"]);
+  if (status === undefined) return { ok: false, detail: NO_READABLE_STATUS };
+  const fuelUsed = readQuantity(fields["fuel_used"]);
   if (status === 0) return { ok: true, status, fuelUsed };
 
   // Surface any per-operation error the node bothered to fill in. The error
   // arrives POLO-encoded ("0x0e7f06…"); best-effort extract the printable
   // strings inside so the user reads "builtin.AssetError insufficient funds"
   // rather than a hex blob.
-  const ops = (receipt["ix_operations"] ?? []) as Array<Record<string, unknown>>;
-  const opDetail = ops
-    .map((o) => {
-      const data = (o["data"] ?? {}) as Record<string, unknown>;
-      const err = String(data["error"] ?? "");
-      if (err && err !== "0x") return decodeErrorHex(err) ?? err;
-      return `op status ${String(o["status"])}`;
-    })
-    .join("; ");
-
-  return { ok: false, status, fuelUsed, detail: opDetail };
+  const ops = Array.isArray(fields["ix_operations"]) ? (fields["ix_operations"] as unknown[]) : [];
+  const parts = ops.flatMap((o, i) => {
+    if (typeof o !== "object" || o === null) return [];
+    const op = o as Record<string, unknown>;
+    const err = String(((op["data"] ?? {}) as Record<string, unknown>)["error"] ?? "");
+    if (err && err !== "0x") return [decodeErrorHex(err) ?? err];
+    // Numbered by place in the receipt. An operation at status 0 did not fail and is not named: "op status 0" read as success.
+    const opStatus = readQuantity(op["status"]);
+    return opStatus ? [`operation ${i + 1} failed with status ${opStatus} and the node gave no reason`] : [];
+  });
+  return { ok: false, status, fuelUsed, detail: parts.length > 0 ? parts.join("; ") : NO_REASON };
 }
 
 /** Pull printable ASCII runs (≥4 chars) out of a POLO-encoded error blob. */
@@ -627,20 +747,58 @@ interface RoutineCtx {
   ctx?: { opType?: number; payload?: Record<string, unknown> };
 }
 
+/** What the SDK's logic driver can say about a manifest's callables: the kind declared for each name (the last declaration of a name wins). */
+export interface CallsiteReader {
+  getCallsites?: () => Map<string, { kind?: string }>;
+}
+
+/**
+ * Refuse a call to a routine the manifest declares as a deploy routine, and say where a deploy goes. The SDK's driver offers
+ * only invoke and enlist routines, so a deploy routine would otherwise read as a name the logic does not have. It runs once,
+ * when a logic is deployed (protocol docs, logics.md, "Endpoint Qualifiers"). Call it only for a name the driver does not
+ * offer: for one it offers, the SDK has already decided what the call is, and logicCallKind follows that.
+ */
+export function assertNotDeployRoutine(driver: CallsiteReader, logicId: string, name: string): void {
+  if (driver.getCallsites?.().get(name)?.kind !== "deploy") return;
+  throw new MoiError(
+    ErrorCode.INVALID_ARGS,
+    `${quoteChainText(name, 64)} is a deploy routine of logic ${logicId}. A deploy routine runs once, when a logic is deployed, and cannot be called on a ` +
+      "logic that already exists. To deploy a new logic from its compiled manifest use moi_deploy_logic. Nothing was sent to your wallet.",
+    { logicId, callsite: name, kind: "deploy" },
+  );
+}
+
+/**
+ * What a logic call is sent as, from the operation type the SDK built for it: LOGIC_INVOKE or LOGIC_ENLIST, nothing else. The
+ * driver chooses the type from the routine's declared kind (js-moi-logic, logic-base.ts, getTxType). A second lookup of the
+ * kind by name, in the driver's callsite map, disagrees with it when a manifest declares one name twice, so this reads the
+ * request instead, and an SDK that stops saying fails closed.
+ */
+export function logicCallKind(opType: number | undefined, callsite: string): "invoke" | "enlist" {
+  if (opType === OpType.LOGIC_INVOKE) return "invoke";
+  if (opType === OpType.LOGIC_ENLIST) return "enlist";
+  throw new MoiError(
+    ErrorCode.INVALID_ARGS,
+    `Could not tell which operation a call to ${quoteChainText(callsite, 64)} is sent as. Nothing was sent to your wallet.`,
+    { callsite, opType: opType ?? null },
+  );
+}
+
 /**
  * Ask the SDK's logic driver to encode a routine call, rather than
  * hand-rolling POLO calldata. Calling `driver.routines.X(...args)` returns a
- * request whose `ctx.payload` is exactly the LOGIC_INVOKE payload we need:
- * `{ logic_id, callsite, calldata }`.
+ * request whose `ctx.payload` is exactly the payload we need: `{ logic_id, callsite, calldata }`. The same shape serves
+ * LOGIC_INVOKE and LOGIC_ENLIST (js-moi-providers, LogicActionPayload); `kind` says which one the request's `ctx.opType` is.
+ * The driver offers invoke and enlist routines only; a deploy routine is refused by name (assertNotDeployRoutine).
  */
 export async function encodeLogicCall(
   signer: unknown,
   logicId: string,
   callsite: string,
   args: unknown[],
-): Promise<{ logic_id: string; callsite: string; calldata?: string }> {
+): Promise<{ logic_id: string; callsite: string; calldata?: string; kind: "invoke" | "enlist" }> {
   const { getLogicDriver } = await import("js-moi-sdk");
-  let driver: { routines: Record<string, (...a: unknown[]) => Promise<RoutineCtx>> };
+  let driver: CallsiteReader & { routines: Record<string, (...a: unknown[]) => Promise<RoutineCtx>> };
   try {
     driver = (await getLogicDriver(logicId, signer as never)) as never;
   } catch (err) {
@@ -651,8 +809,11 @@ export async function encodeLogicCall(
     );
   }
 
-  const routine = driver.routines[callsite];
+  // Own properties only: `routines` is a plain object, so a name like "constructor" is a function on it that the manifest never
+  // declared, and calling that with arguments shaped like a request would make the caller's object the request.
+  const routine = Object.hasOwn(driver.routines, callsite) ? driver.routines[callsite] : undefined;
   if (typeof routine !== "function") {
+    assertNotDeployRoutine(driver, logicId, callsite);
     const available = Object.keys(driver.routines ?? {}).join(", ");
     throw new MoiError(
       ErrorCode.LOGIC_ROUTINE_NOT_FOUND,
@@ -666,5 +827,8 @@ export async function encodeLogicCall(
   if (!payload) {
     throw new MoiError(ErrorCode.INVALID_ARGS, `Could not encode a call to ${callsite}.`);
   }
-  return payload as { logic_id: string; callsite: string; calldata?: string };
+  return {
+    ...(payload as { logic_id: string; callsite: string; calldata?: string }),
+    kind: logicCallKind(request.ctx?.opType, callsite),
+  };
 }

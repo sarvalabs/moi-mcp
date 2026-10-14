@@ -43,7 +43,7 @@ creates the file on first launch. If it already has an `mcpServers` block,
 ```
 
 Restart Claude completely (quit the app, not just the window). `moi` should
-appear in the tools list with 13 tools.
+appear in the tools list with 22 tools.
 
 **Cursor** — same block in `.cursor/mcp.json`. See `examples/cursor.mcp.json`.
 
@@ -84,16 +84,20 @@ No KMOI yet? Claim free devnet tokens from the
 > send 1 KMOI to 0x…
 
 The agent resolves the asset, checks your balance, builds the interaction,
-simulates it against the node, and pushes it to your phone. **Nothing is signed
-until you tap Approve.** The phone returns the signature; the server broadcasts
-it and hands you the hash. Reject it and you get back
+simulates it against the node, and shows you a preview in the chat: one sentence
+and the exact values your phone will show. Say yes, and it asks your phone.
+**Nothing is signed until you tap Approve.** The phone returns the signature;
+the server broadcasts it and hands you the hash. Reject it and you get back
 `{"status":"rejected","reason":"user_rejected"}`. Ignore it for five minutes and
 you get `"timeout"`.
 
 Creating a token works the same way — `create an asset called MCPTEST with
-supply 1000`. A new asset must hold some KMOI to pay for
-its own storage; the default is 1,000,000, so pass a smaller `storageFund` on a
-small devnet balance.
+supply 1000`. A new asset must hold some KMOI to pay for its own storage, and
+the server sizes that for you: 10 KMOI when your balance can carry it, 7 KMOI
+when it cannot, and it refuses before your phone is asked if you hold less than
+7.001 KMOI (claim more from the faucet). The deposit goes into the new asset's
+own account and is not spent. You do not need to pass `storageFund`; if you do,
+it is in base units, so `10000000000` is 10 KMOI.
 
 <!-- TODO screenshot: approval screen, then the interaction hash in chat -->
 
@@ -115,3 +119,6 @@ node itself. The server relays a signature; it never produces one.
 - `moi_call_logic` with `kind:"view"` reads any deployed logic with no wallet at
   all.
 - `moi_get_logic` lists a logic's routines so the agent knows what to call.
+- `moi_asset_routines` lists what an asset can do, read from its manifest, and
+  `moi_asset_invoke` calls one of those routines: a read answers at once, a
+  write is previewed in the chat and approved on your phone like a transfer.

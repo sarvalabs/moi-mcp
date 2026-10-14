@@ -61,9 +61,9 @@ prompt from that stored record alone. No tool call can name a wallet,
 account, or session, so one user's request can only ever reach that user's
 own phone.
 
-Pairings expire: a week when the user chooses to stay connected, 15 minutes
-for a one-shot pairing. After expiry the user simply pairs again — expected
-behavior, not a fault.
+Pairings expire at the lifetime the person chose when asked: a week, a day, or
+one transaction (15 minutes at most). After expiry the user simply pairs again, which is
+expected behavior and not a fault.
 
 Everything the auth server needs (cookie secret, token store, wallet
 pairings, write journal) lives under `MOI_DATA_DIR`. That is why the
@@ -84,10 +84,17 @@ Voyage already serves.
 4. Outbound access from the host: HTTPS to the voyage RPC endpoint
    (`dev.voyage-rpc.moi.technology`, or the internal one — see `MOI_RPC_URL`
    below) for both gateways, plus WebSocket (wss) to the WalletConnect/Reown
-   relay for the write gateway.
+   relay for the write gateway. Both gateways also need DNS and HTTPS to the
+   public hosts where agents publish their cards (private addresses,
+   redirects and anything that is not https are refused on purpose); without
+   that, `moi_resolve_agent` still answers, but every card comes back with a
+   `cardNote` saying it was not fetched.
 5. A phone with MOI Wallet, for the final verification — its account must
-   hold at least ~20,000 KMOI on voyage (the asset-create test needs 10,000
-   storage fund + 10,000 fuel reserve).
+   hold at least about 11 KMOI on voyage. The asset-create test moves 10 KMOI
+   into the new asset's own account (it is not spent, but it is no longer
+   spendable from the account) and the server holds back 0.001 KMOI for fuel.
+   With less than 10.001 KMOI it falls back to a 7 KMOI deposit, and below
+   7.001 KMOI it refuses.
 
 The steps below assume one Ubuntu VM with nginx and pm2. That layout is a
 suggestion — any equivalent (different distro, proxy, or supervisor) is fine
@@ -191,7 +198,7 @@ curl -X POST https://mcp.voyage.moi.technology/mcp \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-# 13 tools; the same call on mcp-read lists 6
+# 33 tools (34 with the faucet configured; one more with MOI_ACCOUNT_KEY_TOOLS=on); the same call on mcp-read lists 43
 ```
 
 ## 6. Connect in Claude
@@ -213,14 +220,15 @@ In a Claude chat, in order:
    0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000 on
    voyage"* (that is KMOI, the voyage native asset) — a read returns real
    chain data.
-2. Ask: *"connect my MOI wallet, stay connected for a week"* — sign in when
-   prompted, then a QR code appears in the chat. Scan it with MOI Wallet
+2. Ask: *"connect my MOI wallet"*. Claude asks how long the connection should
+   stay open; answer *"a week"*. Sign in when prompted, then a QR code appears
+   in the chat. Scan it with MOI Wallet
    within 5 minutes and approve the pairing on the phone.
 3. Ask: *"create a test asset called DEPLOYTEST with supply 100"* — Claude
    first shows a preview with the storage fund and fuel cost; confirm it,
    and then the approval prompt appears on the phone. Approve it there.
-   (Needs the ~20,000 KMOI from the prerequisites; an underfunded wallet
-   fails at the preview with a clear error.)
+   (Needs the ~11 KMOI from the prerequisites; a wallet holding less than
+   7.001 KMOI fails at the preview with an `INSUFFICIENT_BALANCE` error.)
 4. Ask: *"what's my wallet status"* — shows the paired account.
 
 Deployment is done when step 3 lands on chain.

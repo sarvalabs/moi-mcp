@@ -20,14 +20,14 @@ ordered checklist with exact commands.
 | Go repo | build/vet/gofmt/test clean; stdio + `-http` + `/health` + error paths | driven by script; `MOI_E2E=1 go test -run TestLive ./internal/moirpc/` |
 | Wallet guards | unpaired → `wallet_disconnected`; other network → `network_mismatch`; expired → `wallet_disconnected`; insufficient balance refused before fuel/simulate/relay; simulation failure refused with hint | hermetic tool-handler tests + paired sweep against the real session |
 | Write mechanism | sign on phone (`moi.signInteraction`, `params: [ixObject]`) then broadcast from here (`moi.SendInteractions`) — proven on chain at `0x3c5682…` | `docs/upstream-issues.md` §1 |
-| `moi_create_asset` | bundles `ASSET_CREATE` + KMOI funding transfer to the derived asset id; `storageFund` param; default 1,000,000 exceeds the test account so it refuses locally with the hint | paired sweep, hermetic tests |
+| `moi_create_asset` | bundles `ASSET_CREATE` + KMOI funding transfer to the derived asset id; `storageFund` param, in base units; with none the fund is sized (10 KMOI, or 7 KMOI on a smaller balance, refused under 7.001 KMOI) and one below about 6.1 KMOI is refused by simulation with the hint | hermetic tests; the paired sweep of 2026-09-01 predates the KMOI rescale and ran against the old 1,000,000 default |
 
 ## What needs a phone
 
 No automation can tap Approve. Unverified through the tools with a real tap:
 
 - `moi_transfer` → Approve → `{status:"sent", hash}`
-- `moi_create_asset` with `storageFund: 50000` → Approve → `sent`
+- `moi_create_asset` with no `storageFund` (the server funds 10 KMOI, or 7 KMOI on a smaller balance) → Approve → `sent`
 - `moi_transfer` → ignore 5 min → `timeout`
 - switch wallet network → `network_mismatch`
 - `moi_disconnect_wallet` then write → `wallet_disconnected`
@@ -81,7 +81,10 @@ against live devnet.
   place; the wallet therefore sees the SDK-normalised participant list. Tests
   cover the resulting wire payload as-is.
 - **`moi_resolve_agent` scans** up to 200 profiles and fetches agent cards
-  over HTTP. Fine while the registry is small.
+  over https only, through the same address guard as the dapp tools
+  (src/public-fetch.ts): a card on a private or local host, at an IP address,
+  behind a redirect or over 64 KB is not read, and `cardNote` says why. Fine
+  while the registry is small.
 
 ## Open questions
 

@@ -4,8 +4,18 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { fingerprint, PreviewRegistry } from "../../src/tools/preview.js";
-import { KMOI, OTHER, SENT_HASH, startMockNode, type MockNode } from "../helpers/mock-node.js";
+import { cut, fingerprint, fingerprintDigest, PreviewRegistry, previewBlock, redeemOrIssue } from "../../src/tools/preview.js";
+import {
+  KMOI,
+  MAS0_ASSET,
+  MAS1_ASSET,
+  MAS2_ASSET,
+  MASX_ASSET,
+  OTHER,
+  SENT_HASH,
+  startMockNode,
+  type MockNode,
+} from "../helpers/mock-node.js";
 import { fakeWallet, installWallet, startHarness, type Harness } from "../helpers/harness.js";
 import {
   connect,
@@ -77,6 +87,89 @@ describe("PreviewRegistry", () => {
       fingerprint({ c: [1, { x: 1, y: 2 }], a: 1 }),
     );
     expect(fingerprint({ a: 1 })).not.toBe(fingerprint({ a: 2 }));
+  });
+});
+
+describe("redeemOrIssue, the gate for a call with no phone behind it", () => {
+  const key = { userId: "u", kind: "dapp_call", fingerprint: fingerprintDigest({ op: "echo", body: { a: 1 } }) };
+
+  it("issues a token with no note when there is no confirm", () => {
+    const r = new PreviewRegistry();
+    const out = redeemOrIssue(r, key, undefined)!;
+    expect(out.token).toMatch(/^[A-Za-z0-9_-]{12}$/);
+    expect(out.note).toBeUndefined();
+    expect(r.size).toBe(1);
+  });
+
+  it("lets a matching token through once, and spends it", () => {
+    const r = new PreviewRegistry();
+    const { token } = redeemOrIssue(r, key, undefined)!;
+    expect(redeemOrIssue(r, key, token)).toBeUndefined();
+    expect(r.size).toBe(0);
+    // The same token again is a fresh preview with the note, and still sends nothing.
+    const again = redeemOrIssue(r, key, token)!;
+    expect(again.token).not.toBe(token);
+    expect(again.note).toMatch(/did not match/);
+  });
+
+  it("gives a fresh preview and a note for a wrong, expired or other-user token, leaving the owner's alone", () => {
+    let t = 1000;
+    const r = new PreviewRegistry({ ttlMs: 100, now: () => t });
+    const { token } = redeemOrIssue(r, key, undefined)!;
+    expect(redeemOrIssue(r, key, "nope")!.note).toMatch(/did not match/);
+    expect(redeemOrIssue(r, { ...key, userId: "someone-else" }, token)!.note).toMatch(/did not match/);
+    expect(redeemOrIssue(r, { ...key, kind: "launchpad_create_agent" }, token)!.note).toMatch(/did not match/);
+    expect(redeemOrIssue(r, { ...key, fingerprint: fingerprintDigest({ op: "echo", body: { a: 2 } }) }, token)!.note).toMatch(/did not match/);
+    // None of those burned the owner's token.
+    expect(redeemOrIssue(r, key, token)).toBeUndefined();
+
+    const second = redeemOrIssue(r, key, undefined)!.token;
+    t = 1100;
+    expect(redeemOrIssue(r, key, second)!.note).toMatch(/did not match/);
+  });
+
+  it("says nothing was sent in the note, and never mentions the phone", () => {
+    const r = new PreviewRegistry();
+    const note = redeemOrIssue(r, key, "nope")!.note!;
+    expect(note).toMatch(/Nothing was sent/);
+    expect(note).not.toMatch(/phone/);
+  });
+
+  it("lets exactly one of two concurrent confirms with one token through", async () => {
+    const r = new PreviewRegistry();
+    const { token } = redeemOrIssue(r, key, undefined)!;
+    const results = await Promise.all([0, 1].map(async () => redeemOrIssue(r, key, token)));
+    expect(results.filter((x) => x === undefined)).toHaveLength(1);
+  });
+
+  it("digests the same arguments the same way and different ones differently, at a fixed size", () => {
+    expect(fingerprintDigest({ b: 2, a: [1, { y: 2, x: 1 }] })).toBe(fingerprintDigest({ a: [1, { x: 1, y: 2 }], b: 2 }));
+    expect(fingerprintDigest({ a: 1 })).not.toBe(fingerprintDigest({ a: 2 }));
+    expect(fingerprintDigest({ big: "x".repeat(1_000_000) })).toMatch(/^[0-9a-f]{64}$/);
+    // The last byte of a large value still moves it.
+    expect(fingerprintDigest({ big: "x".repeat(1_000_000) + "a" })).not.toBe(fingerprintDigest({ big: "x".repeat(1_000_000) + "b" }));
+  });
+
+  it("cuts long text and says how much was left out", () => {
+    expect(cut("abc", 3)).toBe("abc");
+    expect(cut("abcdef", 3)).toBe("abc… (3 more characters)");
+  });
+
+  it("writes the preview block with the note first, the request, and the token to send back", () => {
+    const text = previewBlock({
+      what: "https://dapp.example",
+      summary: "POST https://dapp.example/api/echo",
+      details: { Request: "POST /api/echo", Body: "{}" },
+      token: "tok123",
+      expiresAt: Date.UTC(2026, 0, 1),
+      note: "A note.",
+    });
+    expect(text.split("\n")[0]).toBe("A note.");
+    expect(text).toContain("Nothing has been sent to https://dapp.example");
+    expect(text).toContain("  Request: POST /api/echo");
+    expect(text).toContain('confirm="tok123"');
+    expect(text).toContain("2026-01-01T00:00:00.000Z");
+    expect(text).not.toMatch(/phone/);
   });
 });
 
@@ -225,6 +318,83 @@ describe("a hosted write is previewed before it touches the phone", () => {
     const r = await client.callTool({ name: "moi_transfer", arguments: TRANSFER });
     expect(r.isError).toBe(true);
     expect((r.content as Array<{ text: string }>)[0]!.text).toMatch(/^\[INSUFFICIENT_BALANCE\]/);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+  });
+
+  // An asset standard the tools are not built for is refused where the preview is built, so no token is issued, the
+  // phone is never asked and nothing is journalled. KMOI cannot be minted, so it belongs in the mint rows.
+  it.each([
+    ["moi_mint", "MAS1", MAS1_ASSET],
+    ["moi_mint", "MASX", MASX_ASSET],
+    ["moi_mint", "KMOI (MASN)", KMOI],
+    ["moi_transfer", "MAS1", MAS1_ASSET],
+    ["moi_transfer", "MAS2", MAS2_ASSET],
+  ])("%s on a %s asset is refused at preview: no token, no phone, no journal entry", async (tool, _standard, assetId) => {
+    const previews = new PreviewRegistry();
+    const hub = fakeHub();
+    const journal = fakeJournal();
+    const records = new Map([[USER, session({ mode: "persistent", expiresAt: soon() })]]);
+    const client = await connect(deps(fakeStore(records), hub, journal, previews));
+    const args = tool === "moi_mint" ? { assetId, amount: "1" } : { to: OTHER, assetId, amount: "1" };
+    const textOf = (r: Awaited<ReturnType<typeof client.callTool>>) => (r.content as Array<{ text: string }>)[0]!.text;
+
+    const first = await client.callTool({ name: tool, arguments: args });
+    expect(first.isError).toBe(true);
+    expect(structured<{ status: string; code: string }>(first)).toMatchObject({ status: "error", code: "INVALID_ARGS" });
+    expect(textOf(first)).toMatch(new RegExp(`^\\[INVALID_ARGS\\] ${tool} (does not support|cannot mint) `));
+    expect(textOf(first)).toContain(assetId);
+    expect(previews.size).toBe(0);
+    // The asset read is all the node saw: no balance, nonce, fuel estimate or simulation.
+    expect(node.methods()).toEqual(["moi.AssetInfoByAssetID"]);
+
+    // A made-up confirm gets the same refusal: the check runs before the token is looked at.
+    const again = await client.callTool({ name: tool, arguments: { ...args, confirm: "anything" } });
+    expect(again.isError).toBe(true);
+    expect(textOf(again)).toBe(textOf(first));
+    expect(previews.size).toBe(0);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+    expect(journal.append).not.toHaveBeenCalled();
+  });
+
+  // Changed on purpose with the standards moi_create_asset builds: MAS1, MAS2 and MASX are created now, so this sends a
+  // standard that is none of the four (MAS9) and expects the schema's new message and its four-name list.
+  it("moi_create_asset refuses another standard in the hosted schema, before the session is even read", async () => {
+    const previews = new PreviewRegistry();
+    const hub = fakeHub();
+    const journal = fakeJournal();
+    const store = fakeStore(new Map([[USER, session({ mode: "persistent", expiresAt: soon() })]]));
+    const client = await connect(deps(store, hub, journal, previews));
+
+    const r = await client.callTool({
+      name: "moi_create_asset",
+      arguments: { symbol: "TST", supply: "1000", standard: "MAS9" },
+    });
+    expect(r.isError).toBe(true);
+    expect((r.content as Array<{ text: string }>)[0]!.text).toMatch(/standard must be one of MAS0, MAS1, MAS2 or MASX \(default MAS0\)\. MASN is reserved/);
+    expect(store.get).not.toHaveBeenCalled();
+    expect(previews.size).toBe(0);
+    expect(hub.signInteractionFor).not.toHaveBeenCalled();
+    expect(journal.append).not.toHaveBeenCalled();
+    expect(node.calls).toHaveLength(0);
+
+    const { tools } = await client.listTools();
+    const create = tools.find((t) => t.name === "moi_create_asset")!;
+    const standard = (create.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties["standard"]!;
+    expect(standard.enum).toEqual(["MAS0", "MAS1", "MAS2", "MASX"]);
+  });
+
+  it.each([
+    ["MAS0", MAS0_ASSET],
+    ["MAS2", MAS2_ASSET],
+  ])("a mint of a %s asset is still previewed", async (_standard, assetId) => {
+    const hub = fakeHub();
+    const client = await connect(
+      deps(fakeStore(new Map([[USER, session({ mode: "persistent", expiresAt: soon() })]])), hub),
+    );
+    const out = structured<Preview>(await client.callTool({ name: "moi_mint", arguments: { assetId, amount: "1" } }));
+    expect(out.status).toBe("preview");
+    expect(out.confirm).toMatch(/^[A-Za-z0-9_-]{12}$/);
+    expect(out.details).toMatchObject({ Operation: "Mint" });
     expect(hub.signInteractionFor).not.toHaveBeenCalled();
   });
 });

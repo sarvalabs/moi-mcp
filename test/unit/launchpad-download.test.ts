@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createDownloadModule } from "../../src/launchpad/download.js";
+import { createDownloadModule } from "../../src/applications/launchpad/download.js";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -70,6 +70,38 @@ describe("one-time setup script downloads", () => {
     expect(second.status).toBe(200);
     expect(await second.text()).toBe("ok\n");
     expect((await fetch(link.url)).status).toBe(410);
+  });
+
+  it("serves a plain GET exactly as curl -fL -o sends it, then answers a status that curl -f treats as a failure", async () => {
+    const mod = createDownloadModule();
+    const base = await serve(mod, async () => ({ filename: "setup-rec-1.sh", body: "#!/bin/bash\necho hi\n" }));
+    const link = mod.createDownloadLink("user-a", "rec-1", base);
+
+    // No cookie, no Origin, a curl user agent, and a redirect would be seen as a Location header, not followed.
+    const first = await fetch(link.url, { headers: { "user-agent": "curl/8.7.1", accept: "*/*" }, redirect: "manual" });
+    expect(first.status).toBe(200);
+    expect(first.headers.get("location")).toBeNull();
+    expect(first.headers.get("content-disposition")).toMatch(/^attachment;/);
+    expect(await first.text()).toBe("#!/bin/bash\necho hi\n");
+
+    // curl -f exits non-zero for any status of 400 or more and saves nothing; a spent link is one.
+    const second = await fetch(link.url, { headers: { "user-agent": "curl/8.7.1", accept: "*/*" }, redirect: "manual" });
+    expect(second.status).toBeGreaterThanOrEqual(400);
+    expect(second.ok).toBe(false);
+  });
+
+  it("spends the link on a HEAD request, which is why the steps say nothing else may open it first", async () => {
+    const mod = createDownloadModule();
+    const fetchScript = vi.fn(async () => ({ filename: "setup.sh", body: "ok\n" }));
+    const base = await serve(mod, fetchScript);
+    const link = mod.createDownloadLink("user-a", "rec-1", base);
+
+    // Express answers HEAD with the GET handler: curl -I, a link preview or a browser tab would use the link up.
+    const head = await fetch(link.url, { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(fetchScript).toHaveBeenCalledTimes(1);
+    expect((await fetch(link.url)).status).toBe(410);
+    expect(fetchScript).toHaveBeenCalledTimes(1);
   });
 
   it("answers 410 for a token it never issued", async () => {

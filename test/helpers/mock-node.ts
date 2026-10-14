@@ -14,6 +14,17 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
+import {
+  MAS0_MANIFEST,
+  MAS1_MANIFEST,
+  MAS2_MANIFEST,
+  MASN_MANIFEST,
+  MASX_MANIFEST,
+  PIXEL,
+  PIXEL_INFO,
+  manifestHex,
+} from "./asset-fixtures.js";
+
 export interface RpcCall {
   method: string;
   /** params[0] as sent by the SDK. */
@@ -43,11 +54,57 @@ export const KMOI = "0x1080fffe4cd973c4eb83cdb8870c0de209736270491b7acc99873da10
  * makes this one MAS0.
  */
 export const MAS0_ASSET = "0x108000004cd973c4eb83cdb8870c0de209736270491b7acc99873da100000000";
+/**
+ * The same asset id with another standard in bytes 2..3. The mock answers moi.AssetInfoByAssetID the same for any
+ * valid id and the tools read the standard off the id (assetStandardName in src/moi/reads.ts), so the id is all a test
+ * needs to change. The mock reports the symbol KMOI for every id, so assert on the id and the standard, not the symbol.
+ */
+export function assetWithStandard(code: number): string {
+  return MAS0_ASSET.slice(0, 6) + code.toString(16).padStart(4, "0") + MAS0_ASSET.slice(10);
+}
+export const MAS1_ASSET = assetWithStandard(1);
+export const MAS2_ASSET = assetWithStandard(2);
+export const MASX_ASSET = assetWithStandard(0xffff);
+/** A standard code the SDK has no name for: assetStandardName reports it as UNKNOWN(9). */
+export const UNKNOWN_STANDARD_ASSET = assetWithStandard(9);
+
+/**
+ * A MAS0 asset id that differs from MAS0_ASSET only in four bytes taken from `n` (up to 0xffffffff), for tests that need
+ * many distinct ordinary assets. assetWithStandard changes the standard, so only one of its ids is MAS0. Checked: the SDK
+ * reads these as MAS0 and the mock's id check accepts them.
+ */
+export function assetNumbered(n: number): string {
+  return MAS0_ASSET.slice(0, 10) + n.toString(16).padStart(8, "0") + MAS0_ASSET.slice(18);
+}
+
+/** `count` moi.TDU rows for assetNumbered(first) onward, one unit each, as the node lists them. */
+export function dustRows(count: number, first = 1): Array<{ asset_id: string; token_id: string; amount: string }> {
+  return Array.from({ length: count }, (_, i) => ({ asset_id: assetNumbered(first + i), token_id: "0x0", amount: "0x1" }));
+}
+
+/** What moi.LogicManifest answers for the asset ids tests use; any other id still gets the PingLogic manifest, as before. */
+const ASSET_MANIFESTS = new Map<string, unknown>([
+  [PIXEL, MAS0_MANIFEST],
+  [MAS0_ASSET, MAS0_MANIFEST],
+  [KMOI, MASN_MANIFEST],
+  [MAS1_ASSET, MAS1_MANIFEST],
+  [MAS2_ASSET, MAS2_MANIFEST],
+  [MASX_ASSET, MASX_MANIFEST],
+]);
 export const IX_HASH = "0x3c568254d339090d1e0ec256f9ac46fe288aab7d7739275e2267ddff3fdbc009";
 export const LOGIC = "0x20000000c684f926ed158d0cbfe66af0e482a389393e7899a5a73fcb00000000";
 /** A second participant (fingerprint 0x07…), valid but distinct from ACCOUNT. */
 export const OTHER = "0x0000000007070707070707070707070707070707070707070707070700000000";
 export const SENT_HASH = "0xabc0000000000000000000000000000000000000000000000000000000000abc";
+
+/** One interaction as the pool and a tesseract list it. */
+export const POOLED_IX = {
+  hash: IX_HASH,
+  sender: { id: ACCOUNT, sequence: 5, key_id: 0 },
+  fuel_price: "0x32",
+  fuel_limit: "0x1c1",
+  ix_operations: [{ type: 5, payload: { asset_id: KMOI, callsite: "Transfer" } }],
+};
 
 const ID_RE = /^0x[0-9a-fA-F]{64}$/;
 
@@ -167,6 +224,8 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
     "moi.AssetInfoByAssetID": (p) => {
       requireId(p["asset_id"]);
       requireOptions(p);
+      // The real PIXEL record from devnet; every other id keeps the KMOI-shaped answer existing tests rely on.
+      if (p["asset_id"] === PIXEL) return PIXEL_INFO;
       return {
         symbol: "KMOI",
         dimension: "0x0",
@@ -194,7 +253,7 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
       requireId(p["logic_id"]);
       requireOptions(p);
       // encoding "JSON": the node returns the marshalled JSON as hex bytes.
-      return `0x${Buffer.from(JSON.stringify(MANIFEST), "utf8").toString("hex")}`;
+      return manifestHex(ASSET_MANIFESTS.get(String(p["logic_id"])) ?? MANIFEST);
     },
     // Validate what is being simulated. Ignoring these params lets the server
     // dry-run an interaction unrelated to the one the phone is asked to sign —
@@ -219,7 +278,174 @@ function defaultHandlers(state: NodeState): Record<string, Handler> {
       }
       return SENT_HASH;
     },
+    // The node's own methods, which the moi_rpc_ tools expose (src/capabilities/reads/rpc-methods.ts). Raw answers, as the
+    // node sends them, so the SDK's conversions run for real: hex quantities, and pool answers keyed by account and nonce.
+    "moi.AccountKeys": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [{ id: 0, publicKey: "0x04aa", weight: 1000, signature_algorithm: 0, revoked: false, sequence_id: 5 }];
+    },
+    "moi.Balance": (p) => {
+      requireId(p["id"]);
+      requireId(p["asset_id"]);
+      requireOptions(p);
+      return hex(state.kmoiBalance);
+    },
+    "moi.SubAccountCount": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return hex(0);
+    },
+    "moi.Deeds": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [{ asset_id: KMOI, asset_info: { symbol: "KMOI", decimals: "0x9" } }];
+    },
+    "moi.ContextInfo": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return { behaviour_nodes: ["node-a"], random_nodes: [], storage_nodes: ["node-b"] };
+    },
+    "moi.Syncing": () => ({
+      acc_sync_status: { current_height: "0x27", expected_height: "0x27", is_primary_sync_done: true },
+      node_sync_status: null,
+    }),
+    "moi.StorageMetric": (p) => {
+      requireId(p["target_account"]);
+      requireId(p["user_account"]);
+      requireOptions(p);
+      return { storage_granted: "0x10", storage_consumed: "0x8", tokens_deposited: "0x5" };
+    },
+    "moi.StoragePricing": () => ({ storage_price_per_byte: "0xf4240", storage_multiplier: "0x1", anu_per_byte: "0xf4240" }),
+    "moi.LogicIDs": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [LOGIC];
+    },
+    "moi.LogicStorage": (p) => {
+      requireId(p["logic_id"]);
+      requireOptions(p);
+      return "0x0e1f";
+    },
+    "moi.InteractionByTesseract": (p) => {
+      requireOptions(p);
+      return POOLED_IX;
+    },
+    "moi.Tesseract": (p) => {
+      requireOptions(p);
+      return { participants: [{ id: ACCOUNT, height: "0x27" }], hash: IX_HASH, time_stamp: "0x1", ixns: [POOLED_IX] };
+    },
+    "moi.AccessPolicy": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return {
+        resource_type: p["resource_type"],
+        resource_id: p["resource_id"],
+        action_type: ["read"],
+        caller_constraint: { kind: 0, set: [] },
+        origin_constraint: { kind: 0, set: [] },
+      };
+    },
+    "moi.AccessPolicies": (p) => {
+      requireId(p["id"]);
+      requireOptions(p);
+      return [];
+    },
+    "moi.GetLogs": (p) => {
+      requireId(p["id"]);
+      return [{ id: p["id"], topics: ["0x01"], data: "0x", ix_hash: IX_HASH, ts_hash: "0x02", participants: [] }];
+    },
+    "ixpool.Content": () => ({
+      pending: { [ACCOUNT]: { "0x5": POOLED_IX, "0x6": POOLED_IX } },
+      queued: { [ACCOUNT]: { "0x9": POOLED_IX } },
+    }),
+    "ixpool.ContentFrom": (p) => {
+      requireId(p["id"]);
+      return { pending: { "0x5": POOLED_IX }, queued: {} };
+    },
+    "ixpool.Status": () => ({ pending: "0x2", queued: "0x1" }),
+    "ixpool.Inspect": () => ({
+      pending: { [ACCOUNT]: { "5": "transfer" } },
+      queued: {},
+      wait_time: { [ACCOUNT]: { expired: false, time: "0x3c" } },
+    }),
+    "ixpool.WaitTime": (p) => {
+      requireId(p["id"]);
+      return { expired: true, time: "0x0" };
+    },
+    "net.Peers": () => ["peer-a", "peer-b"],
+    "net.Version": () => "0.13.0",
+    "net.Info": () => ({ krama_id: "krama-1" }),
   };
+}
+
+/** The hash of the interaction the history mock lists at a height: 0x, then the height in hex, padded to 64 digits. */
+export function ixHashAt(height: number): string {
+  return `0x${height.toString(16).padStart(64, "0")}`;
+}
+
+export interface HistoryHeight {
+  /** moi.Tesseract's time_stamp, as the node sends it: a hex quantity. Defaults to 1700000000 + the height. */
+  time_stamp?: string;
+  /** What the tesseract lists. Defaults to one ASSET_INVOKE interaction whose hash is ixHashAt(height). */
+  ixns?: unknown[];
+}
+
+export interface HistoryServing {
+  /** The account's latest height, which moi.AccountMetaInfo reports. */
+  latest: number;
+  /** Per-height answers; a height with no entry gets the defaults. */
+  heights?: Record<number, HistoryHeight>;
+  /** Heights at which moi.Tesseract fails, as a node that cannot find them does. */
+  failAt?: number[];
+  /** Heights at which moi.Tesseract answers only after this many milliseconds, as a slow node does. */
+  slowAt?: Record<number, number>;
+  /** Every height answers only after this many milliseconds, as a node that is slow on each call does. slowAt wins for its heights. */
+  slowAll?: number;
+}
+
+/**
+ * Make the mock serve an account that has a history, for moi_get_history: moi.AccountMetaInfo reports `latest` as the
+ * account's height, and moi.Tesseract answers each height from 0 to `latest`, and only when asked for the interactions,
+ * which is what the tool must ask for. Like every `on()` override, node.reset() drops it. The default handlers are untouched.
+ */
+export function serveHistory(node: MockNode, serving: HistoryServing): void {
+  node.on("moi.AccountMetaInfo", (p) => {
+    requireId(p["id"]);
+    return { type: 0, id: p["id"], height: hex(serving.latest), tesseract_hash: IX_HASH, lattice_exists: true, state_exists: true };
+  });
+  node.on("moi.Tesseract", async (p) => {
+    requireId(p["id"]);
+    requireOptions(p);
+    const height = (p["options"] as { tesseract_number?: unknown }).tesseract_number;
+    if (
+      typeof height !== "number" ||
+      !Number.isInteger(height) ||
+      height < 0 ||
+      height > serving.latest ||
+      serving.failAt?.includes(height)
+    ) {
+      throw new RpcFailure(`tesseract not found at height ${String(height)}`);
+    }
+    const slow = serving.slowAt?.[height] ?? serving.slowAll;
+    if (slow !== undefined) await new Promise((resolve) => setTimeout(resolve, slow));
+    const at = serving.heights?.[height] ?? {};
+    const defaults = [
+      {
+        hash: ixHashAt(height),
+        sender: { id: p["id"], sequence: height, key_id: 0 },
+        fuel_price: "0x1",
+        fuel_limit: "0x1c1",
+        ix_operations: [{ type: 5, payload: { asset_id: KMOI, callsite: "Transfer" } }],
+      },
+    ];
+    return {
+      participants: [{ address: p["id"], height: hex(height) }],
+      hash: ixHashAt(height),
+      time_stamp: at.time_stamp ?? hex(1_700_000_000 + height),
+      ...(p["with_interactions"] === true ? { ixns: at.ixns ?? defaults } : {}),
+    };
+  });
 }
 
 export async function startMockNode(overrides: Partial<NodeState> = {}): Promise<MockNode> {
@@ -236,7 +462,7 @@ export async function startMockNode(overrides: Partial<NodeState> = {}): Promise
   const server: Server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
+    req.on("end", async () => {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
         id: number;
         method: string;
@@ -265,7 +491,8 @@ export async function startMockNode(overrides: Partial<NodeState> = {}): Promise
         return;
       }
       try {
-        reply({ result: handler(call.params, call) });
+        // A handler may return a promise, which is how a test makes the node slow.
+        reply({ result: await handler(call.params, call) });
       } catch (err) {
         const failure = err instanceof RpcFailure ? err : new RpcFailure(String(err));
         reply({ error: { code: failure.code, message: failure.message } });
